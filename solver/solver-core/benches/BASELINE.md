@@ -4,12 +4,12 @@
 
 | Fixture | Mode | Samples | p1 (µs) | p50 (µs) | p99 (µs) | Placements/sec | Placements | Hard violations | Soft score |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | greedy | 152735 | 52 | 53 | 70 | 837661 | 45 | 0 | 0 |
-| grundschule | lahc | 121 | 200064 | 200070 | 200083 | 224 | 45 | 0 | 0 |
-| zweizuegig | greedy | 34183 | 261 | 267 | 334 | 726135 | 196 | 0 | 2 |
-| zweizuegig | lahc | 121 | 200285 | 200290 | 200315 | 978 | 196 | 0 | 2 |
-| dreizuegig | greedy | 10095 | 826 | 838 | 916 | 349674 | 294 | 0 | 8 |
-| dreizuegig | lahc | 121 | 200841 | 200856 | 200973 | 1463 | 294 | 0 | 8 |
+| grundschule | greedy | 154935 | 51 | 52 | 64 | 848352 | 45 | 0 | 0 |
+| grundschule | lahc | 121 | 200063 | 200071 | 200083 | 224 | 45 | 0 | 0 |
+| zweizuegig | greedy | 34183 | 263 | 269 | 350 | 721147 | 196 | 0 | 2 |
+| zweizuegig | lahc | 121 | 200286 | 200295 | 200404 | 978 | 196 | 0 | 2 |
+| dreizuegig | greedy | 9895 | 831 | 844 | 1068 | 344729 | 294 | 0 | 0 |
+| dreizuegig | lahc | 121 | 200858 | 200869 | 200945 | 1463 | 294 | 0 | 0 |
 
 Refreshed 2026-04-30 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
 
