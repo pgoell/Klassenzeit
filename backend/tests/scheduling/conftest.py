@@ -344,6 +344,7 @@ def create_school_class(db_session: AsyncSession) -> CreateSchoolClassFn:
         grade_level: int = 5,
         stundentafel_id: uuid.UUID,
         week_scheme_id: uuid.UUID,
+        home_room_id: uuid.UUID | None = None,
     ) -> SchoolClass:
         """Create and flush a SchoolClass with auto-generated unique defaults.
 
@@ -352,6 +353,7 @@ def create_school_class(db_session: AsyncSession) -> CreateSchoolClassFn:
             grade_level: School year level.
             stundentafel_id: FK to an existing Stundentafel.
             week_scheme_id: FK to an existing WeekScheme.
+            home_room_id: Optional FK to a preferred home Room.
 
         Returns:
             The newly created SchoolClass ORM instance.
@@ -362,6 +364,7 @@ def create_school_class(db_session: AsyncSession) -> CreateSchoolClassFn:
             grade_level=grade_level,
             stundentafel_id=stundentafel_id,
             week_scheme_id=week_scheme_id,
+            home_room_id=home_room_id,
         )
         db_session.add(school_class)
         await db_session.flush()
