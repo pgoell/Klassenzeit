@@ -62,6 +62,7 @@ fn grundschule() -> Problem {
     let classes: Vec<SchoolClass> = (0..2)
         .map(|i| SchoolClass {
             id: SchoolClassId(grundschule_uuid(70 + i)),
+            home_room_id: None,
         })
         .collect();
 

@@ -35,6 +35,7 @@ pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<St
             teacher_gap: 1,
             prefer_early_period: 1,
             avoid_first_period: 1,
+            prefer_home_room: 0,
         },
         deadline: deadline_ms.map(Duration::from_millis),
         ..SolveConfig::default()
@@ -107,6 +108,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(json_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(json_uuid(60)),

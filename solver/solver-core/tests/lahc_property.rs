@@ -54,6 +54,7 @@ prop_compose! {
         let school_classes: Vec<SchoolClass> = (0..n_classes)
             .map(|i| SchoolClass {
                 id: SchoolClassId(lahc_id_from(2000 + i as u32)),
+                home_room_id: None,
             })
             .collect();
 

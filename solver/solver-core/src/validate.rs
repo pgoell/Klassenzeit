@@ -260,6 +260,7 @@ mod tests {
         };
         let class = SchoolClass {
             id: SchoolClassId(uuid(5)),
+            home_room_id: None,
         };
         let lesson = Lesson {
             id: LessonId(uuid(6)),
@@ -431,6 +432,7 @@ mod tests {
         let mut p = minimal_problem();
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(uuid(7)),
+            home_room_id: None,
         });
         p.subjects.push(Subject {
             id: SubjectId(uuid(8)),

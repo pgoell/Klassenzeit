@@ -28,6 +28,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             teacher_gap: 1,
             prefer_early_period: 1,
             avoid_first_period: 1,
+            prefer_home_room: 0,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -747,6 +748,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(solve_uuid(60)),
@@ -906,6 +908,7 @@ mod tests {
         // second class with its own lesson
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1052,6 +1055,7 @@ mod tests {
         }
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
@@ -1116,6 +1120,7 @@ mod tests {
                     teacher_gap: 1,
                     prefer_early_period: 1,
                     avoid_first_period: 1,
+                    prefer_home_room: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -1274,6 +1279,7 @@ mod tests {
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1331,6 +1337,7 @@ mod tests {
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1535,6 +1542,7 @@ mod tests {
                     teacher_gap: 1,
                     prefer_early_period: 1,
                     avoid_first_period: 1,
+                    prefer_home_room: 0,
                 },
                 ..SolveConfig::default()
             },

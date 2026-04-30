@@ -94,6 +94,7 @@ fn grundschule_fixture() -> Problem {
     let classes: Vec<SchoolClass> = (0..2)
         .map(|i| SchoolClass {
             id: SchoolClassId(bench_uuid(70 + i)),
+            home_room_id: None,
         })
         .collect();
 
@@ -201,6 +202,7 @@ fn zweizuegig_fixture() -> Problem {
     let classes: Vec<SchoolClass> = (0..8u8)
         .map(|i| SchoolClass {
             id: SchoolClassId(bench_uuid(90 + i)),
+            home_room_id: None,
         })
         .collect();
 
@@ -395,6 +397,7 @@ fn dreizuegig_fixture() -> Problem {
     let classes: Vec<SchoolClass> = (0..12u8)
         .map(|i| SchoolClass {
             id: SchoolClassId(bench_uuid(80 + i)),
+            home_room_id: None,
         })
         .collect();
 

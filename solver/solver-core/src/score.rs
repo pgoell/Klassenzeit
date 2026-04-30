@@ -220,6 +220,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -481,6 +482,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -548,6 +550,7 @@ mod tests {
             teacher_gap: 7,
             prefer_early_period: 100,
             avoid_first_period: 100,
+            prefer_home_room: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total

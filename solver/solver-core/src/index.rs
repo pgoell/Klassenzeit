@@ -114,6 +114,7 @@ mod tests {
             ],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(u(7)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(u(8)),
