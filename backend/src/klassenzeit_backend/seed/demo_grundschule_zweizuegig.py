@@ -45,6 +45,7 @@ from klassenzeit_backend.seed.demo_grundschule import (
     _KLASSENRAUM_SUITABLE_SUBJECTS,
     _PERIODS,
     _SUBJECTS,
+    _assign_eponymous_home_rooms,
     _RoomSpec,
     _SchoolClassSpec,
     _TeacherSpec,
@@ -318,3 +319,5 @@ async def seed_demo_grundschule_zweizuegig(session: AsyncSession) -> None:
                 )
             )
     await session.flush()
+
+    await _assign_eponymous_home_rooms(session, {spec.name for spec in _SCHOOL_CLASSES_ZWEIZUEGIG})
