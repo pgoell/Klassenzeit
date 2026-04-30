@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useRooms } from "@/features/rooms/hooks";
 import { useStundentafeln } from "@/features/stundentafeln/hooks";
 import { useWeekSchemes } from "@/features/week-schemes/hooks";
 import {
@@ -53,6 +54,7 @@ export function SchoolClassFormDialog({
   const { t } = useTranslation();
   const stundentafeln = useStundentafeln();
   const weekSchemes = useWeekSchemes();
+  const rooms = useRooms();
 
   const form = useForm<SchoolClassFormValues>({
     resolver: zodResolver(SchoolClassFormSchema),
@@ -70,6 +72,7 @@ export function SchoolClassFormDialog({
 
   const stundentafelOptions = stundentafeln.data ?? [];
   const weekSchemeOptions = weekSchemes.data ?? [];
+  const roomOptions = rooms.data ?? [];
   const missingPrereqs =
     !stundentafeln.isLoading &&
     !weekSchemes.isLoading &&
@@ -88,6 +91,7 @@ export function SchoolClassFormDialog({
       grade_level: values.grade_level,
       stundentafel_id: values.stundentafel_id,
       week_scheme_id: values.week_scheme_id,
+      home_room_id: values.home_room_id,
     };
     if (schoolClass) {
       await updateMutation.mutateAsync({ id: schoolClass.id, body });
@@ -219,6 +223,42 @@ export function SchoolClassFormDialog({
                   <FormMessage />
                 </FormItem>
               )}
+            />
+            <FormField
+              control={form.control}
+              name="home_room_id"
+              render={({ field }) => {
+                const NULL_VALUE = "__none__";
+                const value = field.value ?? NULL_VALUE;
+                return (
+                  <FormItem>
+                    <FormLabel>{t("schoolClasses.fields.homeRoomLabel")}</FormLabel>
+                    <Select
+                      value={value}
+                      onValueChange={(next) => field.onChange(next === NULL_VALUE ? null : next)}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={t("schoolClasses.fields.homeRoomPlaceholder")}
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NULL_VALUE}>
+                          {t("schoolClasses.fields.homeRoomPlaceholder")}
+                        </SelectItem>
+                        {roomOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
             <DialogFooter>
               <Button type="submit" disabled={submitting || missingPrereqs}>

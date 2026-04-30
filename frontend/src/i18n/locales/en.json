@@ -368,7 +368,9 @@
       "stundentafelLabel": "Curriculum",
       "stundentafelPlaceholder": "Select a curriculum",
       "weekSchemeLabel": "Week scheme",
-      "weekSchemePlaceholder": "Select a week scheme"
+      "weekSchemePlaceholder": "Select a week scheme",
+      "homeRoomLabel": "Home room",
+      "homeRoomPlaceholder": "No home room"
     },
     "dialog": {
       "createTitle": "New school class",

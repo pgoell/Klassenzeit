@@ -368,7 +368,9 @@
       "stundentafelLabel": "Stundentafel",
       "stundentafelPlaceholder": "Stundentafel wählen",
       "weekSchemeLabel": "Wochenschema",
-      "weekSchemePlaceholder": "Wochenschema wählen"
+      "weekSchemePlaceholder": "Wochenschema wählen",
+      "homeRoomLabel": "Klassenraum",
+      "homeRoomPlaceholder": "Kein Klassenraum"
     },
     "dialog": {
       "createTitle": "Neue Klasse",

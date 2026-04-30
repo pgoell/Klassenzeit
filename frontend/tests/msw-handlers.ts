@@ -35,6 +35,14 @@ export const initialRooms = [
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
+  {
+    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab",
+    name: "Klasse 1a",
+    short_name: "1a",
+    capacity: 25,
+    created_at: "2026-04-17T00:00:00Z",
+    updated_at: "2026-04-17T00:00:00Z",
+  },
 ];
 
 export const initialTeachers = [
@@ -125,6 +133,7 @@ export const initialSchoolClasses = [
     grade_level: 1,
     stundentafel_id: "99999999-9999-9999-9999-999999999999",
     week_scheme_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    home_room_id: null,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -577,16 +586,42 @@ export const defaultHandlers = [
       grade_level: number;
       stundentafel_id: string;
       week_scheme_id: string;
+      home_room_id?: string | null;
     };
     return HttpResponse.json(
       {
         id: "77777777-7777-7777-7777-777777777777",
         ...body,
+        home_room_id: body.home_room_id ?? null,
         created_at: "2026-04-17T00:00:00Z",
         updated_at: "2026-04-17T00:00:00Z",
       },
       { status: 201 },
     );
+  }),
+  http.patch(`${BASE}/api/classes/:class_id`, async ({ request, params }) => {
+    const body = (await request.json()) as {
+      name?: string | null;
+      grade_level?: number | null;
+      stundentafel_id?: string | null;
+      week_scheme_id?: string | null;
+      home_room_id?: string | null;
+    };
+    const id = String(params.class_id);
+    const base = initialSchoolClasses.find((c) => c.id === id) ?? initialSchoolClasses[0];
+    if (!base) {
+      return HttpResponse.json({ detail: "not found" }, { status: 404 });
+    }
+    return HttpResponse.json({
+      ...base,
+      id,
+      name: body.name ?? base.name,
+      grade_level: body.grade_level ?? base.grade_level,
+      stundentafel_id: body.stundentafel_id ?? base.stundentafel_id,
+      week_scheme_id: body.week_scheme_id ?? base.week_scheme_id,
+      home_room_id: body.home_room_id === undefined ? base.home_room_id : body.home_room_id,
+      updated_at: "2026-04-20T00:00:00Z",
+    });
   }),
   http.post(`${BASE}/api/classes/:class_id/generate-lessons`, ({ params }) => {
     const classId = String(params.class_id);
