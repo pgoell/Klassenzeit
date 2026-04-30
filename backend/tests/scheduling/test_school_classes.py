@@ -294,3 +294,92 @@ async def test_get_school_class_not_found(
     await login_as("admin@sc7.com", "testpassword123")
     response = await client.get(f"/api/classes/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+async def test_create_school_class_with_home_room_id(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes with home_room_id stores the FK and echoes it on the response."""
+    await create_test_user(email="admin@sc-hr1.com", role="admin")
+    await login_as("admin@sc-hr1.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-HR1", 1)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-HR1")
+    room_response = await client.post(
+        "/api/rooms",
+        json={"name": "Klasse 1a SC-HR1", "short_name": "1a-HR1"},
+    )
+    assert room_response.status_code == 201
+    room_id = room_response.json()["id"]
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "1a-HR1",
+            "grade_level": 1,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "home_room_id": room_id,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["home_room_id"] == room_id
+
+
+async def test_create_school_class_accepts_null_home_room_id(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes accepts null home_room_id and stores None."""
+    await create_test_user(email="admin@sc-hr2.com", role="admin")
+    await login_as("admin@sc-hr2.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-HR2", 2)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-HR2")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "2a-HR2",
+            "grade_level": 2,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "home_room_id": None,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["home_room_id"] is None
+
+
+async def test_update_school_class_clears_home_room_id_when_patched_null(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} with explicit null home_room_id clears the FK."""
+    await create_test_user(email="admin@sc-hr3.com", role="admin")
+    await login_as("admin@sc-hr3.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-HR3", 3)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-HR3")
+    room_response = await client.post(
+        "/api/rooms",
+        json={"name": "Klasse 3a SC-HR3", "short_name": "3a-HR3"},
+    )
+    room_id = room_response.json()["id"]
+    create_response = await client.post(
+        "/api/classes",
+        json={
+            "name": "3a-HR3",
+            "grade_level": 3,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "home_room_id": room_id,
+        },
+    )
+    class_id = create_response.json()["id"]
+    patch_response = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"home_room_id": None},
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.json()["home_room_id"] is None
