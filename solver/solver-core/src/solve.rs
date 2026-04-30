@@ -18,9 +18,10 @@ use crate::validate::{pre_solve_violations, validate_structural};
 
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
-/// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period = 1`.
-/// Callers wanting greedy-only behaviour (no LAHC pass) construct their own
-/// [`SolveConfig`] with `deadline: None` and call [`solve_with_config`] directly.
+/// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period
+///   = prefer_home_room = 1`. Callers wanting greedy-only behaviour
+/// (no LAHC pass) construct their own [`SolveConfig`] with `deadline: None`
+/// and call [`solve_with_config`] directly.
 pub fn solve(problem: &Problem) -> Result<Solution, Error> {
     let active_default = SolveConfig {
         weights: ConstraintWeights {
@@ -28,7 +29,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             teacher_gap: 1,
             prefer_early_period: 1,
             avoid_first_period: 1,
-            prefer_home_room: 0,
+            prefer_home_room: 1,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
