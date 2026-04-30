@@ -19,6 +19,9 @@ class SchoolClass(Base):
     grade_level: Mapped[int] = mapped_column(SmallInteger)
     stundentafel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stundentafeln.id"))
     week_scheme_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("week_schemes.id"))
+    home_room_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
