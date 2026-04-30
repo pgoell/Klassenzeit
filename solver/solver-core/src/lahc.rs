@@ -640,7 +640,10 @@ mod tests {
                 prefer_early_periods: false,
                 avoid_first_period: true,
             }],
-            school_classes: vec![SchoolClass { id: class }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
             lessons: vec![Lesson {
                 id: lesson,
                 school_class_ids: vec![class],
@@ -759,7 +762,10 @@ mod tests {
                 prefer_early_periods: false,
                 avoid_first_period: true,
             }],
-            school_classes: vec![SchoolClass { id: class }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
             lessons: vec![Lesson {
                 id: lesson,
                 school_class_ids: vec![class],
@@ -899,7 +905,16 @@ mod tests {
                 prefer_early_periods: false,
                 avoid_first_period: true,
             }],
-            school_classes: vec![SchoolClass { id: class_a }, SchoolClass { id: class_b }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_a,
+                    home_room_id: None,
+                },
+                SchoolClass {
+                    id: class_b,
+                    home_room_id: None,
+                },
+            ],
             lessons: vec![
                 Lesson {
                     id: lesson_a,

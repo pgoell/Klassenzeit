@@ -1746,6 +1746,8 @@ export interface components {
              * Format: uuid
              */
             week_scheme_id: string;
+            /** Home Room Id */
+            home_room_id?: string | null;
         };
         /**
          * SchoolClassResponse
@@ -1771,6 +1773,8 @@ export interface components {
              * Format: uuid
              */
             week_scheme_id: string;
+            /** Home Room Id */
+            home_room_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1795,6 +1799,8 @@ export interface components {
             stundentafel_id?: string | null;
             /** Week Scheme Id */
             week_scheme_id?: string | null;
+            /** Home Room Id */
+            home_room_id?: string | null;
         };
         /**
          * StundentafelCreate

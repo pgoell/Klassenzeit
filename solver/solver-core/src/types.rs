@@ -50,6 +50,11 @@ pub struct ConstraintWeights {
     /// `tb.position == 0`. Zero when the subject's flag is false, the weight
     /// is zero, or the placement is not at position 0.
     pub avoid_first_period: u32,
+    /// Penalty per (class, placement) pair where the class has a non-null
+    /// `home_room_id` that does not match the placement's `room_id`.
+    /// Multi-class lessons accumulate the penalty per non-matching member
+    /// class. Zero means the axis is disabled.
+    pub prefer_home_room: u32,
 }
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -131,6 +136,13 @@ pub struct Subject {
 pub struct SchoolClass {
     /// Stable identifier for this school class.
     pub id: SchoolClassId,
+    /// Optional home-room identifier; when set, the `prefer_home_room`
+    /// soft-constraint axis penalises placements of this class outside the
+    /// referenced room. `None` means the class has no preferred room and the
+    /// axis no-ops for it. Wire format is additive: existing JSON callers
+    /// without the field deserialise to `None`.
+    #[serde(default)]
+    pub home_room_id: Option<RoomId>,
 }
 
 /// A lesson that must be placed `hours_per_week` times.
@@ -403,6 +415,26 @@ mod tests {
             serde_json::to_string(&ViolationKind::LessonGroupSplit).unwrap(),
             "\"lesson_group_split\""
         );
+    }
+
+    #[test]
+    fn school_class_round_trips_home_room_id_when_present() {
+        let room_id = Uuid::from_bytes([8; 16]);
+        let class_id = Uuid::from_bytes([9; 16]);
+        let json = format!(r#"{{"id":"{class_id}","home_room_id":"{room_id}"}}"#);
+        let sc: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert_eq!(sc.home_room_id, Some(RoomId(room_id)));
+        let reserialised = serde_json::to_string(&sc).unwrap();
+        let parsed_again: SchoolClass = serde_json::from_str(&reserialised).unwrap();
+        assert_eq!(parsed_again, sc);
+    }
+
+    #[test]
+    fn school_class_defaults_home_room_id_to_none_when_field_omitted() {
+        let class_id = Uuid::from_bytes([1; 16]);
+        let json = format!(r#"{{"id":"{class_id}"}}"#);
+        let sc: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert!(sc.home_room_id.is_none());
     }
 
     #[test]

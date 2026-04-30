@@ -46,3 +46,4 @@ sections, and add the new entry to the index below.
 | 0020 | [Configurable LAHC deadline on the solver JSON adapter](0020-configurable-lahc-deadline.md) | Accepted |
 | 0021 | [Many-to-many Lesson school classes](0021-multi-class-lessons.md) | Accepted |
 | 0022 | [Lesson-group co-placement constraint](0022-lesson-group-coplacement.md) | Accepted |
+| 0023 | [Home-room preference soft constraint](0023-home-room-preference.md) | Accepted |

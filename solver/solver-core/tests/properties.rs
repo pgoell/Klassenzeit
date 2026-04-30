@@ -188,6 +188,7 @@ proptest! {
         };
         let class = SchoolClass {
             id: SchoolClassId(Uuid::from_bytes([50; 16])),
+            home_room_id: None,
         };
         let qual = TeacherQualification {
             teacher_id: teacher.id,

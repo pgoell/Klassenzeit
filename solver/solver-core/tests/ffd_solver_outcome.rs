@@ -61,9 +61,11 @@ fn pessimal_input_problem() -> Problem {
         school_classes: vec![
             SchoolClass {
                 id: SchoolClassId(ffd_uuid(50)),
+                home_room_id: None,
             },
             SchoolClass {
                 id: SchoolClassId(ffd_uuid(51)),
+                home_room_id: None,
             },
         ],
         lessons: vec![
@@ -132,6 +134,7 @@ fn ffd_solve_active_default_weights_match_explicit() {
             teacher_gap: 1,
             prefer_early_period: 1,
             avoid_first_period: 1,
+            prefer_home_room: 0,
         },
         ..SolveConfig::default()
     };

@@ -765,3 +765,70 @@ async def test_build_problem_json_emits_null_lesson_group_id_when_unset(
     problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
     problem = json.loads(problem_json)
     assert problem["lessons"][0]["lesson_group_id"] is None
+
+
+async def test_build_problem_json_emits_home_room_id_per_school_class(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a school class has a home_room_id set, build_problem_json echoes it."""
+    home_room = await create_room()
+    scheme = await create_week_scheme()
+    await create_time_block(week_scheme_id=scheme.id, position=1)
+    subject = await create_subject()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+        home_room_id=home_room.id,
+    )
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(cls.id))
+    assert sc_entry["home_room_id"] == str(home_room.id)
+
+
+async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home_room(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a school class has no home_room_id, build_problem_json emits null."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
+    assert sc_entry["home_room_id"] is None

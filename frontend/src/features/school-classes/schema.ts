@@ -5,6 +5,7 @@ export const SchoolClassFormSchema = z.object({
   grade_level: z.number().int().min(1, "Grade is required"),
   stundentafel_id: z.string().min(1, "Curriculum is required"),
   week_scheme_id: z.string().min(1, "Week scheme is required"),
+  home_room_id: z.string().nullable(),
 });
 
 export type SchoolClassFormValues = z.infer<typeof SchoolClassFormSchema>;

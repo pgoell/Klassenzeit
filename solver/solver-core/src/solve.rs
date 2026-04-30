@@ -18,9 +18,10 @@ use crate::validate::{pre_solve_violations, validate_structural};
 
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
-/// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period = 1`.
-/// Callers wanting greedy-only behaviour (no LAHC pass) construct their own
-/// [`SolveConfig`] with `deadline: None` and call [`solve_with_config`] directly.
+/// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period
+///   = prefer_home_room = 1`. Callers wanting greedy-only behaviour
+/// (no LAHC pass) construct their own [`SolveConfig`] with `deadline: None`
+/// and call [`solve_with_config`] directly.
 pub fn solve(problem: &Problem) -> Result<Solution, Error> {
     let active_default = SolveConfig {
         weights: ConstraintWeights {
@@ -28,6 +29,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             teacher_gap: 1,
             prefer_early_period: 1,
             avoid_first_period: 1,
+            prefer_home_room: 1,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -747,6 +749,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(solve_uuid(60)),
@@ -906,6 +909,7 @@ mod tests {
         // second class with its own lesson
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1052,6 +1056,7 @@ mod tests {
         }
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
@@ -1116,6 +1121,7 @@ mod tests {
                     teacher_gap: 1,
                     prefer_early_period: 1,
                     avoid_first_period: 1,
+                    prefer_home_room: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -1274,6 +1280,7 @@ mod tests {
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1331,6 +1338,7 @@ mod tests {
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
+            home_room_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1535,6 +1543,7 @@ mod tests {
                     teacher_gap: 1,
                     prefer_early_period: 1,
                     avoid_first_period: 1,
+                    prefer_home_room: 0,
                 },
                 ..SolveConfig::default()
             },

@@ -13,6 +13,7 @@ by the ``generate-lessons`` and ``POST /schedule`` routes respectively.
 from datetime import time
 from typing import NamedTuple
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
@@ -273,4 +274,32 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
                     subject_id=subjects_by_short[subject_short].id,
                 )
             )
+    await session.flush()
+
+    await _assign_eponymous_home_rooms(session, {spec.name for spec in _SCHOOL_CLASSES})
+
+
+async def _assign_eponymous_home_rooms(session: AsyncSession, class_short_names: set[str]) -> None:
+    """Assign each class its eponymous Klassenraum as home room.
+
+    Pure 1:1 mapping by name (room "Klasse 1a" / short_name "1a" pairs
+    with class named "1a"); rooms without a matching class (Turnhalle,
+    Sportplatz, Musikraum, Kunstraum) stay unmapped. Shared across the
+    einzuegig, zweizuegig, and dreizuegig demo seeds.
+    """
+    matching_rooms = (
+        (await session.execute(select(Room).where(Room.short_name.in_(class_short_names))))
+        .scalars()
+        .all()
+    )
+    rooms_by_short_name = {room.short_name: room for room in matching_rooms}
+    classes = (
+        (await session.execute(select(SchoolClass).where(SchoolClass.name.in_(class_short_names))))
+        .scalars()
+        .all()
+    )
+    for cls in classes:
+        home_room = rooms_by_short_name.get(cls.name)
+        if home_room is not None:
+            cls.home_room_id = home_room.id
     await session.flush()

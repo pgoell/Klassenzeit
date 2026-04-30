@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::ids::{LessonId, SchoolClassId, TeacherId, TimeBlockId};
+use crate::ids::{LessonId, RoomId, SchoolClassId, TeacherId, TimeBlockId};
 use crate::types::{ConstraintWeights, Lesson, Placement, Problem, TimeBlock};
 
 /// Compute the total weighted soft-score for a placement set.
@@ -21,6 +21,7 @@ pub fn score_solution(
         && weights.teacher_gap == 0
         && weights.prefer_early_period == 0
         && weights.avoid_first_period == 0
+        && weights.prefer_home_room == 0
     {
         return 0;
     }
@@ -30,6 +31,11 @@ pub fn score_solution(
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let subject_lookup: std::collections::HashMap<crate::ids::SubjectId, &crate::types::Subject> =
         problem.subjects.iter().map(|s| (s.id, s)).collect();
+    let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+        .school_classes
+        .iter()
+        .map(|c| (c.id, c.home_room_id))
+        .collect();
 
     let mut by_class_day: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
     let mut by_teacher_day: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
@@ -76,11 +82,20 @@ pub fn score_solution(
         })
         .sum();
 
+    let home_room_total: u32 = placements
+        .iter()
+        .map(|p| {
+            let lesson = lesson_lookup[&p.lesson_id];
+            home_room_penalty(lesson, &home_room_lookup, p.room_id, weights)
+        })
+        .sum();
+
     weights
         .class_gap
         .saturating_mul(class_gaps)
         .saturating_add(weights.teacher_gap.saturating_mul(teacher_gaps))
         .saturating_add(subject_preference)
+        .saturating_add(home_room_total)
 }
 
 /// Count gap-hours in a sorted, deduplicated `positions` slice. A gap-hour is
@@ -173,6 +188,31 @@ pub(crate) fn subject_preference_score(
     score
 }
 
+/// Per-placement home-room penalty. Returns `weights.prefer_home_room` once
+/// per class in `lesson.school_class_ids` whose `home_room_id` is set and
+/// does not match `placement_room_id`. Returns 0 when
+/// `weights.prefer_home_room == 0`. Pure: depends only on the inputs;
+/// allocation-free.
+pub(crate) fn home_room_penalty(
+    lesson: &Lesson,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    placement_room_id: RoomId,
+    weights: &ConstraintWeights,
+) -> u32 {
+    if weights.prefer_home_room == 0 {
+        return 0;
+    }
+    let mut score = 0u32;
+    for class_id in &lesson.school_class_ids {
+        if let Some(Some(home_id)) = home_room_lookup.get(class_id) {
+            if *home_id != placement_room_id {
+                score = score.saturating_add(weights.prefer_home_room);
+            }
+        }
+    }
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +260,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -481,6 +522,7 @@ mod tests {
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
+                home_room_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -548,6 +590,7 @@ mod tests {
             teacher_gap: 7,
             prefer_early_period: 100,
             avoid_first_period: 100,
+            prefer_home_room: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
@@ -555,6 +598,168 @@ mod tests {
         // partitions, weights 5 and 7).
         let placements = [place(60, 10), place(60, 12)];
         assert_eq!(score_solution(&p, &placements, &weights), 12);
+    }
+
+    #[test]
+    fn home_room_penalty_returns_zero_when_weight_is_zero() {
+        let class_id = SchoolClassId(score_uuid(50));
+        let lesson = Lesson {
+            id: LessonId(score_uuid(60)),
+            school_class_ids: vec![class_id],
+            subject_id: SubjectId(score_uuid(40)),
+            teacher_id: TeacherId(score_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(class_id, Some(RoomId(score_uuid(99))));
+        let weights = ConstraintWeights {
+            prefer_home_room: 0,
+            ..ConstraintWeights::default()
+        };
+        let penalty = home_room_penalty(&lesson, &lookup, RoomId(score_uuid(30)), &weights);
+        assert_eq!(penalty, 0);
+    }
+
+    #[test]
+    fn home_room_penalty_returns_zero_when_class_has_no_home_room() {
+        let class_id = SchoolClassId(score_uuid(50));
+        let lesson = Lesson {
+            id: LessonId(score_uuid(60)),
+            school_class_ids: vec![class_id],
+            subject_id: SubjectId(score_uuid(40)),
+            teacher_id: TeacherId(score_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(class_id, None);
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let penalty = home_room_penalty(&lesson, &lookup, RoomId(score_uuid(30)), &weights);
+        assert_eq!(penalty, 0);
+    }
+
+    #[test]
+    fn home_room_penalty_returns_zero_when_room_matches_home_room() {
+        let class_id = SchoolClassId(score_uuid(50));
+        let home_room = RoomId(score_uuid(30));
+        let lesson = Lesson {
+            id: LessonId(score_uuid(60)),
+            school_class_ids: vec![class_id],
+            subject_id: SubjectId(score_uuid(40)),
+            teacher_id: TeacherId(score_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(class_id, Some(home_room));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let penalty = home_room_penalty(&lesson, &lookup, home_room, &weights);
+        assert_eq!(penalty, 0);
+    }
+
+    #[test]
+    fn home_room_penalty_returns_weight_when_room_differs_from_home_room() {
+        let class_id = SchoolClassId(score_uuid(50));
+        let home_room = RoomId(score_uuid(30));
+        let other_room = RoomId(score_uuid(31));
+        let lesson = Lesson {
+            id: LessonId(score_uuid(60)),
+            school_class_ids: vec![class_id],
+            subject_id: SubjectId(score_uuid(40)),
+            teacher_id: TeacherId(score_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(class_id, Some(home_room));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let penalty = home_room_penalty(&lesson, &lookup, other_room, &weights);
+        assert_eq!(penalty, 5);
+    }
+
+    #[test]
+    fn home_room_penalty_sums_per_member_for_multi_class_lessons() {
+        let c1 = SchoolClassId(score_uuid(50));
+        let c2 = SchoolClassId(score_uuid(51));
+        let c3 = SchoolClassId(score_uuid(52));
+        let r1 = RoomId(score_uuid(30));
+        let r2 = RoomId(score_uuid(31));
+        let r3 = RoomId(score_uuid(32));
+        let r_other = RoomId(score_uuid(33));
+        let lesson = Lesson {
+            id: LessonId(score_uuid(60)),
+            school_class_ids: vec![c1, c2, c3],
+            subject_id: SubjectId(score_uuid(40)),
+            teacher_id: TeacherId(score_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(c1, Some(r1));
+        lookup.insert(c2, Some(r2));
+        lookup.insert(c3, Some(r3));
+        let weights = ConstraintWeights {
+            prefer_home_room: 4,
+            ..ConstraintWeights::default()
+        };
+        // Placement in r_other: every class is mismatched, total = 3 * 4 = 12.
+        assert_eq!(home_room_penalty(&lesson, &lookup, r_other, &weights), 12);
+        // Placement in r1: only c2 and c3 are mismatched, total = 2 * 4 = 8.
+        assert_eq!(home_room_penalty(&lesson, &lookup, r1, &weights), 8);
+    }
+
+    #[test]
+    fn score_solution_includes_home_room_penalty_per_class() {
+        // Class 50 has a home room (uuid 30); placement in non-home room 31
+        // contributes weights.prefer_home_room = 7. Class 51 (added below)
+        // has no home room, so it contributes 0 (regardless of room).
+        let mut p = three_block_one_class_problem();
+        let class2 = SchoolClassId(score_uuid(51));
+        p.school_classes.push(SchoolClass {
+            id: class2,
+            home_room_id: None,
+        });
+        p.school_classes[0].home_room_id = Some(RoomId(score_uuid(30)));
+        p.rooms.push(Room {
+            id: RoomId(score_uuid(31)),
+        });
+        let weights = ConstraintWeights {
+            prefer_home_room: 7,
+            ..ConstraintWeights::default()
+        };
+        let placements = [Placement {
+            lesson_id: LessonId(score_uuid(60)),
+            time_block_id: TimeBlockId(score_uuid(10)),
+            room_id: RoomId(score_uuid(31)),
+        }];
+        assert_eq!(score_solution(&p, &placements, &weights), 7);
+    }
+
+    #[test]
+    fn score_solution_zero_when_only_home_room_weight_set_and_no_home_rooms() {
+        // No SchoolClass has a home room; the prefer_home_room weight produces 0.
+        let p = three_block_one_class_problem();
+        let weights = ConstraintWeights {
+            prefer_home_room: 10,
+            ..ConstraintWeights::default()
+        };
+        let placements = [place(60, 10), place(60, 12)];
+        assert_eq!(score_solution(&p, &placements, &weights), 0);
     }
 
     #[test]

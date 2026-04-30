@@ -261,7 +261,13 @@ async def build_problem_json(
             }
             for s in subjects
         ],
-        "school_classes": [{"id": str(c.id)} for c in involved_classes],
+        "school_classes": [
+            {
+                "id": str(c.id),
+                "home_room_id": str(c.home_room_id) if c.home_room_id else None,
+            }
+            for c in involved_classes
+        ],
         "lessons": [
             {
                 "id": str(lesson.id),

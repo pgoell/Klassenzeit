@@ -52,6 +52,7 @@ from klassenzeit_backend.seed.demo_grundschule import (
     _KLASSENRAUM_SUITABLE_SUBJECTS,
     _PERIODS,
     _SUBJECTS,
+    _assign_eponymous_home_rooms,
     _PeriodTimes,
     _RoomSpec,
     _SchoolClassSpec,
@@ -463,6 +464,8 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
                 )
             )
     await session.flush()
+
+    await _assign_eponymous_home_rooms(session, set(classes_by_name))
 
     # Cross-class Religion trio per Jahrgang. Each Jahrgang gets one
     # ``lesson_group_id`` shared by RK / RE / ETH; each lesson spans the

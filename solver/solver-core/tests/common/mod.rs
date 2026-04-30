@@ -63,6 +63,7 @@ pub fn feasible_problem(
     let classes_vec: Vec<SchoolClass> = (0..classes)
         .map(|i| SchoolClass {
             id: SchoolClassId(common_uuid(20 + i)),
+            home_room_id: None,
         })
         .collect();
 

@@ -13,6 +13,7 @@ class SchoolClassCreate(BaseModel):
     grade_level: int
     stundentafel_id: uuid.UUID
     week_scheme_id: uuid.UUID
+    home_room_id: uuid.UUID | None = None
 
 
 class SchoolClassUpdate(BaseModel):
@@ -22,6 +23,7 @@ class SchoolClassUpdate(BaseModel):
     grade_level: int | None = None
     stundentafel_id: uuid.UUID | None = None
     week_scheme_id: uuid.UUID | None = None
+    home_room_id: uuid.UUID | None = None
 
 
 class SchoolClassResponse(BaseModel):
@@ -32,5 +34,6 @@ class SchoolClassResponse(BaseModel):
     grade_level: int
     stundentafel_id: uuid.UUID
     week_scheme_id: uuid.UUID
+    home_room_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

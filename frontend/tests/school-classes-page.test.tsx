@@ -93,3 +93,97 @@ describe("SchoolClassesPage Generate-lessons toast", () => {
     expect(window.alert).not.toHaveBeenCalled();
   });
 });
+
+describe("SchoolClassesPage home-room dropdown", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("de");
+  });
+
+  it("renders the home-room dropdown when creating a school class", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SchoolClassesPage />);
+    await screen.findByText("1a");
+    await user.click(screen.getByRole("button", { name: /neue klasse/i }));
+    const dialog = await screen.findByRole("dialog");
+    const trigger = within(dialog).getByRole("combobox", { name: /klassenraum/i });
+    await user.click(trigger);
+    expect(await screen.findByRole("option", { name: /klasse 1a/i })).toBeInTheDocument();
+  });
+
+  it("submits home_room_id when a Klassenraum is selected", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:3000/api/classes", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "77777777-7777-7777-7777-777777777777",
+            ...capturedBody,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<SchoolClassesPage />);
+    await screen.findByText("1a");
+    await user.click(screen.getByRole("button", { name: /neue klasse/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^name$/i), "1c");
+    await user.click(within(dialog).getByRole("combobox", { name: /stundentafel/i }));
+    await user.click(await screen.findByRole("option", { name: /grundschule klasse 1/i }));
+    await user.click(within(dialog).getByRole("combobox", { name: /wochenschema/i }));
+    await user.click(await screen.findByRole("option", { name: /standardwoche/i }));
+    await user.click(within(dialog).getByRole("combobox", { name: /klassenraum/i }));
+    await user.click(await screen.findByRole("option", { name: /klasse 1a/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^anlegen$/i }));
+
+    await waitFor(() => {
+      expect(capturedBody).not.toBeNull();
+    });
+    expect(capturedBody).toMatchObject({
+      home_room_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab",
+    });
+  });
+
+  it("submits home_room_id as null when 'Kein Klassenraum' is selected", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:3000/api/classes", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "77777777-7777-7777-7777-777777777777",
+            ...capturedBody,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<SchoolClassesPage />);
+    await screen.findByText("1a");
+    await user.click(screen.getByRole("button", { name: /neue klasse/i }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^name$/i), "1d");
+    await user.click(within(dialog).getByRole("combobox", { name: /stundentafel/i }));
+    await user.click(await screen.findByRole("option", { name: /grundschule klasse 1/i }));
+    await user.click(within(dialog).getByRole("combobox", { name: /wochenschema/i }));
+    await user.click(await screen.findByRole("option", { name: /standardwoche/i }));
+    // The placeholder option (Kein Klassenraum) is selected by default; submit without changing it.
+    await user.click(within(dialog).getByRole("button", { name: /^anlegen$/i }));
+
+    await waitFor(() => {
+      expect(capturedBody).not.toBeNull();
+    });
+    expect(capturedBody).toMatchObject({
+      home_room_id: null,
+    });
+  });
+});
