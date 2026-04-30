@@ -61,6 +61,7 @@ export function SchoolClassFormDialog({
       grade_level: schoolClass?.grade_level ?? 1,
       stundentafel_id: schoolClass?.stundentafel_id ?? "",
       week_scheme_id: schoolClass?.week_scheme_id ?? "",
+      home_room_id: schoolClass?.home_room_id ?? null,
     },
   });
   const createMutation = useCreateSchoolClass();
