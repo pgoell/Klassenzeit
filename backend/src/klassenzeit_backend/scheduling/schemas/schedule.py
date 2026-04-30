@@ -26,6 +26,7 @@ class ViolationResponse(BaseModel):
         "teacher_over_capacity",
         "no_free_time_block",
         "no_suitable_room",
+        "lesson_group_split",
     ]
     lesson_id: UUID
     hour_index: int = Field(ge=0)

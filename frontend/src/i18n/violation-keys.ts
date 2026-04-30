@@ -8,7 +8,8 @@ export function violationItemKey(
   | "schedule.violations.noQualifiedTeacher"
   | "schedule.violations.teacherOverCapacity"
   | "schedule.violations.noFreeTimeBlock"
-  | "schedule.violations.noSuitableRoom" {
+  | "schedule.violations.noSuitableRoom"
+  | "schedule.violations.lessonGroupSplit" {
   switch (kind) {
     case "no_qualified_teacher":
       return "schedule.violations.noQualifiedTeacher";
@@ -18,5 +19,7 @@ export function violationItemKey(
       return "schedule.violations.noFreeTimeBlock";
     case "no_suitable_room":
       return "schedule.violations.noSuitableRoom";
+    case "lesson_group_split":
+      return "schedule.violations.lessonGroupSplit";
   }
 }

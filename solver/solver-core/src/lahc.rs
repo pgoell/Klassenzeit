@@ -123,6 +123,9 @@ fn try_change_move(
     if lesson.preferred_block_size > 1 {
         return false;
     }
+    if lesson.lesson_group_id.is_some() {
+        return false;
+    }
     let old_tb = tb_lookup[&p.time_block_id].clone();
     let new_tb = problem.time_blocks[new_tb_idx].clone();
 
@@ -831,6 +834,167 @@ mod tests {
         assert!(
             tb_ids.contains(&tb_zero) && tb_ids.contains(&tb_one),
             "block placement must not be moved by LAHC; got {:?}",
+            tb_ids
+        );
+    }
+
+    #[test]
+    fn lahc_does_not_move_grouped_placements() {
+        use crate::ids::LessonGroupId;
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let group_id = LessonGroupId(lahc_uuid(70));
+        let tb_zero = TimeBlockId(lahc_uuid(10));
+        let tb_one = TimeBlockId(lahc_uuid(11));
+        let tb_two = TimeBlockId(lahc_uuid(12));
+        let tb_three = TimeBlockId(lahc_uuid(13));
+
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_zero,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_one,
+                    day_of_week: 0,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_two,
+                    day_of_week: 0,
+                    position: 2,
+                },
+                TimeBlock {
+                    id: tb_three,
+                    day_of_week: 0,
+                    position: 3,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: teacher_a,
+                    max_hours_per_week: 10,
+                },
+                Teacher {
+                    id: teacher_b,
+                    max_hours_per_week: 10,
+                },
+            ],
+            rooms: vec![Room { id: room_a }, Room { id: room_b }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_periods: false,
+                avoid_first_period: true,
+            }],
+            school_classes: vec![SchoolClass { id: class_a }, SchoolClass { id: class_b }],
+            lessons: vec![
+                Lesson {
+                    id: lesson_a,
+                    school_class_ids: vec![class_a, class_b],
+                    subject_id: subject,
+                    teacher_id: teacher_a,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: Some(group_id),
+                },
+                Lesson {
+                    id: lesson_b,
+                    school_class_ids: vec![class_a, class_b],
+                    subject_id: subject,
+                    teacher_id: teacher_b,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: Some(group_id),
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher_a,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_b,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+        };
+        let idx = crate::index::Indexed::new(&problem);
+
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_zero,
+                room_id: room_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_zero,
+                room_id: room_b,
+            },
+        ];
+        let mut class_positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        class_positions.insert((class_a, 0), vec_part(&[0]));
+        class_positions.insert((class_b, 0), vec_part(&[0]));
+        let mut teacher_positions: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
+        teacher_positions.insert((teacher_a, 0), vec_part(&[0]));
+        teacher_positions.insert((teacher_b, 0), vec_part(&[0]));
+        let mut used_teacher: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
+        used_teacher.insert((teacher_a, tb_zero));
+        used_teacher.insert((teacher_b, tb_zero));
+        let mut used_class: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
+        used_class.insert((class_a, tb_zero));
+        used_class.insert((class_b, tb_zero));
+        let mut used_room: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
+        used_room.insert((room_a, tb_zero));
+        used_room.insert((room_b, tb_zero));
+        let mut current_score: u32 = 2;
+
+        let config = SolveConfig {
+            weights: ConstraintWeights {
+                avoid_first_period: 1,
+                ..ConstraintWeights::default()
+            },
+            seed: 0,
+            deadline: Some(std::time::Duration::from_millis(50)),
+            max_iterations: Some(2000),
+        };
+
+        run(
+            &problem,
+            &idx,
+            &config,
+            &mut placements,
+            &mut class_positions,
+            &mut teacher_positions,
+            &mut used_teacher,
+            &mut used_class,
+            &mut used_room,
+            &mut current_score,
+        );
+
+        let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
+        assert!(
+            tb_ids.contains(&tb_zero)
+                && !tb_ids.contains(&tb_one)
+                && !tb_ids.contains(&tb_two)
+                && !tb_ids.contains(&tb_three),
+            "group placement must not be moved by LAHC; got {:?}",
             tb_ids
         );
     }

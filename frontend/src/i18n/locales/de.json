@@ -339,7 +339,8 @@
       "noQualifiedTeacher": "{{subject}} (Stunde {{hour}}): {{teacher}} ist für dieses Fach nicht qualifiziert.",
       "teacherOverCapacity": "{{subject}} (Stunde {{hour}}): {{teacher}} würde die Wochenhöchststundenzahl überschreiten.",
       "noFreeTimeBlock": "{{subject}} (Stunde {{hour}}): kein freier Slot für {{teacher}} und {{class}}.",
-      "noSuitableRoom": "{{subject}} (Stunde {{hour}}): kein passender Raum verfügbar."
+      "noSuitableRoom": "{{subject}} (Stunde {{hour}}): kein passender Raum verfügbar.",
+      "lessonGroupSplit": "Gruppenstunde konnte nicht in einem gemeinsamen Zeitblock platziert werden."
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },

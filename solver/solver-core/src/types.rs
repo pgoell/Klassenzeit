@@ -262,6 +262,10 @@ pub enum ViolationKind {
     NoFreeTimeBlock,
     /// No room is suitable for the subject and free in any free time block.
     NoSuitableRoom,
+    /// Atomic lesson-group co-placement failed for this block: no `time_block`
+    /// admits all group members with pairwise-distinct rooms and free
+    /// teachers / classes. One entry per qualified member per failed block.
+    LessonGroupSplit,
 }
 
 #[cfg(test)]
@@ -391,6 +395,14 @@ mod tests {
         let reserialised = serde_json::to_string(&lesson).unwrap();
         let parsed_again: Lesson = serde_json::from_str(&reserialised).unwrap();
         assert_eq!(parsed_again, lesson);
+    }
+
+    #[test]
+    fn violation_kind_serialises_lesson_group_split() {
+        assert_eq!(
+            serde_json::to_string(&ViolationKind::LessonGroupSplit).unwrap(),
+            "\"lesson_group_split\""
+        );
     }
 
     #[test]

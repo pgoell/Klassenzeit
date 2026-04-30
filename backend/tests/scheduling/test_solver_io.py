@@ -633,6 +633,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "teacher_over_capacity",
         "no_free_time_block",
         "no_suitable_room",
+        "lesson_group_split",
     }
 
 
@@ -691,6 +692,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "teacher_over_capacity": 0,
         "no_free_time_block": 2,
         "no_suitable_room": 0,
+        "lesson_group_split": 0,
     }
 
 

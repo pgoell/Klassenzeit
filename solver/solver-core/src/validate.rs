@@ -145,6 +145,44 @@ pub fn validate_structural(problem: &Problem) -> Result<(), Error> {
             )));
         }
     }
+
+    use crate::ids::LessonGroupId;
+    let mut groups: std::collections::HashMap<LessonGroupId, Vec<&crate::types::Lesson>> =
+        std::collections::HashMap::new();
+    for lesson in &problem.lessons {
+        if let Some(group_id) = lesson.lesson_group_id {
+            groups.entry(group_id).or_default().push(lesson);
+        }
+    }
+    for (group_id, members) in &groups {
+        if members.len() < 2 {
+            continue;
+        }
+        let first = &members[0];
+        for member in &members[1..] {
+            if member.hours_per_week != first.hours_per_week {
+                return Err(Error::Input(format!(
+                    "lesson group {} members disagree on hours_per_week: {} vs {}",
+                    group_id.0, first.hours_per_week, member.hours_per_week
+                )));
+            }
+            if member.preferred_block_size != first.preferred_block_size {
+                return Err(Error::Input(format!(
+                    "lesson group {} members disagree on preferred_block_size: {} vs {}",
+                    group_id.0, first.preferred_block_size, member.preferred_block_size
+                )));
+            }
+        }
+        let mut seen_teachers: HashSet<TeacherId> = HashSet::new();
+        for member in members {
+            if !seen_teachers.insert(member.teacher_id) {
+                return Err(Error::Input(format!(
+                    "lesson group {} has duplicate teacher {}",
+                    group_id.0, member.teacher_id.0
+                )));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -385,5 +423,77 @@ mod tests {
             violations.iter().map(|v| v.hour_index).collect::<Vec<_>>(),
             vec![0, 1, 2]
         );
+    }
+
+    fn two_member_group_problem() -> Problem {
+        use crate::ids::LessonGroupId;
+        let group_id = LessonGroupId(uuid(99));
+        let mut p = minimal_problem();
+        p.school_classes.push(SchoolClass {
+            id: SchoolClassId(uuid(7)),
+        });
+        p.subjects.push(Subject {
+            id: SubjectId(uuid(8)),
+            prefer_early_periods: false,
+            avoid_first_period: false,
+        });
+        p.teachers.push(Teacher {
+            id: TeacherId(uuid(9)),
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(uuid(9)),
+            subject_id: SubjectId(uuid(8)),
+        });
+        p.lessons[0].lesson_group_id = Some(group_id);
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(10)),
+            school_class_ids: vec![SchoolClassId(uuid(7))],
+            subject_id: SubjectId(uuid(8)),
+            teacher_id: TeacherId(uuid(9)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(group_id),
+        });
+        p
+    }
+
+    #[test]
+    fn validate_structural_accepts_group_with_consistent_invariants() {
+        validate_structural(&two_member_group_problem()).unwrap();
+    }
+
+    #[test]
+    fn validate_structural_accepts_single_member_group() {
+        use crate::ids::LessonGroupId;
+        let mut p = minimal_problem();
+        p.lessons[0].lesson_group_id = Some(LessonGroupId(uuid(99)));
+        validate_structural(&p).unwrap();
+    }
+
+    #[test]
+    fn validate_structural_rejects_group_members_with_different_hours_per_week() {
+        let mut p = two_member_group_problem();
+        p.lessons[1].hours_per_week = 2;
+        let err = validate_structural(&p).unwrap_err();
+        assert!(matches!(err, Error::Input(msg) if msg.contains("hours_per_week")));
+    }
+
+    #[test]
+    fn validate_structural_rejects_group_members_with_different_block_size() {
+        let mut p = two_member_group_problem();
+        p.lessons[0].hours_per_week = 2;
+        p.lessons[0].preferred_block_size = 2;
+        p.lessons[1].hours_per_week = 2;
+        let err = validate_structural(&p).unwrap_err();
+        assert!(matches!(err, Error::Input(msg) if msg.contains("preferred_block_size")));
+    }
+
+    #[test]
+    fn validate_structural_rejects_group_with_duplicate_teacher() {
+        let mut p = two_member_group_problem();
+        p.lessons[1].teacher_id = p.lessons[0].teacher_id;
+        let err = validate_structural(&p).unwrap_err();
+        assert!(matches!(err, Error::Input(msg) if msg.contains("duplicate teacher")));
     }
 }

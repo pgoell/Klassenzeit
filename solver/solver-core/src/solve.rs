@@ -51,6 +51,14 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
     };
 
     let mut state = GreedyState::new();
+    use crate::ids::LessonGroupId;
+    let mut placed_groups: HashSet<LessonGroupId> = HashSet::new();
+    let mut group_members: HashMap<LessonGroupId, Vec<usize>> = HashMap::new();
+    for (i, lesson) in problem.lessons.iter().enumerate() {
+        if let Some(group_id) = lesson.lesson_group_id {
+            group_members.entry(group_id).or_default().push(i);
+        }
+    }
     let teacher_max: HashMap<TeacherId, u8> = problem
         .teachers
         .iter()
@@ -75,6 +83,55 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         // already recorded one violation per hour.
         if !idx.teacher_qualified(lesson.teacher_id, lesson.subject_id) {
             continue;
+        }
+
+        if let Some(group_id) = lesson.lesson_group_id {
+            if !placed_groups.insert(group_id) {
+                continue;
+            }
+            let member_indices = group_members.get(&group_id).cloned().unwrap_or_default();
+            if member_indices.len() < 2 {
+                placed_groups.remove(&group_id);
+            } else {
+                let unqualified_member = member_indices.iter().any(|&mi| {
+                    let m = &problem.lessons[mi];
+                    !idx.teacher_qualified(m.teacher_id, m.subject_id)
+                });
+                let n = lesson.preferred_block_size;
+                let block_count = lesson.hours_per_week / n;
+                for block_index in 0..block_count {
+                    let placed = if unqualified_member {
+                        false
+                    } else {
+                        try_place_group(
+                            problem,
+                            &member_indices,
+                            n,
+                            &idx,
+                            &teacher_max,
+                            &config.weights,
+                            &mut state,
+                            &mut solution.placements,
+                            &tb_order,
+                            &room_order,
+                        )
+                    };
+                    if !placed {
+                        for &mi in &member_indices {
+                            let member = &problem.lessons[mi];
+                            if !idx.teacher_qualified(member.teacher_id, member.subject_id) {
+                                continue;
+                            }
+                            solution.violations.push(Violation {
+                                kind: ViolationKind::LessonGroupSplit,
+                                lesson_id: member.id,
+                                hour_index: block_index * n,
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
         }
 
         let n = lesson.preferred_block_size;
@@ -399,6 +456,236 @@ fn unplaced_kind(
         return ViolationKind::NoFreeTimeBlock;
     }
     ViolationKind::NoSuitableRoom
+}
+
+#[allow(clippy::too_many_arguments)] // Reason: internal helper; refactoring to a struct hurts clarity more than it helps
+fn try_place_group(
+    problem: &Problem,
+    member_indices: &[usize],
+    n: u8,
+    idx: &Indexed,
+    teacher_max: &HashMap<TeacherId, u8>,
+    weights: &ConstraintWeights,
+    state: &mut GreedyState,
+    placements: &mut Vec<Placement>,
+    tb_order: &[usize],
+    room_order: &[usize],
+) -> bool {
+    let n_usize = n as usize;
+    let members: Vec<&Lesson> = member_indices
+        .iter()
+        .map(|&i| &problem.lessons[i])
+        .collect();
+    let mut seen_classes: HashSet<SchoolClassId> = HashSet::new();
+    let mut class_set: Vec<SchoolClassId> = Vec::new();
+    for member in &members {
+        for &class in &member.school_class_ids {
+            if seen_classes.insert(class) {
+                class_set.push(class);
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct GroupCandidate {
+        outer_pos: usize,
+        day: u8,
+        start_pos: u8,
+        end_pos: u8,
+        rooms: Vec<RoomId>,
+        score: u32,
+    }
+    let mut best: Option<GroupCandidate> = None;
+
+    'outer: for outer_pos in 0..tb_order.len() {
+        if outer_pos + n_usize > tb_order.len() {
+            break;
+        }
+        let first_tb = &problem.time_blocks[tb_order[outer_pos]];
+
+        for k in 1..n_usize {
+            let nb = &problem.time_blocks[tb_order[outer_pos + k]];
+            if nb.day_of_week != first_tb.day_of_week
+                || nb.position != first_tb.position + (k as u8)
+            {
+                continue 'outer;
+            }
+        }
+
+        for k in 0..n_usize {
+            let tb = &problem.time_blocks[tb_order[outer_pos + k]];
+            for member in &members {
+                if state.used_teacher.contains(&(member.teacher_id, tb.id))
+                    || idx.teacher_blocked(member.teacher_id, tb.id)
+                {
+                    continue 'outer;
+                }
+            }
+            for class in &class_set {
+                if state.used_class.contains(&(*class, tb.id)) {
+                    continue 'outer;
+                }
+            }
+        }
+        for member in &members {
+            let current = state
+                .hours_by_teacher
+                .get(&member.teacher_id)
+                .copied()
+                .unwrap_or(0);
+            let max = teacher_max.get(&member.teacher_id).copied().unwrap_or(0);
+            if current.saturating_add(n) > max {
+                continue 'outer;
+            }
+        }
+
+        let mut chosen: Vec<RoomId> = Vec::with_capacity(members.len());
+        let mut taken: HashSet<RoomId> = HashSet::new();
+        let mut all_assigned = true;
+        for member in &members {
+            let mut picked: Option<RoomId> = None;
+            'rooms: for &room_idx in room_order {
+                let room = &problem.rooms[room_idx];
+                if taken.contains(&room.id) {
+                    continue;
+                }
+                if !idx.room_suits_subject(room.id, member.subject_id) {
+                    continue;
+                }
+                for k in 0..n_usize {
+                    let tb = &problem.time_blocks[tb_order[outer_pos + k]];
+                    if state.used_room.contains(&(room.id, tb.id))
+                        || idx.room_blocked(room.id, tb.id)
+                    {
+                        continue 'rooms;
+                    }
+                }
+                picked = Some(room.id);
+                break;
+            }
+            match picked {
+                Some(r) => {
+                    taken.insert(r);
+                    chosen.push(r);
+                }
+                None => {
+                    all_assigned = false;
+                    break;
+                }
+            }
+        }
+        if !all_assigned {
+            continue;
+        }
+
+        let start_pos = first_tb.position;
+        let end_pos = start_pos + n - 1;
+        let mut class_delta_sum: i64 = 0;
+        for class in &class_set {
+            let class_partition = state.class_positions.get(&(*class, first_tb.day_of_week));
+            let class_old = match class_partition {
+                Some(p) => crate::score::gap_count(p),
+                None => 0,
+            };
+            let class_new = gap_count_after_window_insert(class_partition, start_pos, end_pos);
+            class_delta_sum += i64::from(class_new) - i64::from(class_old);
+        }
+        let mut teacher_delta_sum: i64 = 0;
+        for member in &members {
+            let teacher_partition = state
+                .teacher_positions
+                .get(&(member.teacher_id, first_tb.day_of_week));
+            let teacher_old = match teacher_partition {
+                Some(p) => crate::score::gap_count(p),
+                None => 0,
+            };
+            let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
+            teacher_delta_sum += i64::from(teacher_new) - i64::from(teacher_old);
+        }
+        let mut subject_pref = 0u32;
+        for member in &members {
+            let subject = problem
+                .subjects
+                .iter()
+                .find(|s| s.id == member.subject_id)
+                .expect("validate_structural ensures member subject_id resolves");
+            for k in 0..n_usize {
+                let tb = &problem.time_blocks[tb_order[outer_pos + k]];
+                subject_pref = subject_pref
+                    .saturating_add(crate::score::subject_preference_score(subject, tb, weights));
+            }
+        }
+        let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
+        let teacher_delta_w = teacher_delta_sum.saturating_mul(i64::from(weights.teacher_gap));
+        let new_signed = i64::from(state.soft_score)
+            .saturating_add(class_delta_w)
+            .saturating_add(teacher_delta_w)
+            .saturating_add(i64::from(subject_pref));
+        let score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
+
+        if let Some(b) = &best {
+            if score >= b.score {
+                continue;
+            }
+        }
+
+        best = Some(GroupCandidate {
+            outer_pos,
+            day: first_tb.day_of_week,
+            start_pos,
+            end_pos,
+            rooms: chosen,
+            score,
+        });
+
+        if score == state.soft_score {
+            break;
+        }
+    }
+
+    let Some(c) = best else {
+        return false;
+    };
+
+    for (member_pos, member) in members.iter().enumerate() {
+        let room_id = c.rooms[member_pos];
+        for k in 0..n_usize {
+            let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
+            placements.push(Placement {
+                lesson_id: member.id,
+                time_block_id: tb.id,
+                room_id,
+            });
+            state.used_teacher.insert((member.teacher_id, tb.id));
+            state.used_room.insert((room_id, tb.id));
+        }
+        *state.hours_by_teacher.entry(member.teacher_id).or_insert(0) += n;
+    }
+    for k in 0..n_usize {
+        let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
+        for class in &class_set {
+            state.used_class.insert((*class, tb.id));
+        }
+    }
+    for class in &class_set {
+        let part = state.class_positions.entry((*class, c.day)).or_default();
+        for pos in c.start_pos..=c.end_pos {
+            let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
+            part.insert(ins, pos);
+        }
+    }
+    for member in &members {
+        let part = state
+            .teacher_positions
+            .entry((member.teacher_id, c.day))
+            .or_default();
+        for pos in c.start_pos..=c.end_pos {
+            let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
+            part.insert(ins, pos);
+        }
+    }
+    state.soft_score = c.score;
+    true
 }
 
 #[cfg(test)]
@@ -1032,6 +1319,181 @@ mod tests {
         assert_eq!(s.violations.len(), 1);
         assert_eq!(s.violations[0].lesson_id, LessonId(solve_uuid(61)));
         assert_eq!(s.violations[0].kind, ViolationKind::NoFreeTimeBlock);
+    }
+
+    fn two_member_group_base_problem() -> Problem {
+        use crate::ids::LessonGroupId;
+        let mut p = base_problem();
+        p.time_blocks = vec![TimeBlock {
+            id: TimeBlockId(solve_uuid(10)),
+            day_of_week: 0,
+            position: 0,
+        }];
+        p.school_classes.push(SchoolClass {
+            id: SchoolClassId(solve_uuid(51)),
+        });
+        p.teachers.push(Teacher {
+            id: TeacherId(solve_uuid(21)),
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(solve_uuid(21)),
+            subject_id: SubjectId(solve_uuid(40)),
+        });
+        p.rooms.push(Room {
+            id: RoomId(solve_uuid(31)),
+        });
+        let group_id = LessonGroupId(solve_uuid(70));
+        p.lessons[0].lesson_group_id = Some(group_id);
+        p.lessons[0].school_class_ids =
+            vec![SchoolClassId(solve_uuid(50)), SchoolClassId(solve_uuid(51))];
+        p.lessons.push(Lesson {
+            id: LessonId(solve_uuid(61)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50)), SchoolClassId(solve_uuid(51))],
+            subject_id: SubjectId(solve_uuid(40)),
+            teacher_id: TeacherId(solve_uuid(21)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(group_id),
+        });
+        p
+    }
+
+    #[test]
+    fn lesson_group_atomic_places_two_members_at_one_tb_with_distinct_rooms() {
+        let p = two_member_group_base_problem();
+        let s = greedy_solve(&p).unwrap();
+        assert_eq!(s.placements.len(), 2, "both members place");
+        assert_eq!(
+            s.placements[0].time_block_id, s.placements[1].time_block_id,
+            "members co-place at the same TB"
+        );
+        assert_ne!(
+            s.placements[0].room_id, s.placements[1].room_id,
+            "members occupy distinct rooms"
+        );
+        assert!(s.violations.is_empty());
+    }
+
+    #[test]
+    fn lesson_group_emits_violation_per_member_when_no_slot_fits() {
+        use crate::ids::LessonGroupId;
+        let mut p = two_member_group_base_problem();
+        p.rooms.truncate(1);
+        let s = greedy_solve(&p).unwrap();
+        assert!(
+            s.placements.is_empty(),
+            "no placements when group cannot atomically place"
+        );
+        let split: Vec<_> = s
+            .violations
+            .iter()
+            .filter(|v| v.kind == ViolationKind::LessonGroupSplit)
+            .collect();
+        assert_eq!(split.len(), 2, "one LessonGroupSplit per member");
+        assert_eq!(split[0].hour_index, 0);
+        let lesson_ids: HashSet<LessonId> = split.iter().map(|v| v.lesson_id).collect();
+        assert_eq!(lesson_ids.len(), 2);
+        let _ = LessonGroupId(solve_uuid(70));
+    }
+
+    #[test]
+    fn lesson_group_with_two_hours_places_into_two_distinct_tbs() {
+        let mut p = two_member_group_base_problem();
+        p.time_blocks = vec![
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(10)),
+                day_of_week: 0,
+                position: 0,
+            },
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(11)),
+                day_of_week: 0,
+                position: 1,
+            },
+        ];
+        p.lessons[0].hours_per_week = 2;
+        p.lessons[1].hours_per_week = 2;
+        let s = greedy_solve(&p).unwrap();
+        assert_eq!(s.placements.len(), 4);
+        let tbs: HashSet<TimeBlockId> = s.placements.iter().map(|pl| pl.time_block_id).collect();
+        assert_eq!(tbs.len(), 2, "group occupies two distinct TBs");
+    }
+
+    #[test]
+    fn lesson_group_blocked_by_non_group_class_use() {
+        use crate::ids::LessonGroupId;
+        let mut p = two_member_group_base_problem();
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(solve_uuid(11)),
+            day_of_week: 0,
+            position: 1,
+        });
+        p.subjects.push(Subject {
+            id: SubjectId(solve_uuid(41)),
+            prefer_early_periods: false,
+            avoid_first_period: false,
+        });
+        p.teachers.push(Teacher {
+            id: TeacherId(solve_uuid(22)),
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(solve_uuid(22)),
+            subject_id: SubjectId(solve_uuid(41)),
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(solve_uuid(62)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50))],
+            subject_id: SubjectId(solve_uuid(41)),
+            teacher_id: TeacherId(solve_uuid(22)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        let s = greedy_solve(&p).unwrap();
+        assert_eq!(s.placements.len(), 3, "all three lessons place");
+        let group_tb = s.placements.iter().find(|pl| {
+            pl.lesson_id == LessonId(solve_uuid(60)) || pl.lesson_id == LessonId(solve_uuid(61))
+        });
+        let non_group_tb = s
+            .placements
+            .iter()
+            .find(|pl| pl.lesson_id == LessonId(solve_uuid(62)))
+            .unwrap();
+        assert_ne!(
+            group_tb.unwrap().time_block_id,
+            non_group_tb.time_block_id,
+            "group does not collide with non-group class booking"
+        );
+        let _ = LessonGroupId(solve_uuid(70));
+    }
+
+    #[test]
+    fn lesson_group_with_unqualified_member_does_not_place() {
+        let mut p = two_member_group_base_problem();
+        p.teacher_qualifications
+            .retain(|q| q.teacher_id != TeacherId(solve_uuid(21)));
+        let s = greedy_solve(&p).unwrap();
+        let split: Vec<_> = s
+            .violations
+            .iter()
+            .filter(|v| v.kind == ViolationKind::LessonGroupSplit)
+            .collect();
+        let unqual: Vec<_> = s
+            .violations
+            .iter()
+            .filter(|v| v.kind == ViolationKind::NoQualifiedTeacher)
+            .collect();
+        assert_eq!(split.len(), 1, "qualified member gets LessonGroupSplit");
+        assert_eq!(
+            unqual.len(),
+            1,
+            "unqualified member keeps NoQualifiedTeacher"
+        );
+        assert_eq!(split[0].lesson_id, LessonId(solve_uuid(60)));
+        assert_eq!(unqual[0].lesson_id, LessonId(solve_uuid(61)));
+        assert!(s.placements.is_empty());
     }
 
     #[test]
