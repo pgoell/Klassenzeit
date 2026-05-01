@@ -283,7 +283,7 @@ async def test_subject_create_defaults_preference_flags_to_false(
     create_test_user: CreateUserFn,
     login_as: LoginFn,
 ) -> None:
-    """POST /subjects without preference flags defaults both to false."""
+    """POST /subjects without preference flags defaults all three to false."""
     await create_test_user(email="admin@pref2.com", role="admin")
     await login_as("admin@pref2.com", "testpassword123")
     res = await client.post(
@@ -294,6 +294,7 @@ async def test_subject_create_defaults_preference_flags_to_false(
     body = res.json()
     assert body["prefer_early_periods"] is False
     assert body["avoid_first_period"] is False
+    assert body["avoid_last_period"] is False
 
 
 async def test_subject_update_patches_preference_flags(
@@ -318,6 +319,32 @@ async def test_subject_update_patches_preference_flags(
     assert res.json()["avoid_first_period"] is True
     # prefer_early stays untouched.
     assert res.json()["prefer_early_periods"] is False
+
+
+async def test_subject_update_can_toggle_avoid_last_period_without_touching_other_flags(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /subjects/{id} toggles avoid_last_period alone, leaving the other two flags."""
+    await create_test_user(email="admin@pref4.com", role="admin")
+    await login_as("admin@pref4.com", "testpassword123")
+    res = await client.post(
+        "/api/subjects",
+        json={"name": "Test avoid last", "short_name": "TL", "color": "chart-1"},
+    )
+    subject_id = res.json()["id"]
+
+    res = await client.patch(
+        f"/api/subjects/{subject_id}",
+        json={"avoid_last_period": True},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["avoid_last_period"] is True
+    # other flags stay untouched.
+    assert body["prefer_early_periods"] is False
+    assert body["avoid_first_period"] is False
 
 
 async def test_create_subject_requires_color(

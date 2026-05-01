@@ -511,7 +511,14 @@ def _minimal_runnable_problem() -> dict:
         "time_blocks": [{"id": tb, "day_of_week": 0, "position": 0}],
         "teachers": [{"id": teacher, "max_hours_per_week": 5}],
         "rooms": [{"id": room}],
-        "subjects": [{"id": subject, "prefer_early_periods": False, "avoid_first_period": False}],
+        "subjects": [
+            {
+                "id": subject,
+                "prefer_early_periods": False,
+                "avoid_first_period": False,
+                "avoid_last_period": False,
+            }
+        ],
         "school_classes": [{"id": klass}],
         "lessons": [
             {
@@ -539,7 +546,7 @@ async def test_build_problem_json_emits_subject_preference_flags(
     create_stundentafel: CreateStundentafelFn,
     create_school_class: CreateSchoolClassFn,
 ) -> None:
-    """solver_io must emit prefer_early_periods and avoid_first_period so Rust sees them."""
+    """solver_io must emit all three subject preference flags so Rust sees them."""
     seeded = await _seed_minimal_school(
         db_session,
         create_subject=create_subject,
@@ -561,6 +568,7 @@ async def test_build_problem_json_emits_subject_preference_flags(
     matched = next(s for s in problem["subjects"] if s["id"] == str(seeded.subject.id))
     assert matched["prefer_early_periods"] is True
     assert matched["avoid_first_period"] is False
+    assert matched["avoid_last_period"] is False
 
 
 async def test_run_solve_round_trips_and_logs(caplog: pytest.LogCaptureFixture) -> None:
