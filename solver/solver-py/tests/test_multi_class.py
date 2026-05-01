@@ -33,9 +33,9 @@ def multi_class_problem() -> str:
         "subjects": [
             {
                 "id": subject,
-                "prefer_early_periods": False,
-                "avoid_first_period": False,
-                "avoid_last_period": False,
+                "prefer_early_period": 0,
+                "avoid_first_period": 0,
+                "avoid_last_period": 0,
             }
         ],
         "school_classes": [{"id": cid_a}, {"id": cid_b}],

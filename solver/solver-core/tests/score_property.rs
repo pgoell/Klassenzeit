@@ -43,9 +43,9 @@ prop_compose! {
 
         let subjects: Vec<Subject> = (0..n_subjects).map(|i| Subject {
             id: SubjectId(id_from(u32::try_from(i).unwrap_or(0) + 4000)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         }).collect();
 
         let school_classes: Vec<SchoolClass> = (0..n_classes).map(|i| SchoolClass {
@@ -124,7 +124,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
     /// score_solution scales linearly in tb.position for a single
-    /// prefer_early_periods placement when only that weight is non-zero.
+    /// prefer_early_period placement when only that weight is non-zero.
     #[test]
     fn property_score_solution_linear_in_position_for_prefer_early(
         position in 0u8..7,
@@ -142,9 +142,9 @@ proptest! {
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
                 id: subject_id,
-                prefer_early_periods: true,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 1,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
             lessons: vec![Lesson {
@@ -191,9 +191,9 @@ proptest! {
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
                 id: subject_id,
-                prefer_early_periods: false,
-                avoid_first_period: true,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 1,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
             lessons: vec![Lesson {

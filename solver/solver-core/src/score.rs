@@ -183,12 +183,14 @@ pub(crate) fn gap_count_after_remove(positions: &[u8], pos: u8) -> u32 {
 }
 
 /// Per-placement subject-preference score. Returns
-/// `tb.position * weights.prefer_early_period` (linear) when the subject's
-/// `prefer_early_periods` flag is set, plus `weights.avoid_first_period`
-/// (binary) when the `avoid_first_period` flag is set and `tb.position == 0`,
-/// plus `weights.avoid_last_period` (binary) when the `avoid_last_period`
-/// flag is set and `tb.position == max_position_for_day`. Pure: depends only
-/// on `subject`, `tb`, `max_position_for_day`, `weights`. Allocation-free.
+/// `tb.position * weights.prefer_early_period * subject.prefer_early_period`
+/// (linear, weighted by `subject.prefer_early_period`), plus
+/// `weights.avoid_first_period * subject.avoid_first_period` when
+/// `tb.position == 0`, plus
+/// `weights.avoid_last_period * subject.avoid_last_period` when
+/// `tb.position == max_position_for_day`. Each per-Subject weight of zero
+/// disables its axis. Pure: depends only on `subject`, `tb`,
+/// `max_position_for_day`, `weights`. Allocation-free.
 pub(crate) fn subject_preference_score(
     subject: &crate::types::Subject,
     tb: &TimeBlock,
@@ -196,15 +198,27 @@ pub(crate) fn subject_preference_score(
     weights: &ConstraintWeights,
 ) -> u32 {
     let mut score = 0u32;
-    if subject.prefer_early_periods {
-        score = score
-            .saturating_add(u32::from(tb.position).saturating_mul(weights.prefer_early_period));
+    if subject.prefer_early_period > 0 {
+        score = score.saturating_add(
+            weights
+                .prefer_early_period
+                .saturating_mul(subject.prefer_early_period)
+                .saturating_mul(u32::from(tb.position)),
+        );
     }
-    if subject.avoid_first_period && tb.position == 0 {
-        score = score.saturating_add(weights.avoid_first_period);
+    if subject.avoid_first_period > 0 && tb.position == 0 {
+        score = score.saturating_add(
+            weights
+                .avoid_first_period
+                .saturating_mul(subject.avoid_first_period),
+        );
     }
-    if subject.avoid_last_period && tb.position == max_position_for_day {
-        score = score.saturating_add(weights.avoid_last_period);
+    if subject.avoid_last_period > 0 && tb.position == max_position_for_day {
+        score = score.saturating_add(
+            weights
+                .avoid_last_period
+                .saturating_mul(subject.avoid_last_period),
+        );
     }
     score
 }
@@ -276,9 +290,9 @@ mod tests {
             }],
             subjects: vec![Subject {
                 id: SubjectId(score_uuid(40)),
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
@@ -448,9 +462,9 @@ mod tests {
     fn subject_preference_score_returns_zero_when_flags_off() {
         let subject = Subject {
             id: SubjectId(score_uuid(40)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         };
         let tb = TimeBlock {
             id: TimeBlockId(score_uuid(10)),
@@ -469,9 +483,9 @@ mod tests {
     fn subject_preference_score_linear_in_position_when_prefer_early_set() {
         let subject = Subject {
             id: SubjectId(score_uuid(40)),
-            prefer_early_periods: true,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 1,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 3,
@@ -494,9 +508,9 @@ mod tests {
     fn subject_preference_score_constant_at_position_zero_when_avoid_first_set() {
         let subject = Subject {
             id: SubjectId(score_uuid(40)),
-            prefer_early_periods: false,
-            avoid_first_period: true,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 1,
+            avoid_last_period: 0,
         };
         let weights = ConstraintWeights {
             avoid_first_period: 9,
@@ -523,9 +537,9 @@ mod tests {
     fn subject_preference_score_constant_at_max_position_when_avoid_last_set() {
         let subject = Subject {
             id: SubjectId(score_uuid(40)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: true,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 1,
         };
         let weights = ConstraintWeights {
             avoid_last_period: 11,
@@ -549,9 +563,9 @@ mod tests {
     }
 
     fn one_class_two_block_problem_with_flagged_subject(
-        prefer_early: bool,
-        avoid_first: bool,
-        avoid_last: bool,
+        prefer_early: u32,
+        avoid_first: u32,
+        avoid_last: u32,
     ) -> Problem {
         Problem {
             time_blocks: vec![
@@ -575,7 +589,7 @@ mod tests {
             }],
             subjects: vec![Subject {
                 id: SubjectId(score_uuid(40)),
-                prefer_early_periods: prefer_early,
+                prefer_early_period: prefer_early,
                 avoid_first_period: avoid_first,
                 avoid_last_period: avoid_last,
             }],
@@ -604,7 +618,7 @@ mod tests {
 
     #[test]
     fn score_solution_includes_prefer_early_per_placement() {
-        let p = one_class_two_block_problem_with_flagged_subject(true, false, false);
+        let p = one_class_two_block_problem_with_flagged_subject(1, 0, 0);
         let weights = ConstraintWeights {
             prefer_early_period: 2,
             ..ConstraintWeights::default()
@@ -620,7 +634,7 @@ mod tests {
 
     #[test]
     fn score_solution_includes_avoid_first_only_at_position_zero() {
-        let p = one_class_two_block_problem_with_flagged_subject(false, true, false);
+        let p = one_class_two_block_problem_with_flagged_subject(0, 1, 0);
         let weights = ConstraintWeights {
             avoid_first_period: 7,
             ..ConstraintWeights::default()
@@ -826,9 +840,9 @@ mod tests {
     fn subject_preference_score_sums_when_both_flags_on_at_position_zero() {
         let subject = Subject {
             id: SubjectId(score_uuid(40)),
-            prefer_early_periods: true,
-            avoid_first_period: true,
-            avoid_last_period: false,
+            prefer_early_period: 1,
+            avoid_first_period: 1,
+            avoid_last_period: 0,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 2,
@@ -849,6 +863,73 @@ mod tests {
         assert_eq!(subject_preference_score(&subject, &tb_zero, 2, &weights), 5);
         // Position 2: prefer_early contributes 4, avoid_first contributes 0; total 4.
         assert_eq!(subject_preference_score(&subject, &tb_two, 2, &weights), 4);
+    }
+
+    #[test]
+    fn subject_preference_score_scales_linearly_with_prefer_early_subject_weight() {
+        let weights = ConstraintWeights {
+            prefer_early_period: 2,
+            ..ConstraintWeights::default()
+        };
+        let tb = TimeBlock {
+            id: TimeBlockId(uuid::Uuid::nil()),
+            day_of_week: 0,
+            position: 3,
+        };
+        let mk = |w: u32| Subject {
+            id: SubjectId(uuid::Uuid::nil()),
+            prefer_early_period: w,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+        };
+        // single-weight = 2 * 3 * 1 = 6, double-weight = 2 * 3 * 2 = 12
+        assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 6);
+        assert_eq!(subject_preference_score(&mk(2), &tb, 6, &weights), 12);
+        assert_eq!(subject_preference_score(&mk(0), &tb, 6, &weights), 0);
+    }
+
+    #[test]
+    fn subject_preference_score_scales_linearly_with_avoid_first_subject_weight() {
+        let weights = ConstraintWeights {
+            avoid_first_period: 5,
+            ..ConstraintWeights::default()
+        };
+        let tb = TimeBlock {
+            id: TimeBlockId(uuid::Uuid::nil()),
+            day_of_week: 0,
+            position: 0,
+        };
+        let mk = |w: u32| Subject {
+            id: SubjectId(uuid::Uuid::nil()),
+            prefer_early_period: 0,
+            avoid_first_period: w,
+            avoid_last_period: 0,
+        };
+        assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 5);
+        assert_eq!(subject_preference_score(&mk(3), &tb, 6, &weights), 15);
+        assert_eq!(subject_preference_score(&mk(0), &tb, 6, &weights), 0);
+    }
+
+    #[test]
+    fn subject_preference_score_scales_linearly_with_avoid_last_subject_weight() {
+        let weights = ConstraintWeights {
+            avoid_last_period: 4,
+            ..ConstraintWeights::default()
+        };
+        let tb = TimeBlock {
+            id: TimeBlockId(uuid::Uuid::nil()),
+            day_of_week: 0,
+            position: 6,
+        };
+        let mk = |w: u32| Subject {
+            id: SubjectId(uuid::Uuid::nil()),
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: w,
+        };
+        assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 4);
+        assert_eq!(subject_preference_score(&mk(2), &tb, 6, &weights), 8);
+        assert_eq!(subject_preference_score(&mk(0), &tb, 6, &weights), 0);
     }
 
     #[test]
@@ -900,9 +981,9 @@ mod tests {
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
                 id: subject_id,
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: true,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 1,
             }],
             school_classes: vec![SchoolClass {
                 id: class_id,

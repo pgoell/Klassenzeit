@@ -98,15 +98,15 @@ mod tests {
             subjects: vec![
                 Subject {
                     id: SubjectId(ord_uuid(40)),
-                    prefer_early_periods: false,
-                    avoid_first_period: false,
-                    avoid_last_period: false,
+                    prefer_early_period: 0,
+                    avoid_first_period: 0,
+                    avoid_last_period: 0,
                 },
                 Subject {
                     id: SubjectId(ord_uuid(41)),
-                    prefer_early_periods: false,
-                    avoid_first_period: false,
-                    avoid_last_period: false,
+                    prefer_early_period: 0,
+                    avoid_first_period: 0,
+                    avoid_last_period: 0,
                 },
             ],
             school_classes: vec![

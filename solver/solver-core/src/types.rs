@@ -42,23 +42,24 @@ pub struct ConstraintWeights {
     /// Penalty per gap-hour in any teacher's day. Same definition as
     /// `class_gap`, partitioned by `(teacher_id, day_of_week)` instead.
     pub teacher_gap: u32,
-    /// Linear penalty per placement of a `prefer_early_periods` subject:
-    /// `tb.position * prefer_early_period`. Zero when the subject's flag is
-    /// false or when this weight is zero.
+    /// Global multiplier on the early-period axis. Per-placement penalty is
+    /// `tb.position * weights.prefer_early_period * subject.prefer_early_period`
+    /// (saturating). Zero disables the axis globally; a non-zero global with
+    /// `subject.prefer_early_period == 0` still contributes nothing.
     pub prefer_early_period: u32,
-    /// Constant penalty per placement of an `avoid_first_period` subject at
-    /// `tb.position == 0`. Zero when the subject's flag is false, the weight
-    /// is zero, or the placement is not at position 0.
+    /// Global multiplier on the first-period axis. Per-placement penalty is
+    /// `weights.avoid_first_period * subject.avoid_first_period` at
+    /// `tb.position == 0` (saturating). Zero disables the axis globally.
     pub avoid_first_period: u32,
     /// Penalty per (class, placement) pair where the class has a non-null
     /// `home_room_id` that does not match the placement's `room_id`.
     /// Multi-class lessons accumulate the penalty per non-matching member
     /// class. Zero means the axis is disabled.
     pub prefer_home_room: u32,
-    /// Constant penalty per placement of an `avoid_last_period` subject at
+    /// Global multiplier on the last-period axis. Per-placement penalty is
+    /// `weights.avoid_last_period * subject.avoid_last_period` at
     /// `tb.position == max_position_for_day` for that placement's
-    /// `day_of_week`. Zero when the subject's flag is false, the weight is
-    /// zero, or the placement is not at the day's max position.
+    /// `day_of_week` (saturating). Zero disables the axis globally.
     pub avoid_last_period: u32,
 }
 
@@ -125,22 +126,25 @@ pub struct Room {
 pub struct Subject {
     /// Stable identifier for this subject.
     pub id: SubjectId,
-    /// When true, scoring adds `tb.position * weights.prefer_early_period` per
-    /// placement of any lesson teaching this subject. Use for "Hauptfaecher
-    /// frueh" (German: prefer Hauptfaecher in early periods).
-    pub prefer_early_periods: bool,
-    /// When true, scoring adds `weights.avoid_first_period` per placement of
-    /// any lesson teaching this subject at `tb.position == 0`. Use for "Sport
-    /// nicht in der ersten Stunde".
-    pub avoid_first_period: bool,
-    /// When true, scoring adds `weights.avoid_last_period` per placement of
-    /// any lesson teaching this subject at `tb.position == max_position_for_day`,
-    /// where the max is taken over all time-blocks sharing `tb.day_of_week`.
-    /// Mirror of `avoid_first_period` at the other end of the day. Wire format
-    /// is additive: existing JSON callers without the field deserialise to
-    /// `false`.
+    /// Per-Subject weight applied to the early-period axis. Scoring adds
+    /// `tb.position * weights.prefer_early_period * subject.prefer_early_period`
+    /// per placement (saturating). Zero disables this axis for the subject.
+    /// Wire format is additive: callers omitting the field deserialise to 0.
     #[serde(default)]
-    pub avoid_last_period: bool,
+    pub prefer_early_period: u32,
+    /// Per-Subject weight applied at `tb.position == 0`. Scoring adds
+    /// `weights.avoid_first_period * subject.avoid_first_period` per placement
+    /// at the first period of any day (saturating). Zero disables this axis.
+    /// Wire format is additive: callers omitting the field deserialise to 0.
+    #[serde(default)]
+    pub avoid_first_period: u32,
+    /// Per-Subject weight applied at `tb.position == max_position_for_day`.
+    /// Scoring adds `weights.avoid_last_period * subject.avoid_last_period`
+    /// per placement at the last period of any day (saturating). Zero
+    /// disables this axis. Wire format is additive: callers omitting the
+    /// field deserialise to 0.
+    #[serde(default)]
+    pub avoid_last_period: u32,
 }
 
 /// A school class that receives lessons.
