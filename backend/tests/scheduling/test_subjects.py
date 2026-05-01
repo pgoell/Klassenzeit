@@ -268,14 +268,14 @@ async def test_subject_create_accepts_preference_flags(
             "name": "Test prefer early",
             "short_name": "PE",
             "color": "chart-1",
-            "prefer_early_periods": True,
-            "avoid_first_period": False,
+            "prefer_early_period": 1,
+            "avoid_first_period": 0,
         },
     )
     assert res.status_code == 201
     body = res.json()
-    assert body["prefer_early_periods"] is True
-    assert body["avoid_first_period"] is False
+    assert body["prefer_early_period"] == 1
+    assert body["avoid_first_period"] == 0
 
 
 async def test_subject_create_defaults_preference_flags_to_false(
@@ -283,7 +283,7 @@ async def test_subject_create_defaults_preference_flags_to_false(
     create_test_user: CreateUserFn,
     login_as: LoginFn,
 ) -> None:
-    """POST /subjects without preference flags defaults all three to false."""
+    """POST /subjects without preference flags defaults all three to zero."""
     await create_test_user(email="admin@pref2.com", role="admin")
     await login_as("admin@pref2.com", "testpassword123")
     res = await client.post(
@@ -292,9 +292,9 @@ async def test_subject_create_defaults_preference_flags_to_false(
     )
     assert res.status_code == 201
     body = res.json()
-    assert body["prefer_early_periods"] is False
-    assert body["avoid_first_period"] is False
-    assert body["avoid_last_period"] is False
+    assert body["prefer_early_period"] == 0
+    assert body["avoid_first_period"] == 0
+    assert body["avoid_last_period"] == 0
 
 
 async def test_subject_update_patches_preference_flags(
@@ -302,7 +302,7 @@ async def test_subject_update_patches_preference_flags(
     create_test_user: CreateUserFn,
     login_as: LoginFn,
 ) -> None:
-    """PATCH /subjects/{id} can toggle avoid_first_period without touching prefer_early_periods."""
+    """PATCH /subjects/{id} can set avoid_first_period without touching prefer_early_period."""
     await create_test_user(email="admin@pref3.com", role="admin")
     await login_as("admin@pref3.com", "testpassword123")
     res = await client.post(
@@ -313,12 +313,12 @@ async def test_subject_update_patches_preference_flags(
 
     res = await client.patch(
         f"/api/subjects/{subject_id}",
-        json={"avoid_first_period": True},
+        json={"avoid_first_period": 1},
     )
     assert res.status_code == 200
-    assert res.json()["avoid_first_period"] is True
+    assert res.json()["avoid_first_period"] == 1
     # prefer_early stays untouched.
-    assert res.json()["prefer_early_periods"] is False
+    assert res.json()["prefer_early_period"] == 0
 
 
 async def test_subject_update_can_toggle_avoid_last_period_without_touching_other_flags(
@@ -326,7 +326,7 @@ async def test_subject_update_can_toggle_avoid_last_period_without_touching_othe
     create_test_user: CreateUserFn,
     login_as: LoginFn,
 ) -> None:
-    """PATCH /subjects/{id} toggles avoid_last_period alone, leaving the other two flags."""
+    """PATCH /subjects/{id} sets avoid_last_period alone, leaving the other two flags."""
     await create_test_user(email="admin@pref4.com", role="admin")
     await login_as("admin@pref4.com", "testpassword123")
     res = await client.post(
@@ -337,14 +337,14 @@ async def test_subject_update_can_toggle_avoid_last_period_without_touching_othe
 
     res = await client.patch(
         f"/api/subjects/{subject_id}",
-        json={"avoid_last_period": True},
+        json={"avoid_last_period": 1},
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["avoid_last_period"] is True
+    assert body["avoid_last_period"] == 1
     # other flags stay untouched.
-    assert body["prefer_early_periods"] is False
-    assert body["avoid_first_period"] is False
+    assert body["prefer_early_period"] == 0
+    assert body["avoid_first_period"] == 0
 
 
 async def test_create_subject_requires_color(
@@ -388,3 +388,96 @@ async def test_patch_subject_color(
     response = await client.patch(f"/api/subjects/{subject_id}", json={"color": "#112233"})
     assert response.status_code == 200
     assert response.json()["color"] == "#112233"
+
+
+async def test_create_subject_rejects_out_of_range_prefer_early_period(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with prefer_early_period > 10 returns 422."""
+    await create_test_user(email="admin@range1.com", role="admin")
+    await login_as("admin@range1.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Range Math",
+            "short_name": "RM",
+            "color": "chart-1",
+            "prefer_early_period": 11,
+            "avoid_first_period": 0,
+            "avoid_last_period": 0,
+        },
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any(loc[-1] == "prefer_early_period" for loc in (e.get("loc", []) for e in detail))
+
+
+async def test_create_subject_rejects_out_of_range_avoid_first_period(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with avoid_first_period > 10 returns 422."""
+    await create_test_user(email="admin@range2.com", role="admin")
+    await login_as("admin@range2.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Range Sport",
+            "short_name": "RS",
+            "color": "chart-1",
+            "prefer_early_period": 0,
+            "avoid_first_period": 11,
+            "avoid_last_period": 0,
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_create_subject_rejects_out_of_range_avoid_last_period(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with avoid_last_period > 10 returns 422."""
+    await create_test_user(email="admin@range3.com", role="admin")
+    await login_as("admin@range3.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Range Deutsch",
+            "short_name": "RD",
+            "color": "chart-1",
+            "prefer_early_period": 0,
+            "avoid_first_period": 0,
+            "avoid_last_period": 11,
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_create_subject_accepts_non_binary_weight(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with non-binary weight values round-trips through the response."""
+    await create_test_user(email="admin@weight.com", role="admin")
+    await login_as("admin@weight.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Weighted Mathematik",
+            "short_name": "WM",
+            "color": "chart-1",
+            "prefer_early_period": 3,
+            "avoid_first_period": 0,
+            "avoid_last_period": 2,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["prefer_early_period"] == 3
+    assert body["avoid_last_period"] == 2
