@@ -3,7 +3,6 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -47,9 +46,9 @@ export function SubjectFormDialog({
       name: subject?.name ?? "",
       short_name: subject?.short_name ?? "",
       color: subject?.color ?? autoPickColor(""),
-      prefer_early_periods: subject?.prefer_early_periods ?? false,
-      avoid_first_period: subject?.avoid_first_period ?? false,
-      avoid_last_period: subject?.avoid_last_period ?? false,
+      prefer_early_period: subject?.prefer_early_period ?? 0,
+      avoid_first_period: subject?.avoid_first_period ?? 0,
+      avoid_last_period: subject?.avoid_last_period ?? 0,
     },
   });
   const createMutation = useCreateSubject();
@@ -127,22 +126,24 @@ export function SubjectFormDialog({
             />
             <FormField
               control={form.control}
-              name="prefer_early_periods"
+              name="prefer_early_period"
               render={({ field }) => (
-                <FormItem className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <FormControl>
-                      <Checkbox
-                        id="subject-prefer-early"
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel htmlFor="subject-prefer-early">
-                      {t("subjects.fields.preferEarlyPeriods.label")}
-                    </FormLabel>
-                  </div>
-                  <FormDescription>{t("subjects.fields.preferEarlyPeriods.help")}</FormDescription>
+                <FormItem>
+                  <FormLabel>{t("subjects.fields.preferEarlyPeriod.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      className="w-24"
+                    />
+                  </FormControl>
+                  <FormDescription>{t("subjects.fields.preferEarlyPeriod.help")}</FormDescription>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -150,20 +151,22 @@ export function SubjectFormDialog({
               control={form.control}
               name="avoid_first_period"
               render={({ field }) => (
-                <FormItem className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <FormControl>
-                      <Checkbox
-                        id="subject-avoid-first"
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel htmlFor="subject-avoid-first">
-                      {t("subjects.fields.avoidFirstPeriod.label")}
-                    </FormLabel>
-                  </div>
+                <FormItem>
+                  <FormLabel>{t("subjects.fields.avoidFirstPeriod.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      className="w-24"
+                    />
+                  </FormControl>
                   <FormDescription>{t("subjects.fields.avoidFirstPeriod.help")}</FormDescription>
+                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -171,20 +174,22 @@ export function SubjectFormDialog({
               control={form.control}
               name="avoid_last_period"
               render={({ field }) => (
-                <FormItem className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <FormControl>
-                      <Checkbox
-                        id="subject-avoid-last"
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel htmlFor="subject-avoid-last">
-                      {t("subjects.fields.avoidLastPeriod.label")}
-                    </FormLabel>
-                  </div>
+                <FormItem>
+                  <FormLabel>{t("subjects.fields.avoidLastPeriod.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      className="w-24"
+                    />
+                  </FormControl>
                   <FormDescription>{t("subjects.fields.avoidLastPeriod.help")}</FormDescription>
+                  <FormMessage />
                 </FormItem>
               )}
             />

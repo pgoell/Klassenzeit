@@ -141,17 +141,17 @@
     "pickColor": "Pick color",
     "loadError": "Could not load subjects.",
     "fields": {
-      "preferEarlyPeriods": {
-        "label": "Prefer early periods",
-        "help": "Schedule lessons of this subject earlier in the day when possible (e.g. Hauptfächer)."
+      "preferEarlyPeriod": {
+        "label": "Prefer early periods (weight)",
+        "help": "Higher values steer this subject to earlier periods more strongly. 0 disables this axis."
       },
       "avoidFirstPeriod": {
-        "label": "Avoid the first period",
-        "help": "Avoid scheduling lessons of this subject in the very first period of the day (e.g. Sport)."
+        "label": "Avoid first period (weight)",
+        "help": "Higher values penalise placement in the first period more strongly. 0 disables this axis."
       },
       "avoidLastPeriod": {
-        "label": "Avoid the last period",
-        "help": "Avoid scheduling lessons of this subject in the very last period of the day (e.g. Hauptfächer)."
+        "label": "Avoid last period (weight)",
+        "help": "Higher values penalise placement in the last period more strongly. 0 disables this axis."
       }
     },
     "dialog": {

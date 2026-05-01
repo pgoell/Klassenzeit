@@ -1902,20 +1902,20 @@ export interface components {
             /** Color */
             color: string;
             /**
-             * Prefer Early Periods
-             * @default false
+             * Prefer Early Period
+             * @default 0
              */
-            prefer_early_periods: boolean;
+            prefer_early_period: number;
             /**
              * Avoid First Period
-             * @default false
+             * @default 0
              */
-            avoid_first_period: boolean;
+            avoid_first_period: number;
             /**
              * Avoid Last Period
-             * @default false
+             * @default 0
              */
-            avoid_last_period: boolean;
+            avoid_last_period: number;
         };
         /**
          * SubjectResponse
@@ -1933,12 +1933,12 @@ export interface components {
             short_name: string;
             /** Color */
             color: string;
-            /** Prefer Early Periods */
-            prefer_early_periods: boolean;
+            /** Prefer Early Period */
+            prefer_early_period: number;
             /** Avoid First Period */
-            avoid_first_period: boolean;
+            avoid_first_period: number;
             /** Avoid Last Period */
-            avoid_last_period: boolean;
+            avoid_last_period: number;
             /**
              * Created At
              * Format: date-time
@@ -1961,12 +1961,12 @@ export interface components {
             short_name?: string | null;
             /** Color */
             color?: string | null;
-            /** Prefer Early Periods */
-            prefer_early_periods?: boolean | null;
+            /** Prefer Early Period */
+            prefer_early_period?: number | null;
             /** Avoid First Period */
-            avoid_first_period?: boolean | null;
+            avoid_first_period?: number | null;
             /** Avoid Last Period */
-            avoid_last_period?: boolean | null;
+            avoid_last_period?: number | null;
         };
         /**
          * SuitabilityReplaceRequest

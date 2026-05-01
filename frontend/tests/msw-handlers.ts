@@ -19,9 +19,9 @@ export const initialSubjects = [
     name: "Mathematik",
     short_name: "MA",
     color: "chart-3",
-    prefer_early_periods: false,
-    avoid_first_period: false,
-    avoid_last_period: false,
+    prefer_early_period: 0,
+    avoid_first_period: 0,
+    avoid_last_period: 0,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -184,9 +184,9 @@ export const defaultHandlers = [
       name: string;
       short_name: string;
       color: string;
-      prefer_early_periods?: boolean;
-      avoid_first_period?: boolean;
-      avoid_last_period?: boolean;
+      prefer_early_period?: number;
+      avoid_first_period?: number;
+      avoid_last_period?: number;
     };
     return HttpResponse.json(
       {
@@ -194,9 +194,9 @@ export const defaultHandlers = [
         name: body.name,
         short_name: body.short_name,
         color: body.color,
-        prefer_early_periods: body.prefer_early_periods ?? false,
-        avoid_first_period: body.avoid_first_period ?? false,
-        avoid_last_period: body.avoid_last_period ?? false,
+        prefer_early_period: body.prefer_early_period ?? 0,
+        avoid_first_period: body.avoid_first_period ?? 0,
+        avoid_last_period: body.avoid_last_period ?? 0,
         created_at: "2026-04-17T00:00:00Z",
         updated_at: "2026-04-17T00:00:00Z",
       },
