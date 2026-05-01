@@ -257,6 +257,7 @@ mod tests {
             id: SubjectId(uuid(4)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         };
         let class = SchoolClass {
             id: SchoolClassId(uuid(5)),
@@ -438,6 +439,7 @@ mod tests {
             id: SubjectId(uuid(8)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.teachers.push(Teacher {
             id: TeacherId(uuid(9)),

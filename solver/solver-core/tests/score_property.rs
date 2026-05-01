@@ -45,6 +45,7 @@ prop_compose! {
             id: SubjectId(id_from(u32::try_from(i).unwrap_or(0) + 4000)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         }).collect();
 
         let school_classes: Vec<SchoolClass> = (0..n_classes).map(|i| SchoolClass {
@@ -143,6 +144,7 @@ proptest! {
                 id: subject_id,
                 prefer_early_periods: true,
                 avoid_first_period: false,
+                avoid_last_period: false,
             }],
             school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
             lessons: vec![Lesson {
@@ -191,6 +193,7 @@ proptest! {
                 id: subject_id,
                 prefer_early_periods: false,
                 avoid_first_period: true,
+                avoid_last_period: false,
             }],
             school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
             lessons: vec![Lesson {

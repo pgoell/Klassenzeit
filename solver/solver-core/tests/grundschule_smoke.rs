@@ -55,6 +55,7 @@ fn grundschule() -> Problem {
             id: *id,
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         })
         .collect();
 

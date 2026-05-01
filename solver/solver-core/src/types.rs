@@ -55,6 +55,11 @@ pub struct ConstraintWeights {
     /// Multi-class lessons accumulate the penalty per non-matching member
     /// class. Zero means the axis is disabled.
     pub prefer_home_room: u32,
+    /// Constant penalty per placement of an `avoid_last_period` subject at
+    /// `tb.position == max_position_for_day` for that placement's
+    /// `day_of_week`. Zero when the subject's flag is false, the weight is
+    /// zero, or the placement is not at the day's max position.
+    pub avoid_last_period: u32,
 }
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -128,6 +133,14 @@ pub struct Subject {
     /// any lesson teaching this subject at `tb.position == 0`. Use for "Sport
     /// nicht in der ersten Stunde".
     pub avoid_first_period: bool,
+    /// When true, scoring adds `weights.avoid_last_period` per placement of
+    /// any lesson teaching this subject at `tb.position == max_position_for_day`,
+    /// where the max is taken over all time-blocks sharing `tb.day_of_week`.
+    /// Mirror of `avoid_first_period` at the other end of the day. Wire format
+    /// is additive: existing JSON callers without the field deserialise to
+    /// `false`.
+    #[serde(default)]
+    pub avoid_last_period: bool,
 }
 
 /// A school class that receives lessons.

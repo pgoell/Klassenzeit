@@ -53,6 +53,16 @@ pub(crate) fn run(
         problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
     let subject_lookup: HashMap<SubjectId, &Subject> =
         problem.subjects.iter().map(|s| (s.id, s)).collect();
+    let max_position_per_day: HashMap<u8, u8> =
+        problem
+            .time_blocks
+            .iter()
+            .fold(HashMap::new(), |mut acc, tb| {
+                acc.entry(tb.day_of_week)
+                    .and_modify(|m| *m = (*m).max(tb.position))
+                    .or_insert(tb.position);
+                acc
+            });
     let max_iter = config.max_iterations.unwrap_or(u64::MAX);
 
     let mut iter: u64 = 0;
@@ -71,6 +81,7 @@ pub(crate) fn run(
             &lesson_lookup,
             &tb_lookup,
             &subject_lookup,
+            &max_position_per_day,
             &config.weights,
             placements,
             class_positions,
@@ -103,6 +114,7 @@ fn try_change_move(
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     subject_lookup: &HashMap<SubjectId, &Subject>,
+    max_position_per_day: &HashMap<u8, u8>,
     weights: &ConstraintWeights,
     placements: &mut [Placement],
     class_positions: &mut HashMap<(SchoolClassId, u8), Vec<u8>>,
@@ -160,8 +172,18 @@ fn try_change_move(
     };
 
     let subject = subject_lookup[&lesson.subject_id];
-    let subject_pref_old = crate::score::subject_preference_score(subject, &old_tb, weights);
-    let subject_pref_new = crate::score::subject_preference_score(subject, &new_tb, weights);
+    let old_max = max_position_per_day
+        .get(&old_tb.day_of_week)
+        .copied()
+        .unwrap_or(old_tb.position);
+    let new_max = max_position_per_day
+        .get(&new_tb.day_of_week)
+        .copied()
+        .unwrap_or(new_tb.position);
+    let subject_pref_old =
+        crate::score::subject_preference_score(subject, &old_tb, old_max, weights);
+    let subject_pref_new =
+        crate::score::subject_preference_score(subject, &new_tb, new_max, weights);
     let subject_pref_delta = i64::from(subject_pref_new) - i64::from(subject_pref_old);
 
     let delta = score_after_change_move(
@@ -639,6 +661,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: true,
+                avoid_last_period: false,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -761,6 +784,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: true,
+                avoid_last_period: false,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -904,6 +928,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: true,
+                avoid_last_period: false,
             }],
             school_classes: vec![
                 SchoolClass {
@@ -1032,6 +1057,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: false,
+                avoid_last_period: false,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1071,6 +1097,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: false,
+                avoid_last_period: false,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1107,6 +1134,7 @@ mod tests {
                 id: subject,
                 prefer_early_periods: false,
                 avoid_first_period: false,
+                avoid_last_period: false,
             }],
             school_classes: vec![],
             lessons: vec![],
