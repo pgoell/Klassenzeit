@@ -385,6 +385,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             color=spec.color,
             prefer_early_periods=spec.prefer_early_periods,
             avoid_first_period=spec.avoid_first_period,
+            avoid_last_period=spec.avoid_last_period,
         )
         session.add(subject)
         subjects_by_short[spec.short_name] = subject
