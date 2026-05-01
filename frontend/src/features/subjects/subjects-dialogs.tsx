@@ -49,6 +49,7 @@ export function SubjectFormDialog({
       color: subject?.color ?? autoPickColor(""),
       prefer_early_periods: subject?.prefer_early_periods ?? false,
       avoid_first_period: subject?.avoid_first_period ?? false,
+      avoid_last_period: subject?.avoid_last_period ?? false,
     },
   });
   const createMutation = useCreateSubject();
@@ -163,6 +164,27 @@ export function SubjectFormDialog({
                     </FormLabel>
                   </div>
                   <FormDescription>{t("subjects.fields.avoidFirstPeriod.help")}</FormDescription>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="avoid_last_period"
+              render={({ field }) => (
+                <FormItem className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <FormControl>
+                      <Checkbox
+                        id="subject-avoid-last"
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormLabel htmlFor="subject-avoid-last">
+                      {t("subjects.fields.avoidLastPeriod.label")}
+                    </FormLabel>
+                  </div>
+                  <FormDescription>{t("subjects.fields.avoidLastPeriod.help")}</FormDescription>
                 </FormItem>
               )}
             />

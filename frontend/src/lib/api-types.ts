@@ -1911,6 +1911,11 @@ export interface components {
              * @default false
              */
             avoid_first_period: boolean;
+            /**
+             * Avoid Last Period
+             * @default false
+             */
+            avoid_last_period: boolean;
         };
         /**
          * SubjectResponse
@@ -1932,6 +1937,8 @@ export interface components {
             prefer_early_periods: boolean;
             /** Avoid First Period */
             avoid_first_period: boolean;
+            /** Avoid Last Period */
+            avoid_last_period: boolean;
             /**
              * Created At
              * Format: date-time
@@ -1958,6 +1965,8 @@ export interface components {
             prefer_early_periods?: boolean | null;
             /** Avoid First Period */
             avoid_first_period?: boolean | null;
+            /** Avoid Last Period */
+            avoid_last_period?: boolean | null;
         };
         /**
          * SuitabilityReplaceRequest

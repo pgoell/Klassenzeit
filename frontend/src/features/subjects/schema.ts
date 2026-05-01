@@ -7,6 +7,7 @@ export const SubjectFormSchema = z.object({
   color: z.string().regex(COLOR_PATTERN, "Invalid color"),
   prefer_early_periods: z.boolean(),
   avoid_first_period: z.boolean(),
+  avoid_last_period: z.boolean(),
 });
 
 export type SubjectFormValues = z.infer<typeof SubjectFormSchema>;

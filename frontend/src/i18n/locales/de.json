@@ -148,6 +148,10 @@
       "avoidFirstPeriod": {
         "label": "Erste Stunde vermeiden",
         "help": "Stunden dieses Fachs nicht in die erste Stunde des Tages legen (z. B. Sport)."
+      },
+      "avoidLastPeriod": {
+        "label": "Letzte Stunde meiden",
+        "help": "Vermeide es, Stunden dieses Fachs in der letzten Stunde des Tages zu legen (z. B. Hauptfächer)."
       }
     },
     "dialog": {
