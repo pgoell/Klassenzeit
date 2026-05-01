@@ -141,17 +141,17 @@
     "pickColor": "Farbe wählen",
     "loadError": "Fächer konnten nicht geladen werden.",
     "fields": {
-      "preferEarlyPeriods": {
-        "label": "Frühe Stunden bevorzugen",
-        "help": "Stunden dieses Fachs möglichst früh am Tag einplanen (z. B. Hauptfächer)."
+      "preferEarlyPeriod": {
+        "label": "Frühe Stunden bevorzugen (Gewicht)",
+        "help": "Höhere Werte verschieben dieses Fach stärker in frühe Stunden. 0 deaktiviert diese Achse."
       },
       "avoidFirstPeriod": {
-        "label": "Erste Stunde vermeiden",
-        "help": "Stunden dieses Fachs nicht in die erste Stunde des Tages legen (z. B. Sport)."
+        "label": "Erste Stunde meiden (Gewicht)",
+        "help": "Höhere Werte gewichten die Platzierung in der ersten Stunde stärker negativ. 0 deaktiviert diese Achse."
       },
       "avoidLastPeriod": {
-        "label": "Letzte Stunde meiden",
-        "help": "Vermeide es, Stunden dieses Fachs in der letzten Stunde des Tages zu legen (z. B. Hauptfächer)."
+        "label": "Letzte Stunde meiden (Gewicht)",
+        "help": "Höhere Werte gewichten die Platzierung in der letzten Stunde stärker negativ. 0 deaktiviert diese Achse."
       }
     },
     "dialog": {

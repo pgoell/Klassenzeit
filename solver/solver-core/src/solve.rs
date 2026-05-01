@@ -769,9 +769,9 @@ mod tests {
             }],
             subjects: vec![Subject {
                 id: SubjectId(solve_uuid(40)),
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
@@ -834,9 +834,9 @@ mod tests {
         // subject to keep validation happy. Room now suits no subject we place.
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         });
         p.room_subject_suitabilities.push(RoomSubjectSuitability {
             room_id: RoomId(solve_uuid(30)),
@@ -878,9 +878,9 @@ mod tests {
         // time_block 0 free; the first lesson takes block 0, the second cannot place.
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -910,9 +910,9 @@ mod tests {
         let mut p = base_problem();
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -1011,9 +1011,9 @@ mod tests {
         }
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1140,7 +1140,7 @@ mod tests {
             position: 2,
         });
         // Mark the only subject as avoid_first.
-        p.subjects[0].avoid_first_period = true;
+        p.subjects[0].avoid_first_period = 1;
         // Active default solve(p) uses weight 1 for each axis; lesson should
         // place at position 1 (the lowest-id non-zero alternative), not 0.
         let s = solve_with_config(
@@ -1177,7 +1177,7 @@ mod tests {
             day_of_week: 0,
             position: 2,
         });
-        p.subjects[0].avoid_last_period = true;
+        p.subjects[0].avoid_last_period = 1;
         p.lessons[0].hours_per_week = 2;
         let s = solve_with_config(
             &p,
@@ -1507,9 +1507,9 @@ mod tests {
         });
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
-            prefer_early_periods: false,
-            avoid_first_period: false,
-            avoid_last_period: false,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(22)),
@@ -1603,7 +1603,7 @@ mod tests {
             },
         ];
         p.lessons[0].hours_per_week = 2;
-        p.subjects[0].prefer_early_periods = true;
+        p.subjects[0].prefer_early_period = 1;
         let s = solve_with_config(
             &p,
             &SolveConfig {

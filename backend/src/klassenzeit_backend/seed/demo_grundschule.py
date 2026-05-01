@@ -54,14 +54,14 @@ class _SubjectSpec(NamedTuple):
     name: str
     short_name: str
     color: str
-    prefer_early_periods: bool = False
-    avoid_first_period: bool = False
-    avoid_last_period: bool = False
+    prefer_early_period: int = 0
+    avoid_first_period: int = 0
+    avoid_last_period: int = 0
 
 
 _SUBJECTS: tuple[_SubjectSpec, ...] = (
-    _SubjectSpec("Deutsch", "D", "chart-1", prefer_early_periods=True, avoid_last_period=True),
-    _SubjectSpec("Mathematik", "M", "chart-2", prefer_early_periods=True, avoid_last_period=True),
+    _SubjectSpec("Deutsch", "D", "chart-1", prefer_early_period=1, avoid_last_period=1),
+    _SubjectSpec("Mathematik", "M", "chart-2", prefer_early_period=1, avoid_last_period=1),
     _SubjectSpec("Sachunterricht", "SU", "chart-3"),
     _SubjectSpec("Religion (kath.)", "RK", "chart-4"),
     _SubjectSpec("Religion (ev.)", "RE", "chart-4"),
@@ -69,7 +69,7 @@ _SUBJECTS: tuple[_SubjectSpec, ...] = (
     _SubjectSpec("Englisch", "E", "chart-5"),
     _SubjectSpec("Kunst", "KU", "chart-1"),
     _SubjectSpec("Musik", "MU", "chart-3"),
-    _SubjectSpec("Sport", "SP", "chart-4", avoid_first_period=True),
+    _SubjectSpec("Sport", "SP", "chart-4", avoid_first_period=1),
     _SubjectSpec("Förderunterricht", "FÖ", "chart-5"),
 )
 
@@ -198,7 +198,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
             name=spec.name,
             short_name=spec.short_name,
             color=spec.color,
-            prefer_early_periods=spec.prefer_early_periods,
+            prefer_early_period=spec.prefer_early_period,
             avoid_first_period=spec.avoid_first_period,
             avoid_last_period=spec.avoid_last_period,
         )

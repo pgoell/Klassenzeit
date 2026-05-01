@@ -514,9 +514,9 @@ def _minimal_runnable_problem() -> dict:
         "subjects": [
             {
                 "id": subject,
-                "prefer_early_periods": False,
-                "avoid_first_period": False,
-                "avoid_last_period": False,
+                "prefer_early_period": 0,
+                "avoid_first_period": 0,
+                "avoid_last_period": 0,
             }
         ],
         "school_classes": [{"id": klass}],
@@ -558,17 +558,17 @@ async def test_build_problem_json_emits_subject_preference_flags(
         create_school_class=create_school_class,
     )
     # Flip the flags on the seeded subject.
-    seeded.subject.prefer_early_periods = True
-    seeded.subject.avoid_first_period = False
+    seeded.subject.prefer_early_period = 1
+    seeded.subject.avoid_first_period = 0
     await db_session.flush()
 
     problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
     problem = json.loads(problem_json)
 
     matched = next(s for s in problem["subjects"] if s["id"] == str(seeded.subject.id))
-    assert matched["prefer_early_periods"] is True
-    assert matched["avoid_first_period"] is False
-    assert matched["avoid_last_period"] is False
+    assert matched["prefer_early_period"] == 1
+    assert matched["avoid_first_period"] == 0
+    assert matched["avoid_last_period"] == 0
 
 
 async def test_run_solve_round_trips_and_logs(caplog: pytest.LogCaptureFixture) -> None:

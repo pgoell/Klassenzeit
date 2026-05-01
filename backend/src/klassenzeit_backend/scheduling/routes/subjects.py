@@ -63,7 +63,7 @@ async def create_subject_route(
         name=body.name,
         short_name=body.short_name,
         color=body.color,
-        prefer_early_periods=body.prefer_early_periods,
+        prefer_early_period=body.prefer_early_period,
         avoid_first_period=body.avoid_first_period,
         avoid_last_period=body.avoid_last_period,
     )
@@ -81,7 +81,7 @@ async def create_subject_route(
         name=subject.name,
         short_name=subject.short_name,
         color=subject.color,
-        prefer_early_periods=subject.prefer_early_periods,
+        prefer_early_period=subject.prefer_early_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
         created_at=subject.created_at,
@@ -110,7 +110,7 @@ async def list_subjects(
             name=s.name,
             short_name=s.short_name,
             color=s.color,
-            prefer_early_periods=s.prefer_early_periods,
+            prefer_early_period=s.prefer_early_period,
             avoid_first_period=s.avoid_first_period,
             avoid_last_period=s.avoid_last_period,
             created_at=s.created_at,
@@ -145,7 +145,7 @@ async def get_subject(
         name=subject.name,
         short_name=subject.short_name,
         color=subject.color,
-        prefer_early_periods=subject.prefer_early_periods,
+        prefer_early_period=subject.prefer_early_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
         created_at=subject.created_at,
@@ -182,8 +182,8 @@ async def update_subject(
         subject.short_name = body.short_name
     if body.color is not None:
         subject.color = body.color
-    if body.prefer_early_periods is not None:
-        subject.prefer_early_periods = body.prefer_early_periods
+    if body.prefer_early_period is not None:
+        subject.prefer_early_period = body.prefer_early_period
     if body.avoid_first_period is not None:
         subject.avoid_first_period = body.avoid_first_period
     if body.avoid_last_period is not None:
@@ -201,7 +201,7 @@ async def update_subject(
         name=subject.name,
         short_name=subject.short_name,
         color=subject.color,
-        prefer_early_periods=subject.prefer_early_periods,
+        prefer_early_period=subject.prefer_early_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
         created_at=subject.created_at,

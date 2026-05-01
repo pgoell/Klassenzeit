@@ -659,9 +659,9 @@ mod tests {
             rooms: vec![Room { id: room }],
             subjects: vec![Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: true,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 1,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -782,9 +782,9 @@ mod tests {
             rooms: vec![Room { id: room }],
             subjects: vec![Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: true,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 1,
+                avoid_last_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -926,9 +926,9 @@ mod tests {
             rooms: vec![Room { id: room_a }, Room { id: room_b }],
             subjects: vec![Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: true,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 1,
+                avoid_last_period: 0,
             }],
             school_classes: vec![
                 SchoolClass {
@@ -1055,9 +1055,9 @@ mod tests {
             rooms: vec![crate::types::Room { id: old_room }],
             subjects: vec![crate::types::Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1095,9 +1095,9 @@ mod tests {
             ],
             subjects: vec![crate::types::Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1132,9 +1132,9 @@ mod tests {
             rooms: vec![crate::types::Room { id: old_room }],
             subjects: vec![crate::types::Subject {
                 id: subject,
-                prefer_early_periods: false,
-                avoid_first_period: false,
-                avoid_last_period: false,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],

@@ -48,3 +48,4 @@ sections, and add the new entry to the index below.
 | 0022 | [Lesson-group co-placement constraint](0022-lesson-group-coplacement.md) | Accepted |
 | 0023 | [Home-room preference soft constraint](0023-home-room-preference.md) | Accepted |
 | 0024 | [Avoid-last-period soft constraint](0024-avoid-last-period.md) | Accepted |
+| 0025 | [Per-Subject preference weights](0025-subject-preference-weights.md) | Accepted |

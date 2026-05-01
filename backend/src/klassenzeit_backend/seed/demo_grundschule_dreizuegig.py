@@ -383,7 +383,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             name=spec.name,
             short_name=spec.short_name,
             color=spec.color,
-            prefer_early_periods=spec.prefer_early_periods,
+            prefer_early_period=spec.prefer_early_period,
             avoid_first_period=spec.avoid_first_period,
             avoid_last_period=spec.avoid_last_period,
         )
