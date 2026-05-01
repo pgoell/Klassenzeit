@@ -30,7 +30,14 @@ def multi_class_problem() -> str:
         ],
         "teachers": [{"id": teacher, "max_hours_per_week": 10}],
         "rooms": [{"id": room}],
-        "subjects": [{"id": subject, "prefer_early_periods": False, "avoid_first_period": False}],
+        "subjects": [
+            {
+                "id": subject,
+                "prefer_early_periods": False,
+                "avoid_first_period": False,
+                "avoid_last_period": False,
+            }
+        ],
         "school_classes": [{"id": cid_a}, {"id": cid_b}],
         "lessons": [
             {

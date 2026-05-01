@@ -21,6 +21,7 @@ export const initialSubjects = [
     color: "chart-3",
     prefer_early_periods: false,
     avoid_first_period: false,
+    avoid_last_period: false,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -185,6 +186,7 @@ export const defaultHandlers = [
       color: string;
       prefer_early_periods?: boolean;
       avoid_first_period?: boolean;
+      avoid_last_period?: boolean;
     };
     return HttpResponse.json(
       {
@@ -194,6 +196,7 @@ export const defaultHandlers = [
         color: body.color,
         prefer_early_periods: body.prefer_early_periods ?? false,
         avoid_first_period: body.avoid_first_period ?? false,
+        avoid_last_period: body.avoid_last_period ?? false,
         created_at: "2026-04-17T00:00:00Z",
         updated_at: "2026-04-17T00:00:00Z",
       },

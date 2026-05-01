@@ -19,9 +19,9 @@ use crate::validate::{pre_solve_violations, validate_structural};
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
 /// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period
-///   = prefer_home_room = 1`. Callers wanting greedy-only behaviour
-/// (no LAHC pass) construct their own [`SolveConfig`] with `deadline: None`
-/// and call [`solve_with_config`] directly.
+///   = prefer_home_room = avoid_last_period = 1`. Callers wanting greedy-only
+/// behaviour (no LAHC pass) construct their own [`SolveConfig`] with
+/// `deadline: None` and call [`solve_with_config`] directly.
 pub fn solve(problem: &Problem) -> Result<Solution, Error> {
     let active_default = SolveConfig {
         weights: ConstraintWeights {
@@ -30,6 +30,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             prefer_early_period: 1,
             avoid_first_period: 1,
             prefer_home_room: 1,
+            avoid_last_period: 1,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -77,6 +78,16 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
     });
     let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
     room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+    let max_position_per_day: HashMap<u8, u8> =
+        problem
+            .time_blocks
+            .iter()
+            .fold(HashMap::new(), |mut acc, tb| {
+                acc.entry(tb.day_of_week)
+                    .and_modify(|m| *m = (*m).max(tb.position))
+                    .or_insert(tb.position);
+                acc
+            });
 
     let order = crate::ordering::ffd_order(problem, &idx);
     for &lesson_idx in &order {
@@ -116,6 +127,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                             &mut solution.placements,
                             &tb_order,
                             &room_order,
+                            &max_position_per_day,
                         )
                     };
                     if !placed {
@@ -150,6 +162,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                 &mut solution.placements,
                 &tb_order,
                 &room_order,
+                &max_position_per_day,
             );
             if !placed {
                 solution.violations.push(Violation {
@@ -259,6 +272,7 @@ fn try_place_block(
     placements: &mut Vec<Placement>,
     tb_order: &[usize],
     room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
 ) -> bool {
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     let teacher = lesson.teacher_id;
@@ -331,11 +345,16 @@ fn try_place_block(
             None => 0,
         };
         let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
+        let max_pos = max_position_per_day
+            .get(&first_tb.day_of_week)
+            .copied()
+            .unwrap_or(end_pos);
         let mut subject_pref = 0u32;
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-            subject_pref = subject_pref
-                .saturating_add(crate::score::subject_preference_score(subject, tb, weights));
+            subject_pref = subject_pref.saturating_add(crate::score::subject_preference_score(
+                subject, tb, max_pos, weights,
+            ));
         }
         let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
         let teacher_delta_w = (i64::from(teacher_new) - i64::from(teacher_old))
@@ -472,6 +491,7 @@ fn try_place_group(
     placements: &mut Vec<Placement>,
     tb_order: &[usize],
     room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
 ) -> bool {
     let n_usize = n as usize;
     let members: Vec<&Lesson> = member_indices
@@ -604,6 +624,10 @@ fn try_place_group(
             let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
             teacher_delta_sum += i64::from(teacher_new) - i64::from(teacher_old);
         }
+        let max_pos = max_position_per_day
+            .get(&first_tb.day_of_week)
+            .copied()
+            .unwrap_or(end_pos);
         let mut subject_pref = 0u32;
         for member in &members {
             let subject = problem
@@ -613,8 +637,9 @@ fn try_place_group(
                 .expect("validate_structural ensures member subject_id resolves");
             for k in 0..n_usize {
                 let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-                subject_pref = subject_pref
-                    .saturating_add(crate::score::subject_preference_score(subject, tb, weights));
+                subject_pref = subject_pref.saturating_add(crate::score::subject_preference_score(
+                    subject, tb, max_pos, weights,
+                ));
             }
         }
         let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
@@ -746,6 +771,7 @@ mod tests {
                 id: SubjectId(solve_uuid(40)),
                 prefer_early_periods: false,
                 avoid_first_period: false,
+                avoid_last_period: false,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
@@ -810,6 +836,7 @@ mod tests {
             id: SubjectId(solve_uuid(41)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.room_subject_suitabilities.push(RoomSubjectSuitability {
             room_id: RoomId(solve_uuid(30)),
@@ -853,6 +880,7 @@ mod tests {
             id: SubjectId(solve_uuid(41)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -884,6 +912,7 @@ mod tests {
             id: SubjectId(solve_uuid(41)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -984,6 +1013,7 @@ mod tests {
             id: SubjectId(solve_uuid(41)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1122,6 +1152,7 @@ mod tests {
                     prefer_early_period: 1,
                     avoid_first_period: 1,
                     prefer_home_room: 0,
+                    avoid_last_period: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -1133,6 +1164,43 @@ mod tests {
             TimeBlockId(solve_uuid(10)),
             "expected the avoid-first subject to skip position 0"
         );
+    }
+
+    #[test]
+    fn greedy_avoids_max_position_for_avoid_last_subject_when_alternative_exists() {
+        // Single class, single teacher, single subject flagged avoid_last_period.
+        // Three time-blocks on day 0 (positions 0, 1, 2; max = 2). Two hours to
+        // place; both placements must avoid position 2 (the day's max).
+        let mut p = base_problem();
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(solve_uuid(12)),
+            day_of_week: 0,
+            position: 2,
+        });
+        p.subjects[0].avoid_last_period = true;
+        p.lessons[0].hours_per_week = 2;
+        let s = solve_with_config(
+            &p,
+            &SolveConfig {
+                weights: ConstraintWeights {
+                    avoid_last_period: 1,
+                    ..ConstraintWeights::default()
+                },
+                ..SolveConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(s.placements.len(), 2);
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            p.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        for placement in &s.placements {
+            let tb = tb_lookup[&placement.time_block_id];
+            assert_ne!(
+                tb.position, 2,
+                "greedy should avoid max-position TB; got {:?}",
+                placement
+            );
+        }
     }
 
     #[test]
@@ -1441,6 +1509,7 @@ mod tests {
             id: SubjectId(solve_uuid(41)),
             prefer_early_periods: false,
             avoid_first_period: false,
+            avoid_last_period: false,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(22)),
@@ -1544,6 +1613,7 @@ mod tests {
                     prefer_early_period: 1,
                     avoid_first_period: 1,
                     prefer_home_room: 0,
+                    avoid_last_period: 0,
                 },
                 ..SolveConfig::default()
             },

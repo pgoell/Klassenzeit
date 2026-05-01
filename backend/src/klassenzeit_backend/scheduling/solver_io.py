@@ -258,6 +258,7 @@ async def build_problem_json(
                 "id": str(s.id),
                 "prefer_early_periods": s.prefer_early_periods,
                 "avoid_first_period": s.avoid_first_period,
+                "avoid_last_period": s.avoid_last_period,
             }
             for s in subjects
         ],

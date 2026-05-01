@@ -36,7 +36,14 @@ def _minimal_problem() -> dict:
         "time_blocks": [{"id": tb, "day_of_week": 0, "position": 0}],
         "teachers": [{"id": teacher, "max_hours_per_week": 5}],
         "rooms": [{"id": room}],
-        "subjects": [{"id": subject, "prefer_early_periods": False, "avoid_first_period": False}],
+        "subjects": [
+            {
+                "id": subject,
+                "prefer_early_periods": False,
+                "avoid_first_period": False,
+                "avoid_last_period": False,
+            }
+        ],
         "school_classes": [{"id": class_id}],
         "lessons": [
             {

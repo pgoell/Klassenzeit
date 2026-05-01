@@ -24,6 +24,9 @@ class Subject(Base):
     avoid_first_period: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false")
     )
+    avoid_last_period: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

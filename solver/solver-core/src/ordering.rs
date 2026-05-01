@@ -100,11 +100,13 @@ mod tests {
                     id: SubjectId(ord_uuid(40)),
                     prefer_early_periods: false,
                     avoid_first_period: false,
+                    avoid_last_period: false,
                 },
                 Subject {
                     id: SubjectId(ord_uuid(41)),
                     prefer_early_periods: false,
                     avoid_first_period: false,
+                    avoid_last_period: false,
                 },
             ],
             school_classes: vec![

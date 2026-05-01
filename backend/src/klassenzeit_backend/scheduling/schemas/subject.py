@@ -16,6 +16,7 @@ class SubjectCreate(BaseModel):
     color: str = Field(pattern=COLOR_PATTERN)
     prefer_early_periods: bool = False
     avoid_first_period: bool = False
+    avoid_last_period: bool = False
 
 
 class SubjectUpdate(BaseModel):
@@ -26,6 +27,7 @@ class SubjectUpdate(BaseModel):
     color: str | None = Field(default=None, pattern=COLOR_PATTERN)
     prefer_early_periods: bool | None = None
     avoid_first_period: bool | None = None
+    avoid_last_period: bool | None = None
 
 
 class SubjectResponse(BaseModel):
@@ -37,5 +39,6 @@ class SubjectResponse(BaseModel):
     color: str
     prefer_early_periods: bool
     avoid_first_period: bool
+    avoid_last_period: bool
     created_at: datetime
     updated_at: datetime

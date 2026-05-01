@@ -49,6 +49,17 @@ describe("SubjectsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("create dialog renders the avoid-last-period checkbox", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SubjectsPage />);
+    await screen.findByText("Mathematik");
+    await user.click(screen.getByRole("button", { name: /neues fach/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByRole("checkbox", { name: /letzte stunde meiden/i }),
+    ).toBeInTheDocument();
+  });
+
   it("submitting create dialog with both checkboxes ticked sends both fields", async () => {
     const user = userEvent.setup();
     const requestBody = vi.fn();
@@ -92,5 +103,49 @@ describe("SubjectsPage", () => {
     const body = firstCall[0] as Record<string, unknown>;
     expect(body.prefer_early_periods).toBe(true);
     expect(body.avoid_first_period).toBe(true);
+  });
+
+  it("submitting create dialog with avoid-last-period ticked sends the field", async () => {
+    const user = userEvent.setup();
+    const requestBody = vi.fn();
+
+    server.use(
+      http.post("http://localhost:3000/api/subjects", async ({ request }) => {
+        const body = await request.json();
+        requestBody(body);
+        return HttpResponse.json(
+          {
+            id: "33333333-3333-3333-3333-333333333333",
+            name: "Test",
+            short_name: "TS",
+            color: "chart-1",
+            prefer_early_periods: false,
+            avoid_first_period: false,
+            avoid_last_period: true,
+            created_at: "2026-05-01T00:00:00Z",
+            updated_at: "2026-05-01T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderWithProviders(<SubjectsPage />);
+    await screen.findByText("Mathematik");
+    await user.click(screen.getByRole("button", { name: /neues fach/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^name$/i), "Test");
+    await user.type(within(dialog).getByLabelText(/kürzel/i), "TS");
+    await user.click(within(dialog).getByRole("checkbox", { name: /letzte stunde meiden/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^anlegen$/i }));
+
+    await waitFor(() => {
+      expect(requestBody).toHaveBeenCalledOnce();
+    });
+    const firstCall = requestBody.mock.calls[0];
+    if (!firstCall) throw new Error("requestBody was not called");
+    const body = firstCall[0] as Record<string, unknown>;
+    expect(body.avoid_last_period).toBe(true);
   });
 });

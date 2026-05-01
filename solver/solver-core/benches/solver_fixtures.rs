@@ -88,6 +88,7 @@ fn grundschule_fixture() -> Problem {
             id: *id,
             prefer_early_periods: matches!(i, 0 | 1), // index 0 = Deutsch, 1 = Mathematik
             avoid_first_period: i == 7,               // index 7 = Sport
+            avoid_last_period: matches!(i, 0 | 1),    // index 0 = Deutsch, 1 = Mathematik
         })
         .collect();
 
@@ -195,6 +196,7 @@ fn zweizuegig_fixture() -> Problem {
             id: *id,
             prefer_early_periods: matches!(i, 0 | 1), // index 0 = Deutsch, 1 = Mathematik
             avoid_first_period: i == 7,               // index 7 = Sport
+            avoid_last_period: matches!(i, 0 | 1),    // index 0 = Deutsch, 1 = Mathematik
         })
         .collect();
 
@@ -362,6 +364,7 @@ fn dreizuegig_fixture() -> Problem {
             id: *id,
             prefer_early_periods: matches!(i, 0 | 1), // index 0 = Deutsch, 1 = Mathematik
             avoid_first_period: i == 9,               // index 9 = Sport
+            avoid_last_period: matches!(i, 0 | 1),    // index 0 = Deutsch, 1 = Mathematik
         })
         .collect();
 
