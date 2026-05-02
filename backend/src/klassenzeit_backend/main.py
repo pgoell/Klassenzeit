@@ -17,7 +17,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from klassenzeit_backend.auth.rate_limit import LoginRateLimiter
 from klassenzeit_backend.auth.routes import auth_router
-from klassenzeit_backend.core.logging import _resolve_request_id, configure_logging
+from klassenzeit_backend.core.logging import (
+    _resolve_request_id,
+    configure_logging,
+    request_id_var,
+)
 from klassenzeit_backend.core.settings import get_settings
 from klassenzeit_backend.db.engine import build_engine
 from klassenzeit_backend.scheduling.routes import scheduling_router
@@ -113,21 +117,24 @@ def build_app(env: str | None) -> FastAPI:
     ) -> Response:
         request_id = _resolve_request_id(request.headers.get("x-request-id"))
         request.state.request_id = request_id
-        started = time.monotonic()
-        response = await call_next(request)
-        duration_ms = (time.monotonic() - started) * 1000.0
-        response.headers["X-Request-ID"] = request_id
-        _ACCESS_LOGGER.info(
-            "http.request",
-            extra={
-                "method": request.method,
-                "path": request.url.path,
-                "status": response.status_code,
-                "duration_ms": duration_ms,
-                "request_id": request_id,
-            },
-        )
-        return response
+        token = request_id_var.set(request_id)
+        try:
+            started = time.monotonic()
+            response = await call_next(request)
+            duration_ms = (time.monotonic() - started) * 1000.0
+            response.headers["X-Request-ID"] = request_id
+            _ACCESS_LOGGER.info(
+                "http.request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": response.status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
+            return response
+        finally:
+            request_id_var.reset(token)
 
     return new_app
 

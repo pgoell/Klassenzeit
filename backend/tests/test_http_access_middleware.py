@@ -89,3 +89,28 @@ async def test_access_middleware_records_duration_under_one_second_for_health_ch
 
     record = next(r for r in caplog.records if r.name == "klassenzeit_backend.http.access")
     assert 0.0 <= record.__dict__["duration_ms"] < 1000.0
+
+
+async def test_request_id_propagates_to_route_handler_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="klassenzeit_backend.http.access")
+    caplog.set_level(logging.INFO, logger="klassenzeit_backend.tests.probe")
+    app = build_app(env="dev")
+    probe_logger = logging.getLogger("klassenzeit_backend.tests.probe")
+
+    @app.get("/__probe")
+    async def _probe() -> dict[str, str]:
+        probe_logger.info("test.probe", extra={"k": "v"})
+        return {"ok": "1"}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/__probe", headers={"X-Request-ID": "rid-probe-1"})
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "rid-probe-1"
+    access_record = next(r for r in caplog.records if r.name == "klassenzeit_backend.http.access")
+    probe_record = next(r for r in caplog.records if r.name == "klassenzeit_backend.tests.probe")
+    assert access_record.__dict__["request_id"] == "rid-probe-1"
+    assert probe_record.__dict__["request_id"] == "rid-probe-1"
