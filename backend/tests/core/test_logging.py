@@ -10,9 +10,11 @@ import pytest
 import klassenzeit_backend.core.logging as kz_logging_module
 from klassenzeit_backend.core.logging import (
     JsonFormatter,
+    RequestIdFilter,
     _coerce,
     _resolve_request_id,
     configure_logging,
+    request_id_var,
 )
 
 
@@ -151,3 +153,31 @@ def test_resolve_request_id_regenerates_on_oversized_inbound() -> None:
 def test_resolve_request_id_regenerates_on_empty_inbound() -> None:
     rid = _resolve_request_id("")
     assert len(rid) == 32
+
+
+def test_request_id_filter_injects_value_from_contextvar() -> None:
+    token = request_id_var.set("rid-from-ctx")
+    try:
+        record = _make_record()
+        assert "request_id" not in record.__dict__
+        result = RequestIdFilter().filter(record)
+        assert result is True
+        assert record.__dict__["request_id"] == "rid-from-ctx"
+    finally:
+        request_id_var.reset(token)
+
+
+def test_request_id_filter_does_not_overwrite_explicit_value() -> None:
+    token = request_id_var.set("rid-from-ctx")
+    try:
+        record = _make_record(extra={"request_id": "explicit"})
+        RequestIdFilter().filter(record)
+        assert record.__dict__["request_id"] == "explicit"
+    finally:
+        request_id_var.reset(token)
+
+
+def test_request_id_filter_no_op_when_contextvar_unset() -> None:
+    record = _make_record()
+    RequestIdFilter().filter(record)
+    assert "request_id" not in record.__dict__
