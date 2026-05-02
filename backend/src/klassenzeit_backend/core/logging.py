@@ -14,6 +14,7 @@ import logging
 import sys
 import traceback
 import uuid
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, Final, Literal
 
@@ -48,6 +49,8 @@ _RESERVED: Final[frozenset[str]] = frozenset(
 )
 
 _REQUEST_ID_MAX_LEN: Final[int] = 64
+
+request_id_var: ContextVar[str | None] = ContextVar("klassenzeit_request_id", default=None)
 
 
 def _coerce(value: Any) -> Any:
@@ -91,6 +94,25 @@ def _resolve_request_id(inbound: str | None) -> str:
     return inbound
 
 
+class RequestIdFilter(logging.Filter):
+    """Inject `request_id` from the `request_id_var` ContextVar onto records.
+
+    Runs before the formatter. If the record already carries `request_id`
+    (e.g. an explicit `extra={"request_id": ...}` from a background task
+    tagging a follow-up event), the explicit value wins. If the contextvar
+    is unset (e.g. records emitted at startup or from a non-request task),
+    the filter is a no-op.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Inject `request_id` from the contextvar if absent on the record."""
+        if "request_id" not in record.__dict__:
+            rid = request_id_var.get()
+            if rid is not None:
+                record.request_id = rid
+        return True
+
+
 _configured: bool = False
 
 
@@ -120,6 +142,7 @@ def configure_logging(
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    handler.addFilter(RequestIdFilter())
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(log_level)
