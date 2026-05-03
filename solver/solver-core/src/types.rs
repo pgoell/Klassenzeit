@@ -306,10 +306,15 @@ pub struct Violation {
     pub lesson_id: LessonId,
     /// Zero-based hour index within the lesson.
     pub hour_index: u8,
+    /// Optional reason string accompanying the violation. Today only
+    /// `PinnedConflict` populates this; other variants leave it `None`.
+    /// Wire format is additive (`#[serde(default)]`).
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Discriminator for `Violation`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ViolationKind {
     /// The lesson's assigned teacher lacks the subject qualification.
@@ -324,15 +329,11 @@ pub enum ViolationKind {
     /// admits all group members with pairwise-distinct rooms and free
     /// teachers / classes. One entry per qualified member per failed block.
     LessonGroupSplit,
-    /// A pin-on-input entry was malformed and dropped. `reason` is
-    /// one of `"unknown_lesson"`, `"unknown_time_block"`, `"unknown_room"`,
+    /// A pin-on-input entry was malformed and dropped. The accompanying
+    /// `Violation.reason` carries the diagnostic code: one of
+    /// `"unknown_lesson"`, `"unknown_time_block"`, `"unknown_room"`,
     /// `"duplicate_slot"`, `"block_size_mismatch"`.
-    PinnedConflict {
-        /// The lesson whose pin was rejected.
-        lesson_id: LessonId,
-        /// Short identifier describing why the pin was dropped.
-        reason: String,
-    },
+    PinnedConflict,
 }
 
 #[cfg(test)]
@@ -505,6 +506,7 @@ mod tests {
                 kind: ViolationKind::TeacherOverCapacity,
                 lesson_id: lesson_id(),
                 hour_index: 0,
+                reason: None,
             }],
             soft_score: 0,
         };

@@ -31,6 +31,7 @@ class ViolationResponse(BaseModel):
     ]
     lesson_id: UUID
     hour_index: int = Field(ge=0)
+    reason: str | None = None
 
 
 class ScheduleResponse(BaseModel):

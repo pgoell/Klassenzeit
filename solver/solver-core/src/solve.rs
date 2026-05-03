@@ -155,6 +155,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                                 kind: ViolationKind::LessonGroupSplit,
                                 lesson_id: member.id,
                                 hour_index: block_index * n,
+                                reason: None,
                             });
                         }
                     }
@@ -192,6 +193,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                     ),
                     lesson_id: lesson.id,
                     hour_index: block_index * n,
+                    reason: None,
                 });
             }
         }
@@ -753,12 +755,10 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
 
     let push_violation = |violations: &mut Vec<Violation>, lesson_id: LessonId, reason: &str| {
         violations.push(Violation {
-            kind: ViolationKind::PinnedConflict {
-                lesson_id,
-                reason: reason.to_string(),
-            },
+            kind: ViolationKind::PinnedConflict,
             lesson_id,
             hour_index: 0,
+            reason: Some(reason.to_string()),
         });
     };
 
@@ -1819,11 +1819,9 @@ mod tests {
             .violations
             .iter()
             .filter(|v| {
-                matches!(
-                    &v.kind,
-                    ViolationKind::PinnedConflict { lesson_id, reason }
-                        if *lesson_id == bogus_lesson_id && reason == "unknown_lesson"
-                )
+                matches!(v.kind, ViolationKind::PinnedConflict)
+                    && v.lesson_id == bogus_lesson_id
+                    && v.reason.as_deref() == Some("unknown_lesson")
             })
             .collect();
         assert_eq!(

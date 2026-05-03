@@ -221,6 +221,7 @@ pub fn pre_solve_violations(problem: &Problem) -> Vec<Violation> {
                 kind: ViolationKind::NoQualifiedTeacher,
                 lesson_id: lesson.id,
                 hour_index: block_index * n,
+                reason: None,
             });
         }
     }
