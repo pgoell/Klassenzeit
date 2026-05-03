@@ -192,6 +192,7 @@ async def test_build_problem_json_returns_populated_shape(
         "teacher_blocked_times",
         "room_blocked_times",
         "room_subject_suitabilities",
+        "pinned_placements",
     }
     assert set(problem.keys()) == expected_keys
 
@@ -908,6 +909,67 @@ async def test_collect_pinned_placements_excludes_target_class(
     assert pins[0]["lesson_id"] == str(lesson_b.id)
     assert pins[0]["time_block_id"] == str(tb_b.id)
     assert pins[0]["room_id"] == str(room_b.id)
+
+
+async def test_build_problem_json_threads_pinned_placements_into_wire_format(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """build_problem_json embeds pinned_placements verbatim into the returned wire JSON."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    pins = [
+        {
+            "lesson_id": "00000000-0000-0000-0000-000000000001",
+            "time_block_id": "00000000-0000-0000-0000-000000000002",
+            "room_id": "00000000-0000-0000-0000-000000000003",
+        }
+    ]
+
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id, pinned_placements=pins)
+    parsed = json.loads(problem_json)
+
+    assert parsed["pinned_placements"] == pins
+
+
+async def test_build_problem_json_omits_pinned_placements_defaults_to_empty_list(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """Callers omitting pinned_placements get an empty list in the wire format."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    parsed = json.loads(problem_json)
+    assert parsed["pinned_placements"] == []
 
 
 async def test_collect_pinned_placements_returns_empty_when_all_excluded(

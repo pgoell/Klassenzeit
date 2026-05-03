@@ -81,11 +81,19 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
 
 
 async def build_problem_json(
-    db: AsyncSession, class_id: UUID
+    db: AsyncSession,
+    class_id: UUID,
+    *,
+    pinned_placements: list[dict[str, str]] | None = None,
 ) -> tuple[str, set[UUID], dict[str, int]]:
     """Load the school-wide solver input for the class and serialize it to JSON.
 
     Returns ``(problem_json, class_lesson_ids, input_counts)``.
+
+    The optional ``pinned_placements`` is forwarded verbatim into the wire
+    format under the same-named key. Default-empty mirrors the solver-core
+    ``#[serde(default)]`` behavior so callers omitting the field work
+    unchanged.
 
     Raises:
         HTTPException: 404 if the class doesn't exist, 422 on a pre-solve data
@@ -293,6 +301,7 @@ async def build_problem_json(
             {"room_id": str(s.room_id), "subject_id": str(s.subject_id)}
             for s in room_subject_suitabilities
         ],
+        "pinned_placements": pinned_placements or [],
     }
 
     class_lesson_ids = {
