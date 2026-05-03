@@ -94,7 +94,7 @@ export function SubjectsPage() {
                 </Button>
               </>
             )}
-            actionsHeader={t("subjects.columns.actions")}
+            actionsHeader={t("common.actions")}
           />
         </>
       )}

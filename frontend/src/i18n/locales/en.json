@@ -13,6 +13,7 @@
     "search": "Search",
     "noResults": "No matches. Try a different search.",
     "open": "Open",
+    "actions": "Actions",
     "daysShort": {
       "0": "Mon",
       "1": "Tue",
@@ -126,8 +127,7 @@
     "new": "New subject",
     "columns": {
       "name": "Name",
-      "shortName": "Short name",
-      "actions": "Actions"
+      "shortName": "Short name"
     },
     "empty": {
       "title": "Start with your subject catalogue",
@@ -171,8 +171,7 @@
       "name": "Name",
       "shortName": "Short name",
       "capacity": "Capacity",
-      "subjects": "Subjects",
-      "actions": "Actions"
+      "subjects": "Subjects"
     },
     "empty": {
       "title": "No rooms yet",
@@ -210,8 +209,7 @@
       "firstName": "First name",
       "lastName": "Last name",
       "shortCode": "Short code",
-      "maxHoursPerWeek": "Max hours / week",
-      "actions": "Actions"
+      "maxHoursPerWeek": "Max hours / week"
     },
     "empty": {
       "title": "No teachers on staff",
@@ -262,8 +260,7 @@
     "new": "New week scheme",
     "columns": {
       "name": "Name",
-      "description": "Description",
-      "actions": "Actions"
+      "description": "Description"
     },
     "empty": {
       "title": "No week schemes yet",
@@ -292,8 +289,7 @@
         "day": "Day",
         "position": "Period",
         "start": "Start",
-        "end": "End",
-        "actions": "Actions"
+        "end": "End"
       },
       "createTitle": "Add time block",
       "editTitle": "Edit time block",
@@ -357,8 +353,7 @@
       "name": "Name",
       "gradeLevel": "Grade",
       "stundentafel": "Curriculum",
-      "weekScheme": "Week scheme",
-      "actions": "Actions"
+      "weekScheme": "Week scheme"
     },
     "empty": {
       "title": "No school classes yet",
@@ -407,8 +402,7 @@
       "subject": "Subject",
       "teacher": "Teacher",
       "hoursPerWeek": "Hours / week",
-      "blockSize": "Format",
-      "actions": "Actions"
+      "blockSize": "Format"
     },
     "empty": {
       "title": "No lessons yet",
@@ -455,8 +449,7 @@
     "loadError": "Could not load curricula.",
     "columns": {
       "name": "Name",
-      "gradeLevel": "Grade",
-      "actions": "Actions"
+      "gradeLevel": "Grade"
     },
     "empty": {
       "title": "No curricula yet",
@@ -496,8 +489,7 @@
       "columns": {
         "subject": "Subject",
         "hoursPerWeek": "Hours / week",
-        "blockSize": "Format",
-        "actions": "Actions"
+        "blockSize": "Format"
       },
       "createTitle": "New entry",
       "editTitle": "Edit entry",

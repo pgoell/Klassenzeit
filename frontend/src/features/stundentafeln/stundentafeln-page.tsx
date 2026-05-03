@@ -99,7 +99,7 @@ export function StundentafelnPage() {
                 </Button>
               </>
             )}
-            actionsHeader={t("stundentafeln.columns.actions")}
+            actionsHeader={t("common.actions")}
           />
         </>
       )}

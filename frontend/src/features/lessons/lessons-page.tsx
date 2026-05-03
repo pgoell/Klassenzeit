@@ -131,7 +131,7 @@ export function LessonsPage() {
                 </Button>
               </>
             )}
-            actionsHeader={t("lessons.columns.actions")}
+            actionsHeader={t("common.actions")}
           />
         </>
       )}

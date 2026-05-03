@@ -95,7 +95,7 @@ export function RoomsPage() {
                 </Button>
               </>
             )}
-            actionsHeader={t("rooms.columns.actions")}
+            actionsHeader={t("common.actions")}
           />
         </>
       )}
