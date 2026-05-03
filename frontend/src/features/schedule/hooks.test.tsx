@@ -115,12 +115,48 @@ describe("useGenerateAllSchedules", () => {
     violationsByClassId[CLASS_ID] = [];
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
-    const response = await result.current.mutateAsync();
+    const response = await result.current.mutateAsync({ respect_pins: true });
     expect(response.total_placements).toBe(1);
     expect(response.total_violations).toBe(0);
     expect(response.classes).toEqual([
       { class_id: CLASS_ID, placements_count: 1, violations_count: 0 },
     ]);
+  });
+
+  it("threads respect_pins=true onto the request as a query param", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.post("http://localhost:3000/api/schedule/all", ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json({
+          classes: [],
+          total_placements: 0,
+          total_violations: 0,
+        });
+      }),
+    );
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
+    await result.current.mutateAsync({ respect_pins: true });
+    expect(receivedUrl).toContain("respect_pins=true");
+  });
+
+  it("threads respect_pins=false onto the request as a query param", async () => {
+    let receivedUrl = "";
+    server.use(
+      http.post("http://localhost:3000/api/schedule/all", ({ request }) => {
+        receivedUrl = request.url;
+        return HttpResponse.json({
+          classes: [],
+          total_placements: 0,
+          total_violations: 0,
+        });
+      }),
+    );
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
+    await result.current.mutateAsync({ respect_pins: false });
+    expect(receivedUrl).toContain("respect_pins=false");
   });
 
   it("invalidates ['schedule'] queries on success so open class schedules refetch", async () => {
@@ -131,7 +167,7 @@ describe("useGenerateAllSchedules", () => {
     // should mark it stale, triggering a refetch on next observer.
     client.setQueryData(scheduleQueryKey(CLASS_ID), { placements: [] });
     const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
-    await result.current.mutateAsync();
+    await result.current.mutateAsync({ respect_pins: true });
     const state = client.getQueryState(scheduleQueryKey(CLASS_ID));
     expect(state?.isInvalidated).toBe(true);
   });

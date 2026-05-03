@@ -178,11 +178,17 @@ export function useSwapPlacements() {
   });
 }
 
+export interface GenerateAllSchedulesVars {
+  respect_pins: boolean;
+}
+
 export function useGenerateAllSchedules() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<WholeSchoolScheduleResponse> => {
-      const { data } = await client.POST("/api/schedule/all");
+    mutationFn: async (vars: GenerateAllSchedulesVars): Promise<WholeSchoolScheduleResponse> => {
+      const { data } = await client.POST("/api/schedule/all", {
+        params: { query: { respect_pins: vars.respect_pins } },
+      });
       if (!data) {
         throw new ApiError(500, null, "Empty response from POST /schedule/all");
       }
