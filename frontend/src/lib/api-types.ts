@@ -1803,6 +1803,12 @@ export interface components {
             home_room_id?: string | null;
         };
         /**
+         * SchoolType
+         * @description Hessen Schulform classification on a curriculum (Stundentafel).
+         * @enum {string}
+         */
+        SchoolType: "Grundschule" | "Hauptschule" | "Realschule" | "Gymnasium" | "Gesamtschule";
+        /**
          * StundentafelCreate
          * @description Request body for creating a Stundentafel.
          */
@@ -1811,6 +1817,8 @@ export interface components {
             name: string;
             /** Grade Level */
             grade_level: number;
+            /** @default Grundschule */
+            school_type: components["schemas"]["SchoolType"];
         };
         /**
          * StundentafelDetailResponse
@@ -1826,6 +1834,7 @@ export interface components {
             name: string;
             /** Grade Level */
             grade_level: number;
+            school_type: components["schemas"]["SchoolType"];
             /** Entries */
             entries: components["schemas"]["StundentafelEntryResponse"][];
             /**
@@ -1869,6 +1878,7 @@ export interface components {
             name: string;
             /** Grade Level */
             grade_level: number;
+            school_type: components["schemas"]["SchoolType"];
             /**
              * Created At
              * Format: date-time
@@ -1889,6 +1899,7 @@ export interface components {
             name?: string | null;
             /** Grade Level */
             grade_level?: number | null;
+            school_type?: components["schemas"]["SchoolType"] | null;
         };
         /**
          * SubjectCreate

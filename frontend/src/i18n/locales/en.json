@@ -462,6 +462,14 @@
       "nameLabel": "Name",
       "namePlaceholder": "e.g. Grundschule Klasse 1",
       "gradeLevelLabel": "Grade",
+      "schoolTypeLabel": "School type",
+      "schoolType": {
+        "Grundschule": "Grundschule",
+        "Hauptschule": "Hauptschule",
+        "Realschule": "Realschule",
+        "Gymnasium": "Gymnasium",
+        "Gesamtschule": "Gesamtschule"
+      },
       "subjectLabel": "Subject",
       "subjectPlaceholder": "Select a subject",
       "hoursPerWeekLabel": "Hours / week",
