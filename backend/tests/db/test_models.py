@@ -1,9 +1,11 @@
 """Tests for the model re-export surface and model metadata."""
 
+import pytest
 from sqlalchemy import Boolean, DateTime, String
 
 from klassenzeit_backend.db.base import Base
 from klassenzeit_backend.db.models import User, UserSession
+from klassenzeit_backend.db.models.stundentafel import SchoolType, Stundentafel
 
 
 def test_user_model_is_registered_on_metadata() -> None:
@@ -80,3 +82,18 @@ def test_user_session_has_expected_columns() -> None:
 
 def test_user_session_is_importable_from_models_package() -> None:
     assert UserSession.__tablename__ == "sessions"
+
+
+@pytest.mark.asyncio
+async def test_stundentafel_school_type_round_trip(db_session):
+    tafel = Stundentafel(
+        name="Gymnasium Klasse 5",
+        grade_level=5,
+        school_type=SchoolType.GYMNASIUM,
+    )
+    db_session.add(tafel)
+    await db_session.flush()
+    await db_session.refresh(tafel)
+    assert tafel.school_type is SchoolType.GYMNASIUM
+    assert isinstance(tafel.school_type, SchoolType)
+    assert tafel.school_type.value == "Gymnasium"
