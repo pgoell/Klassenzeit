@@ -26,6 +26,9 @@ target/
 backend/.env
 backend/.env.local
 
+# Local dev credentials note (not checked in; see scripts/create-admin docs)
+dev-login.local.md
+
 # Playwright (frontend e2e)
 frontend/e2e/.auth/
 frontend/playwright-report/
