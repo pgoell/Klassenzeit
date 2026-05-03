@@ -337,7 +337,23 @@
       "errorToast": "Failed to generate schedule.",
       "allAction": "Generate all",
       "allSuccessToast": "Generated {{classes}} classes ({{placements}} placements, {{violations}} violations)",
-      "allErrorToast": "Could not generate all schedules"
+      "allErrorToast": "Could not generate all schedules",
+      "respectPinsAction": "Re-solve respecting my pins",
+      "respectPinsSuccessToast": "Schedule re-solved; your pins were preserved.",
+      "fromScratchAction": "Generate all from scratch",
+      "fromScratchSuccessToast": "Schedule regenerated from scratch."
+    },
+    "actions": {
+      "pin": "Pin this lesson",
+      "unpin": "Unpin this lesson",
+      "moveHandle": "Drag to move"
+    },
+    "toasts": {
+      "moveSuccess": "Lesson moved.",
+      "swapSuccess": "Lessons swapped.",
+      "pinned": "Lesson pinned.",
+      "unpinned": "Lesson unpinned.",
+      "mutationError": "Could not save change. Reverted."
     },
     "empty": {
       "title": "No schedule yet",

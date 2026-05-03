@@ -337,7 +337,23 @@
       "errorToast": "Stundenplan konnte nicht erstellt werden.",
       "allAction": "Alle generieren",
       "allSuccessToast": "{{classes}} Klassen generiert ({{placements}} Platzierungen, {{violations}} Verstöße)",
-      "allErrorToast": "Konnte nicht alle Stundenpläne erstellen"
+      "allErrorToast": "Konnte nicht alle Stundenpläne erstellen",
+      "respectPinsAction": "Mit meinen Pins neu rechnen",
+      "respectPinsSuccessToast": "Plan neu gerechnet; angepinnte Stunden wurden beibehalten.",
+      "fromScratchAction": "Komplett neu generieren",
+      "fromScratchSuccessToast": "Plan komplett neu generiert."
+    },
+    "actions": {
+      "pin": "Stunde anpinnen",
+      "unpin": "Stunde lösen",
+      "moveHandle": "Zum Verschieben ziehen"
+    },
+    "toasts": {
+      "moveSuccess": "Stunde verschoben.",
+      "swapSuccess": "Stunden getauscht.",
+      "pinned": "Stunde angepinnt.",
+      "unpinned": "Stunde gelöst.",
+      "mutationError": "Änderung konnte nicht gespeichert werden. Zurückgesetzt."
     },
     "empty": {
       "title": "Noch kein Stundenplan",

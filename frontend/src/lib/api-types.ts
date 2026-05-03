@@ -697,13 +697,19 @@ export interface paths {
          * Generate Schedule For All Classes
          * @description Run the solver for every class in one transaction and persist atomically.
          *
-         *     Sibling-pin enforcement does not apply here: whole-school re-solves
-         *     every lesson from scratch, so ``pinned_placements`` is empty.
+         *     When ``respect_pins`` is true (default), every ``ScheduledLesson`` with
+         *     ``pinned=true`` is fed into the solver as a hard pin and the persist
+         *     helper carries the flag onto the resulting row. When ``respect_pins`` is
+         *     false, pins are ignored for this run; the persist helper still preserves
+         *     the database flag for any row that re-emerges in the solver output (per
+         *     the spec contract: "Pin state in the database is unchanged").
          *
          *     Args:
          *         request: The FastAPI request, used to read ``solve_deadline_ms``.
          *         _admin: Injected admin user (enforces authentication).
          *         db: Injected async database session.
+         *         respect_pins: When true, pinned rows are threaded as solver input
+         *             pins. Defaults to true.
          *
          *     Returns:
          *         :class:`WholeSchoolScheduleResponse` with per-class summaries plus
@@ -1390,6 +1396,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/placements/{lesson_id}/{time_block_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Move Placement Route
+         * @description Move a placement to a new time block (and possibly room) and pin it.
+         */
+        patch: operations["move_placement_route_api_placements__lesson_id___time_block_id__patch"];
+        trace?: never;
+    };
+    "/api/placements/{lesson_id}/{time_block_id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Pin Placement Route
+         * @description Toggle the ``pinned`` flag on an existing placement.
+         */
+        patch: operations["pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch"];
+        trace?: never;
+    };
+    "/api/placements/swap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Swap Placements Route
+         * @description Swap two placements' time blocks (and rooms) and pin both.
+         */
+        post: operations["swap_placements_route_api_placements_swap_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1683,8 +1749,52 @@ export interface components {
             force_password_change: boolean;
         };
         /**
+         * MovePlacementRequest
+         * @description Body for `PATCH /api/placements/{lesson_id}/{time_block_id}`.
+         */
+        MovePlacementRequest: {
+            /**
+             * Time Block Id
+             * Format: uuid
+             */
+            time_block_id: string;
+            /**
+             * Room Id
+             * Format: uuid
+             */
+            room_id: string;
+        };
+        /**
+         * PinPlacementRequest
+         * @description Body for `PATCH /api/placements/{lesson_id}/{time_block_id}/pin`.
+         */
+        PinPlacementRequest: {
+            /** Pinned */
+            pinned: boolean;
+        };
+        /**
+         * PlacementKey
+         * @description Composite key used inside `SwapPlacementsRequest`.
+         */
+        PlacementKey: {
+            /**
+             * Lesson Id
+             * Format: uuid
+             */
+            lesson_id: string;
+            /**
+             * Time Block Id
+             * Format: uuid
+             */
+            time_block_id: string;
+        };
+        /**
          * PlacementResponse
          * @description One placed lesson-hour: which lesson, in which time block, in which room.
+         *
+         *     ``pinned`` reflects ``ScheduledLesson.pinned`` for persisted reads and the
+         *     placement-mutation endpoints; defaults to ``False`` for fresh solver
+         *     output, which carries no pinned flag in its wire format.
          */
         PlacementResponse: {
             /**
@@ -1702,6 +1812,11 @@ export interface components {
              * Format: uuid
              */
             room_id: string;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
         };
         /**
          * QualificationResponse
@@ -2117,6 +2232,22 @@ export interface components {
             name: string;
             /** Short Name */
             short_name: string;
+        };
+        /**
+         * SwapPlacementsRequest
+         * @description Body for `POST /api/placements/swap`.
+         */
+        SwapPlacementsRequest: {
+            a: components["schemas"]["PlacementKey"];
+            b: components["schemas"]["PlacementKey"];
+        };
+        /**
+         * SwapPlacementsResponse
+         * @description Two `PlacementResponse`s after the swap completes.
+         */
+        SwapPlacementsResponse: {
+            a: components["schemas"]["PlacementResponse"];
+            b: components["schemas"]["PlacementResponse"];
         };
         /**
          * TeacherAvailabilityEntry
@@ -3507,7 +3638,9 @@ export interface operations {
     };
     generate_schedule_for_all_classes_api_schedule_all_post: {
         parameters: {
-            query?: never;
+            query?: {
+                respect_pins?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4477,6 +4610,117 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_placement_route_api_placements__lesson_id___time_block_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: string;
+                time_block_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MovePlacementRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlacementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: string;
+                time_block_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinPlacementRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlacementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    swap_placements_route_api_placements_swap_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwapPlacementsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwapPlacementsResponse"];
                 };
             };
             /** @description Validation Error */
