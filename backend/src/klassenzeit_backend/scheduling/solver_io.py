@@ -513,12 +513,22 @@ async def persist_solution_for_class(
     db: AsyncSession,
     class_id: UUID,
     filtered: dict,
+    *,
+    pinned_keys: set[tuple[UUID, UUID]] | None = None,
 ) -> None:
     """Replace this class's persisted placements with the filtered solver output.
 
     Deletes every ``scheduled_lessons`` row whose ``lesson_id`` belongs to the
     class, then inserts one row per placement in ``filtered["placements"]``.
     Runs inside the caller's transaction; does not commit.
+
+    Pin-flag preservation: an output placement is persisted with
+    ``pinned=True`` if either (a) its ``(lesson_id, time_block_id)`` is in the
+    caller-supplied ``pinned_keys`` set OR (b) the row already had
+    ``pinned=True`` in the DB at the matching key before the delete. This
+    keeps the spec contract "Pin state in the database is unchanged" valid
+    on a per-class re-solve regardless of whether the caller respects pins
+    on this run.
 
     Args:
         db: The ambient async session (committed by the route handler on
@@ -527,12 +537,16 @@ async def persist_solution_for_class(
         filtered: The solver output already narrowed to this class via
             :func:`filter_solution_for_class`. Only ``filtered["placements"]``
             is read; violations are ignored.
+        pinned_keys: Set of ``(lesson_id, time_block_id)`` pairs that should
+            be marked ``pinned=True`` regardless of prior DB state.
     """
     lesson_ids_subquery = (
         select(Lesson.id)
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
         .where(LessonSchoolClass.school_class_id == class_id)
     )
+    existing_pin_keys = await _existing_pin_keys_for_class(db, class_id)
+    pin_lookup = (pinned_keys or set()) | existing_pin_keys
     delete_result = await db.execute(
         delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(lesson_ids_subquery))
     )
@@ -545,6 +559,7 @@ async def persist_solution_for_class(
             lesson_id=UUID(p["lesson_id"]),
             time_block_id=UUID(p["time_block_id"]),
             room_id=UUID(p["room_id"]),
+            pinned=(UUID(p["lesson_id"]), UUID(p["time_block_id"])) in pin_lookup,
         )
         for p in filtered["placements"]
     ]
@@ -561,9 +576,23 @@ async def persist_solution_for_class(
     )
 
 
+async def _existing_pin_keys_for_class(db: AsyncSession, class_id: UUID) -> set[tuple[UUID, UUID]]:
+    """Return ``(lesson_id, time_block_id)`` pairs that are pinned for this class."""
+    stmt = (
+        select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
+        .join(LessonSchoolClass, LessonSchoolClass.lesson_id == ScheduledLesson.lesson_id)
+        .where(LessonSchoolClass.school_class_id == class_id)
+        .where(ScheduledLesson.pinned.is_(True))
+    )
+    rows = (await db.execute(stmt)).all()
+    return {(lesson_id, time_block_id) for lesson_id, time_block_id in rows}
+
+
 async def persist_solution_for_all_classes(
     db: AsyncSession,
     solution: dict,
+    *,
+    pinned_keys: set[tuple[UUID, UUID]] | None = None,
 ) -> list[ClassScheduleSummary]:
     """Persist the solution's placements for every class in one transaction.
 
@@ -575,6 +604,13 @@ async def persist_solution_for_all_classes(
     Existing ``ScheduledLesson`` rows for any lesson in the new placements are
     deleted before the new placements are inserted (delete-then-insert). Runs
     inside the caller's transaction; does not commit.
+
+    Pin-flag preservation: an output placement is persisted with
+    ``pinned=True`` if either (a) its ``(lesson_id, time_block_id)`` is in the
+    caller-supplied ``pinned_keys`` set OR (b) the row already had
+    ``pinned=True`` in the DB at the matching key before the delete. This
+    keeps the spec contract "Pin state in the database is unchanged" valid
+    when ``respect_pins=false`` ignores pins on the solver input.
     """
     placements = solution["placements"]
     violations = solution["violations"]
@@ -595,17 +631,35 @@ async def persist_solution_for_all_classes(
         for lesson_id, class_id in rows:
             lesson_to_classes.setdefault(lesson_id, set()).add(class_id)
 
+    existing_pin_keys: set[tuple[UUID, UUID]] = set()
+    if placement_lesson_ids:
+        existing_pin_rows = (
+            await db.execute(
+                select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id).where(
+                    ScheduledLesson.lesson_id.in_(placement_lesson_ids),
+                    ScheduledLesson.pinned.is_(True),
+                )
+            )
+        ).all()
+        existing_pin_keys = {
+            (lesson_id, time_block_id) for lesson_id, time_block_id in existing_pin_rows
+        }
+    pin_lookup = (pinned_keys or set()) | existing_pin_keys
+
     if placement_lesson_ids:
         await db.execute(
             delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(placement_lesson_ids))
         )
 
     for p in placements:
+        lesson_uuid = UUID(p["lesson_id"])
+        time_block_uuid = UUID(p["time_block_id"])
         db.add(
             ScheduledLesson(
-                lesson_id=UUID(p["lesson_id"]),
-                time_block_id=UUID(p["time_block_id"]),
+                lesson_id=lesson_uuid,
+                time_block_id=time_block_uuid,
                 room_id=UUID(p["room_id"]),
+                pinned=(lesson_uuid, time_block_uuid) in pin_lookup,
             )
         )
     await db.flush()

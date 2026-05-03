@@ -64,7 +64,8 @@ async def generate_schedule_for_class(
             "violations_for_class": len(filtered["violations"]),
         },
     )
-    await solver_io.persist_solution_for_class(db, class_id, filtered)
+    own_pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in own_pins}
+    await solver_io.persist_solution_for_class(db, class_id, filtered, pinned_keys=own_pinned_keys)
     return ScheduleResponse.model_validate(filtered)
 
 
@@ -73,16 +74,23 @@ async def generate_schedule_for_all_classes(
     request: Request,
     _admin: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    respect_pins: bool = True,
 ) -> WholeSchoolScheduleResponse:
     """Run the solver for every class in one transaction and persist atomically.
 
-    Sibling-pin enforcement does not apply here: whole-school re-solves
-    every lesson from scratch, so ``pinned_placements`` is empty.
+    When ``respect_pins`` is true (default), every ``ScheduledLesson`` with
+    ``pinned=true`` is fed into the solver as a hard pin and the persist
+    helper carries the flag onto the resulting row. When ``respect_pins`` is
+    false, pins are ignored for this run; the persist helper still preserves
+    the database flag for any row that re-emerges in the solver output (per
+    the spec contract: "Pin state in the database is unchanged").
 
     Args:
         request: The FastAPI request, used to read ``solve_deadline_ms``.
         _admin: Injected admin user (enforces authentication).
         db: Injected async database session.
+        respect_pins: When true, pinned rows are threaded as solver input
+            pins. Defaults to true.
 
     Returns:
         :class:`WholeSchoolScheduleResponse` with per-class summaries plus
@@ -93,14 +101,18 @@ async def generate_schedule_for_all_classes(
             classes, no rooms, heterogeneous week_schemes across classes,
             no time_blocks for the anchor class's week_scheme).
     """
+    pins = await solver_io.collect_all_pins(db) if respect_pins else []
     problem_json, _, input_counts = await solver_io.build_problem_json(
-        db, class_id=None, pinned_placements=[]
+        db, class_id=None, pinned_placements=pins
     )
     deadline_ms = request.app.state.settings.solve_deadline_ms
     solution = await solver_io.run_solve(
         problem_json, scope_id=None, input_counts=input_counts, deadline_ms=deadline_ms
     )
-    summaries = await solver_io.persist_solution_for_all_classes(db, solution)
+    pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in pins}
+    summaries = await solver_io.persist_solution_for_all_classes(
+        db, solution, pinned_keys=pinned_keys
+    )
     return WholeSchoolScheduleResponse(
         classes=summaries,
         total_placements=sum(s.placements_count for s in summaries),
