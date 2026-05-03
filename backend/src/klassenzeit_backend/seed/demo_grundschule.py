@@ -61,6 +61,7 @@ class _SubjectSpec(NamedTuple):
     prefer_early_period: int = 0
     avoid_first_period: int = 0
     avoid_last_period: int = 0
+    prefer_late_period: int = 0
 
 
 _SUBJECTS: tuple[_SubjectSpec, ...] = (
@@ -205,6 +206,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
             prefer_early_period=spec.prefer_early_period,
             avoid_first_period=spec.avoid_first_period,
             avoid_last_period=spec.avoid_last_period,
+            prefer_late_period=spec.prefer_late_period,
         )
         session.add(subject)
         subjects_by_short[spec.short_name] = subject
