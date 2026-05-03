@@ -1,4 +1,4 @@
-"""POST /api/classes/{class_id}/schedule: run the solver for a single class."""
+"""POST /api/classes/{class_id}/schedule and POST /api/schedule/all."""
 
 import logging
 import uuid
@@ -11,7 +11,11 @@ from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling import solver_io
-from klassenzeit_backend.scheduling.schemas.schedule import ScheduleReadResponse, ScheduleResponse
+from klassenzeit_backend.scheduling.schemas.schedule import (
+    ScheduleReadResponse,
+    ScheduleResponse,
+    WholeSchoolScheduleResponse,
+)
 
 router = APIRouter(tags=["schedule"])
 logger = logging.getLogger(__name__)
@@ -47,7 +51,7 @@ async def generate_schedule_for_class(
     )
     deadline_ms = request.app.state.settings.solve_deadline_ms
     solution = await solver_io.run_solve(
-        problem_json, class_id, input_counts, deadline_ms=deadline_ms
+        problem_json, scope_id=class_id, input_counts=input_counts, deadline_ms=deadline_ms
     )
     filtered = solver_io.filter_solution_for_class(solution, class_lesson_ids)
     logger.info(
@@ -60,6 +64,46 @@ async def generate_schedule_for_class(
     )
     await solver_io.persist_solution_for_class(db, class_id, filtered)
     return ScheduleResponse.model_validate(filtered)
+
+
+@router.post("/schedule/all")
+async def generate_schedule_for_all_classes(
+    request: Request,
+    _admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> WholeSchoolScheduleResponse:
+    """Run the solver for every class in one transaction and persist atomically.
+
+    Sibling-pin enforcement does not apply here: whole-school re-solves
+    every lesson from scratch, so ``pinned_placements`` is empty.
+
+    Args:
+        request: The FastAPI request, used to read ``solve_deadline_ms``.
+        _admin: Injected admin user (enforces authentication).
+        db: Injected async database session.
+
+    Returns:
+        :class:`WholeSchoolScheduleResponse` with per-class summaries plus
+        school-wide placement and violation totals.
+
+    Raises:
+        HTTPException: 422 on a pre-solve data invariant (no school
+            classes, no rooms, heterogeneous week_schemes across classes,
+            no time_blocks for the anchor class's week_scheme).
+    """
+    problem_json, _, input_counts = await solver_io.build_problem_json(
+        db, class_id=None, pinned_placements=[]
+    )
+    deadline_ms = request.app.state.settings.solve_deadline_ms
+    solution = await solver_io.run_solve(
+        problem_json, scope_id=None, input_counts=input_counts, deadline_ms=deadline_ms
+    )
+    summaries = await solver_io.persist_solution_for_all_classes(db, solution)
+    return WholeSchoolScheduleResponse(
+        classes=summaries,
+        total_placements=sum(s.placements_count for s in summaries),
+        total_violations=sum(s.violations_count for s in summaries),
+    )
 
 
 @router.get("/classes/{class_id}/schedule")

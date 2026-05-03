@@ -81,15 +81,51 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
     }
 
 
+async def _resolve_anchor_class(db: AsyncSession, class_id: UUID | None) -> SchoolClass:
+    """Return the anchor class used to scope the solver input.
+
+    For a per-class solve this is the requested class. For a whole-school
+    solve (``class_id is None``) it is any one existing class, used solely
+    to anchor the ``week_scheme`` / ``time_blocks`` lookup; the
+    heterogeneous-week_scheme check downstream still rejects mixed schemes.
+
+    Raises:
+        HTTPException: 404 if ``class_id`` is provided and missing; 422 if
+            ``class_id`` is None and no school classes exist.
+    """
+    if class_id is not None:
+        existing = await db.get(SchoolClass, class_id)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+        return existing
+    first = (
+        (await db.execute(select(SchoolClass).order_by(SchoolClass.name).limit(1)))
+        .scalars()
+        .first()
+    )
+    if first is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="no school classes configured; cannot solve",
+        )
+    return first
+
+
 async def build_problem_json(
     db: AsyncSession,
-    class_id: UUID,
+    class_id: UUID | None = None,
     *,
     pinned_placements: list[dict[str, str]] | None = None,
 ) -> tuple[str, set[UUID], dict[str, int]]:
-    """Load the school-wide solver input for the class and serialize it to JSON.
+    """Load the school-wide solver input and serialize it to JSON.
 
     Returns ``(problem_json, class_lesson_ids, input_counts)``.
+
+    When ``class_id`` is a UUID, ``class_lesson_ids`` is the set of Lesson
+    UUIDs belonging to that class (used by the per-class response filter).
+    When ``class_id`` is ``None`` (whole-school solve), ``class_lesson_ids``
+    is empty: the whole-school caller persists every placement and never
+    needs the per-class filter.
 
     The optional ``pinned_placements`` is forwarded verbatim into the wire
     format under the same-named key. Default-empty mirrors the solver-core
@@ -97,13 +133,15 @@ async def build_problem_json(
     unchanged.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist, 422 on a pre-solve data
-            invariant (no time_blocks for the class's week_scheme, empty rooms
-            table, classes referencing different week_schemes).
+        HTTPException: 404 if ``class_id`` is provided and the class doesn't
+            exist; 422 on a pre-solve data invariant (no time_blocks for the
+            class's week_scheme, empty rooms table, classes referencing
+            different week_schemes). For the whole-school path the 422 fires
+            on missing rooms and on heterogeneous week_schemes across
+            existing classes; the time-blocks check is anchored on the
+            first class found.
     """
-    requested_class = await db.get(SchoolClass, class_id)
-    if requested_class is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    requested_class = await _resolve_anchor_class(db, class_id)
 
     time_blocks = (
         (
@@ -305,11 +343,16 @@ async def build_problem_json(
         "pinned_placements": pinned_placements or [],
     }
 
-    class_lesson_ids = {
-        lesson.id
-        for lesson in lessons
-        if requested_class.id in classes_by_lesson.get(lesson.id, [])
-    }
+    class_lesson_ids: set[UUID]
+    if class_id is None:
+        # Whole-school solve: caller persists every placement, no filter needed.
+        class_lesson_ids = set()
+    else:
+        class_lesson_ids = {
+            lesson.id
+            for lesson in lessons
+            if requested_class.id in classes_by_lesson.get(lesson.id, [])
+        }
 
     counts = {
         "time_blocks": len(problem["time_blocks"]),
@@ -329,15 +372,22 @@ async def build_problem_json(
 
 async def run_solve(
     problem_json: str,
-    school_class_id: UUID,
+    scope_id: UUID | None,
     input_counts: dict[str, int],
     *,
     deadline_ms: int | None,
 ) -> dict:
-    """Run the solver off the event loop, emit structured log events, return the Solution dict."""
+    """Run the solver off the event loop, emit structured log events, return the Solution dict.
+
+    ``scope_id`` is the per-class UUID for a single-class solve, or ``None``
+    for a whole-school solve. It is logged under ``school_class_id`` for
+    continuity with existing log shape; ``None`` is logged verbatim so the
+    whole-school path is identifiable in structured-log queries.
+    """
+    scope_str = str(scope_id) if scope_id is not None else None
     logger.info(
         "solver.solve.start",
-        extra={"school_class_id": str(school_class_id), **input_counts},
+        extra={"school_class_id": scope_str, **input_counts},
     )
     started = time.monotonic()
     try:
@@ -347,7 +397,7 @@ async def run_solve(
         logger.error(
             "solver.solve.error",
             extra={
-                "school_class_id": str(school_class_id),
+                "school_class_id": scope_str,
                 "duration_ms": duration_ms,
                 "exc_class": type(exc).__name__,
             },
@@ -359,7 +409,7 @@ async def run_solve(
     logger.info(
         "solver.solve.done",
         extra={
-            "school_class_id": str(school_class_id),
+            "school_class_id": scope_str,
             "duration_ms": duration_ms,
             "placements_total": len(solution["placements"]),
             "violations_total": len(solution["violations"]),
