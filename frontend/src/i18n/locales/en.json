@@ -343,7 +343,8 @@
       "teacherOverCapacity": "{{subject}} (hour {{hour}}): {{teacher}} would exceed their max weekly hours.",
       "noFreeTimeBlock": "{{subject}} (hour {{hour}}): no free slot for {{teacher}} and {{class}}.",
       "noSuitableRoom": "{{subject}} (hour {{hour}}): no suitable room is available.",
-      "lessonGroupSplit": "Lesson group could not be placed in a single time block."
+      "lessonGroupSplit": "Lesson group could not be placed in a single time block.",
+      "pinnedConflict": "A pinned placement was malformed and dropped: {{reason}}."
     },
     "cellDeletedLesson": "(deleted lesson)"
   },

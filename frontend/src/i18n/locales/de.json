@@ -343,7 +343,8 @@
       "teacherOverCapacity": "{{subject}} (Stunde {{hour}}): {{teacher}} würde die Wochenhöchststundenzahl überschreiten.",
       "noFreeTimeBlock": "{{subject}} (Stunde {{hour}}): kein freier Slot für {{teacher}} und {{class}}.",
       "noSuitableRoom": "{{subject}} (Stunde {{hour}}): kein passender Raum verfügbar.",
-      "lessonGroupSplit": "Gruppenstunde konnte nicht in einem gemeinsamen Zeitblock platziert werden."
+      "lessonGroupSplit": "Gruppenstunde konnte nicht in einem gemeinsamen Zeitblock platziert werden.",
+      "pinnedConflict": "Eine fixierte Platzierung war fehlerhaft und wurde verworfen: {{reason}}."
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },
