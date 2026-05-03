@@ -110,6 +110,9 @@ export function SchedulePageClassView() {
         subjectName: lesson.subject.name,
         teacherName: lesson.teacher?.last_name,
         roomName: room?.name ?? t("schedule.cellDeletedLesson"),
+        lessonId: p.lesson_id,
+        timeBlockId: p.time_block_id,
+        pinned: p.pinned,
       };
     })
     .filter((c): c is ScheduleCell => c !== undefined);

@@ -277,6 +277,10 @@ body {
   border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
 }
 
+.kz-ws-cell--pinned[data-variant="period"] {
+  border-color: color-mix(in oklch, var(--primary) 60%, transparent);
+}
+
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   appearance: none;

@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api-client";
 import {
   roomSchedulesByRoomId,
   scheduleByClassId,
+  server,
   teacherSchedulesByTeacherId,
   violationsByClassId,
 } from "../../../tests/msw-handlers";
@@ -14,6 +16,7 @@ import {
   useClassSchedule,
   useGenerateAllSchedules,
   useGenerateClassSchedule,
+  usePinPlacement,
   useRoomSchedule,
   useTeacherSchedule,
 } from "./hooks";
@@ -159,6 +162,45 @@ describe("useTeacherSchedule", () => {
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useTeacherSchedule(undefined), { wrapper });
     expect(result.current.fetchStatus).toBe("idle");
+  });
+});
+
+describe("usePinPlacement", () => {
+  it("PATCHes the pin endpoint and invalidates ['schedule'] queries", async () => {
+    const lessonId = "00000000-0000-0000-0000-000000000001";
+    const timeBlockId = "00000000-0000-0000-0000-000000000002";
+    const roomId = "00000000-0000-0000-0000-000000000003";
+    let receivedBody: unknown = null;
+    server.use(
+      http.patch(
+        `http://localhost:3000/api/placements/${lessonId}/${timeBlockId}/pin`,
+        async ({ request }) => {
+          receivedBody = await request.json();
+          return HttpResponse.json({
+            lesson_id: lessonId,
+            time_block_id: timeBlockId,
+            room_id: roomId,
+            pinned: true,
+          });
+        },
+      ),
+    );
+    const { client, wrapper } = wrapScheduleHook();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => usePinPlacement(), { wrapper });
+    const data = await result.current.mutateAsync({
+      lesson_id: lessonId,
+      time_block_id: timeBlockId,
+      pinned: true,
+    });
+    expect(receivedBody).toEqual({ pinned: true });
+    expect(data).toEqual({
+      lesson_id: lessonId,
+      time_block_id: timeBlockId,
+      room_id: roomId,
+      pinned: true,
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["schedule"] });
   });
 });
 

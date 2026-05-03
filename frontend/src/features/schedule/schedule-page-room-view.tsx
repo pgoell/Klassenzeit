@@ -59,6 +59,9 @@ export function SchedulePageRoomView() {
         classNames,
         teacherName: lesson.teacher?.last_name,
         roomName: "",
+        lessonId: p.lesson_id,
+        timeBlockId: p.time_block_id,
+        pinned: p.pinned,
       };
     })
     .filter((c): c is ScheduleCell => c !== undefined);

@@ -97,6 +97,34 @@ export function useRoomSchedule(roomId: string | undefined) {
   });
 }
 
+export interface PinPlacementVars {
+  lesson_id: string;
+  time_block_id: string;
+  pinned: boolean;
+}
+
+export function usePinPlacement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: PinPlacementVars): Promise<Placement> => {
+      const { lesson_id, time_block_id, pinned } = vars;
+      const { data } = await client.PATCH("/api/placements/{lesson_id}/{time_block_id}/pin", {
+        params: { path: { lesson_id, time_block_id } },
+        body: { pinned },
+      });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from PATCH /placements/{ids}/pin");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      // Broad invalidation: a pin toggle can affect class, teacher, and room
+      // schedule views, so refetch every schedule subkey.
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
+    },
+  });
+}
+
 export function useGenerateAllSchedules() {
   const queryClient = useQueryClient();
   return useMutation({
