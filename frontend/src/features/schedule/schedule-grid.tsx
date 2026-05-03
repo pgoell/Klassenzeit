@@ -67,6 +67,10 @@ function DraggablePlacementCard({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      data-testid={`placement-card-${lessonId}`}
+      data-lesson-id={lessonId}
+      data-time-block-id={timeBlockId}
+      data-room-id={roomId}
       className={cn(
         "relative flex flex-col leading-tight gap-0.5 cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50",
@@ -93,6 +97,10 @@ function DroppableSlot({ timeBlockId, roomId, children, className, variant }: Dr
   return (
     <div
       ref={setNodeRef}
+      data-testid={
+        variant === "period" ? `placement-slot-${timeBlockId}` : `empty-slot-${timeBlockId}`
+      }
+      data-time-block-id={timeBlockId}
       className={cn(className, isOver && "ring-2 ring-primary")}
       {...(variant ? { "data-variant": variant } : {})}
     >
