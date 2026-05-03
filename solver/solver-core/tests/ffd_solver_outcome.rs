@@ -141,6 +141,8 @@ fn ffd_solve_active_default_weights_match_explicit() {
             avoid_first_period: 1,
             prefer_home_room: 0,
             avoid_last_period: 1,
+            prefer_late_period: 0,
+            class_day_balance: 0,
         },
         ..SolveConfig::default()
     };

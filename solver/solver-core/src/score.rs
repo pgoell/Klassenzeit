@@ -23,6 +23,8 @@ pub fn score_solution(
         && weights.avoid_first_period == 0
         && weights.prefer_home_room == 0
         && weights.avoid_last_period == 0
+        && weights.prefer_late_period == 0
+        && weights.class_day_balance == 0
     {
         return 0;
     }
@@ -188,9 +190,11 @@ pub(crate) fn gap_count_after_remove(positions: &[u8], pos: u8) -> u32 {
 /// `weights.avoid_first_period * subject.avoid_first_period` when
 /// `tb.position == 0`, plus
 /// `weights.avoid_last_period * subject.avoid_last_period` when
-/// `tb.position == max_position_for_day`. Each per-Subject weight of zero
-/// disables its axis. Pure: depends only on `subject`, `tb`,
-/// `max_position_for_day`, `weights`. Allocation-free.
+/// `tb.position == max_position_for_day`, plus
+/// `(max_position_for_day - tb.position) * weights.prefer_late_period * subject.prefer_late_period`
+/// for the late-period axis. Each per-Subject weight of zero disables its
+/// axis. Pure: depends only on `subject`, `tb`, `max_position_for_day`,
+/// `weights`. Allocation-free.
 pub(crate) fn subject_preference_score(
     subject: &crate::types::Subject,
     tb: &TimeBlock,
@@ -218,6 +222,15 @@ pub(crate) fn subject_preference_score(
             weights
                 .avoid_last_period
                 .saturating_mul(subject.avoid_last_period),
+        );
+    }
+    if subject.prefer_late_period > 0 && weights.prefer_late_period > 0 {
+        let distance = u32::from(max_position_for_day.saturating_sub(tb.position));
+        score = score.saturating_add(
+            weights
+                .prefer_late_period
+                .saturating_mul(subject.prefer_late_period)
+                .saturating_mul(distance),
         );
     }
     score
@@ -673,6 +686,8 @@ mod tests {
             avoid_first_period: 100,
             prefer_home_room: 0,
             avoid_last_period: 100,
+            prefer_late_period: 0,
+            class_day_balance: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
@@ -942,6 +957,34 @@ mod tests {
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 4);
         assert_eq!(subject_preference_score(&mk(2), &tb, 6, &weights), 8);
         assert_eq!(subject_preference_score(&mk(0), &tb, 6, &weights), 0);
+    }
+
+    #[test]
+    fn subject_preference_score_linear_in_distance_from_max_when_prefer_late_set() {
+        let weights = ConstraintWeights {
+            prefer_late_period: 4,
+            ..ConstraintWeights::default()
+        };
+        let mk_subject = |w: u32| Subject {
+            id: SubjectId(score_uuid(40)),
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: w,
+        };
+        // max_position_for_day = 5; pos 0 contributes 5 * 4 * 1 = 20,
+        // pos 5 contributes 0.
+        for pos in 0u8..=5 {
+            let tb = TimeBlock {
+                id: TimeBlockId(score_uuid(10)),
+                day_of_week: 0,
+                position: pos,
+            };
+            assert_eq!(
+                subject_preference_score(&mk_subject(1), &tb, 5, &weights),
+                u32::from(5 - pos) * 4
+            );
+        }
     }
 
     #[test]

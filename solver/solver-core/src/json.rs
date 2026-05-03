@@ -38,6 +38,8 @@ pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<St
             avoid_first_period: 1,
             prefer_home_room: 0,
             avoid_last_period: 1,
+            prefer_late_period: 0,
+            class_day_balance: 0,
         },
         deadline: deadline_ms.map(Duration::from_millis),
         ..SolveConfig::default()

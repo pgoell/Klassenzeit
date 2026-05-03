@@ -32,6 +32,8 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             avoid_first_period: 1,
             prefer_home_room: 1,
             avoid_last_period: 1,
+            prefer_late_period: 0,
+            class_day_balance: 0,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -1347,6 +1349,8 @@ mod tests {
                     avoid_first_period: 1,
                     prefer_home_room: 0,
                     avoid_last_period: 0,
+                    prefer_late_period: 0,
+                    class_day_balance: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -1903,6 +1907,8 @@ mod tests {
                     avoid_first_period: 1,
                     prefer_home_room: 0,
                     avoid_last_period: 0,
+                    prefer_late_period: 0,
+                    class_day_balance: 0,
                 },
                 ..SolveConfig::default()
             },

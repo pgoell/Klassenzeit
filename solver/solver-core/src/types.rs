@@ -61,6 +61,17 @@ pub struct ConstraintWeights {
     /// `tb.position == max_position_for_day` for that placement's
     /// `day_of_week` (saturating). Zero disables the axis globally.
     pub avoid_last_period: u32,
+    /// Global multiplier on the late-period axis. Per-placement penalty is
+    /// `(max_position_for_day - tb.position) * weights.prefer_late_period * subject.prefer_late_period` (saturating).
+    /// Zero disables the axis globally; a non-zero global with
+    /// `subject.prefer_late_period == 0` still contributes nothing.
+    pub prefer_late_period: u32,
+    /// Penalty applied per-class for daily-count imbalance. Cost is the
+    /// sum of `|count(day) - mean|` over days for each class with at
+    /// least one placement, multiplied by this weight (saturating).
+    /// Zero disables the axis. Scoring lands in a follow-up task; this
+    /// field is added here so the struct shape is stable for callers.
+    pub class_day_balance: u32,
 }
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
