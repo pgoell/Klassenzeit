@@ -16,6 +16,7 @@ from itertools import count
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
@@ -371,3 +372,33 @@ def create_school_class(db_session: AsyncSession) -> CreateSchoolClassFn:
         return school_class
 
     return _make_school_class
+
+
+@pytest.fixture
+async def seeded_lesson_for_pinning(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_school_class: CreateSchoolClassFn,
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Seed one Lesson + one TimeBlock + one Room for ScheduledLesson.pinned tests.
+
+    Returns ``(lesson_id, time_block_id, room_id)``.
+    """
+    subject = await create_subject()
+    week_scheme = await create_week_scheme()
+    time_block = await create_time_block(week_scheme_id=week_scheme.id)
+    room = await create_room()
+    teacher = await create_teacher()
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    return lesson.id, time_block.id, room.id
