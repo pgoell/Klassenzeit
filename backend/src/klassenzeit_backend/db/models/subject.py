@@ -21,6 +21,9 @@ class Subject(Base):
     prefer_early_period: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    prefer_late_period: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     avoid_first_period: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
