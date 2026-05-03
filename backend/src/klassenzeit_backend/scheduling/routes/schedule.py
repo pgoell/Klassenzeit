@@ -66,6 +66,7 @@ async def generate_schedule_for_class(
     )
     own_pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in own_pins}
     await solver_io.persist_solution_for_class(db, class_id, filtered, pinned_keys=own_pinned_keys)
+    await db.commit()
     return ScheduleResponse.model_validate(filtered)
 
 
@@ -113,6 +114,7 @@ async def generate_schedule_for_all_classes(
     summaries = await solver_io.persist_solution_for_all_classes(
         db, solution, pinned_keys=pinned_keys
     )
+    await db.commit()
     return WholeSchoolScheduleResponse(
         classes=summaries,
         total_placements=sum(s.placements_count for s in summaries),

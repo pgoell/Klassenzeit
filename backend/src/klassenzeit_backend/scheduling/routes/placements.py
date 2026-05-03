@@ -134,7 +134,8 @@ async def move_placement_route(
     else:
         placement.room_id = body.room_id
         placement.pinned = True
-    await db.flush()
+    await db.commit()
+    await db.refresh(placement)
     return PlacementResponse.model_validate(placement)
 
 
@@ -149,7 +150,8 @@ async def pin_placement_route(
     """Toggle the ``pinned`` flag on an existing placement."""
     placement = await _load_placement_or_404(db, lesson_id, time_block_id)
     placement.pinned = body.pinned
-    await db.flush()
+    await db.commit()
+    await db.refresh(placement)
     return PlacementResponse.model_validate(placement)
 
 
@@ -185,7 +187,9 @@ async def swap_placements_route(
     )
     db.add(new_a)
     db.add(new_b)
-    await db.flush()
+    await db.commit()
+    await db.refresh(new_a)
+    await db.refresh(new_b)
     return SwapPlacementsResponse(
         a=PlacementResponse.model_validate(new_a),
         b=PlacementResponse.model_validate(new_b),
