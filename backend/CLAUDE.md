@@ -20,6 +20,7 @@ Stack: FastAPI + SQLAlchemy async, Alembic, Pydantic. Served under `klassenzeit_
 
 - **`ty` does not honor `# type: ignore[...]` pragmas.** If `ty` flags a line, silencing it requires the actual type, not a comment. Prefer concrete types (NamedTuple, TypedDict, a tiny dataclass) over returning `dict[str, object]` from helpers that `ty` will traverse.
 - **Pre-commit `ty check` blocks a strict "red test with missing module" TDD start.** A test that imports a not-yet-created module fails `ty`'s `unresolved-import` gate, and `ty` has no per-file carve-outs or pragmas. Land a stub module (typed `AsyncSession` signature, body `raise NotImplementedError(...)`) in the red commit; tests still fail at runtime, which is a valid red. Replace the body in the next commit.
+- **Don't add `from __future__ import annotations` to test files or backend Pydantic schema modules.** Ruff `TC001/TC002/TC003` then flags every annotation-only import (e.g. `import uuid`, `from collections.abc import Sequence`) as "needs to move into a `TYPE_CHECKING` block." The repo's sibling test/schema files don't use the future import; match them.
 
 ## Data access
 
@@ -29,6 +30,7 @@ Stack: FastAPI + SQLAlchemy async, Alembic, Pydantic. Served under `klassenzeit_
 - **`ALTER COLUMN ... TYPE` needs `DROP DEFAULT` first when the existing default has incompatible type.** Postgres rejects the cast otherwise. Canonical shape: `ALTER COLUMN <c> DROP DEFAULT, ALTER COLUMN <c> TYPE <new> USING (<expr>), ALTER COLUMN <c> SET DEFAULT <new-default>, ALTER COLUMN <c> SET NOT NULL` in one `op.execute(...)` per column. The `BOOLEAN → INTEGER` flip in `09dab109a11c_subject_preference_weights.py` is the template; reverse the order for the lossy downgrade.
 - **`AsyncSession.execute(delete/update).rowcount`.** `ty` sees the return as `Result[Any]`; `.rowcount` only exists on runtime `CursorResult`. Access it via `int(getattr(result, "rowcount", 0) or 0)`. Pattern in `auth/sessions.py:66-76`.
 - **PATCH handlers for nullable columns must use `body.model_fields_set`, not `is not None`.** The default pattern `if body.foo is not None: orm.foo = body.foo` silently drops explicit `null` updates. For nullable FKs and similar fields where clearing is a real intent, gate on `if "foo" in body.model_fields_set: orm.foo = body.foo` so an explicit null clears the column. Keep the `is not None` shape for NOT NULL columns where null has no meaning. Pattern in `scheduling/routes/school_classes.py:update_school_class_route` (`home_room_id` clear path).
+- **Routes that mutate DB state must explicitly `await db.commit()` + `await db.refresh(orm_row)` before returning.** The test conftest overrides `get_session` with a savepoint-wrapped shared session, so a missing commit silently passes route tests; production fails because each request gets a fresh `session_factory()` with no caller-side commit, so writes roll back at end-of-request. Sprint C found this latent bug in `POST /api/classes/{id}/schedule`, `POST /api/schedule/all`, and the new `placements.py` endpoints (fix landed in commit `7542d6f`). Templates: `lessons.py` and `rooms.py` (correct from day one).
 
 ## Testing
 
