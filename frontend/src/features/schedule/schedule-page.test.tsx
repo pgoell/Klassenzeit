@@ -107,6 +107,7 @@ describe("SchedulePage", () => {
         lesson_id: lesson.id,
         time_block_id: "tb-mon-1",
         room_id: room.id,
+        pinned: false,
       },
     ];
     renderSchedulePage(`/schedule?class=${schoolClass.id}`);
