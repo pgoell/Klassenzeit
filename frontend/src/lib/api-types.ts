@@ -721,6 +721,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/teachers/{teacher_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Schedule For Teacher Route
+         * @description Return the persisted placements for every lesson where Lesson.teacher_id matches.
+         *
+         *     Args:
+         *         teacher_id: UUID path parameter identifying the teacher.
+         *         _admin: Injected admin user (enforces authentication).
+         *         db: Injected async database session.
+         *
+         *     Returns:
+         *         ``ScheduleReadResponse`` with the teacher's persisted placements. Empty
+         *         ``placements`` means the teacher exists but has no scheduled lessons yet.
+         *
+         *     Raises:
+         *         HTTPException: 404 if the teacher doesn't exist.
+         */
+        get: operations["read_schedule_for_teacher_route_api_teachers__teacher_id__schedule_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/{room_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Schedule For Room Route
+         * @description Return the persisted placements where ``ScheduledLesson.room_id`` matches.
+         *
+         *     Args:
+         *         room_id: UUID path parameter identifying the room.
+         *         _admin: Injected admin user (enforces authentication).
+         *         db: Injected async database session.
+         *
+         *     Returns:
+         *         ``ScheduleReadResponse`` with the room's persisted placements. Empty
+         *         ``placements`` means the room exists but has no scheduled lessons yet.
+         *
+         *     Raises:
+         *         HTTPException: 404 if the room doesn't exist.
+         */
+        get: operations["read_schedule_for_room_route_api_rooms__room_id__schedule_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/teachers": {
         parameters: {
             query?: never;
@@ -3459,6 +3523,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WholeSchoolScheduleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_schedule_for_teacher_route_api_teachers__teacher_id__schedule_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teacher_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleReadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_schedule_for_room_route_api_rooms__room_id__schedule_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleReadResponse"];
                 };
             };
             /** @description Validation Error */

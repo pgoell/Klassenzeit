@@ -128,3 +128,51 @@ async def read_schedule_for_class_route(
     """
     placements = await solver_io.read_schedule_for_class(db, class_id)
     return ScheduleReadResponse(placements=placements)
+
+
+@router.get("/teachers/{teacher_id}/schedule")
+async def read_schedule_for_teacher_route(
+    teacher_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ScheduleReadResponse:
+    """Return the persisted placements for every lesson where Lesson.teacher_id matches.
+
+    Args:
+        teacher_id: UUID path parameter identifying the teacher.
+        _admin: Injected admin user (enforces authentication).
+        db: Injected async database session.
+
+    Returns:
+        ``ScheduleReadResponse`` with the teacher's persisted placements. Empty
+        ``placements`` means the teacher exists but has no scheduled lessons yet.
+
+    Raises:
+        HTTPException: 404 if the teacher doesn't exist.
+    """
+    placements = await solver_io.read_schedule_for_teacher(db, teacher_id)
+    return ScheduleReadResponse(placements=placements)
+
+
+@router.get("/rooms/{room_id}/schedule")
+async def read_schedule_for_room_route(
+    room_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ScheduleReadResponse:
+    """Return the persisted placements where ``ScheduledLesson.room_id`` matches.
+
+    Args:
+        room_id: UUID path parameter identifying the room.
+        _admin: Injected admin user (enforces authentication).
+        db: Injected async database session.
+
+    Returns:
+        ``ScheduleReadResponse`` with the room's persisted placements. Empty
+        ``placements`` means the room exists but has no scheduled lessons yet.
+
+    Raises:
+        HTTPException: 404 if the room doesn't exist.
+    """
+    placements = await solver_io.read_schedule_for_room(db, room_id)
+    return ScheduleReadResponse(placements=placements)

@@ -446,3 +446,131 @@ async def test_schedule_post_for_class_a_does_not_persist_for_class_b(
     get_b = await client.get(f"/api/classes/{cls_b.id}/schedule")
     assert get_b.status_code == 200
     assert get_b.json() == {"placements": []}
+
+
+async def test_read_teacher_schedule_returns_404_for_unknown_teacher(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+) -> None:
+    await create_test_user(email="admin@teacher-sched-404.com", role="admin")
+    await login_as("admin@teacher-sched-404.com", "testpassword123")
+    resp = await client.get(f"/api/teachers/{uuid.uuid4()}/schedule")
+    assert resp.status_code == 404
+
+
+async def test_read_teacher_schedule_returns_empty_for_unscheduled_teacher(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+    create_teacher,
+) -> None:
+    await create_test_user(email="admin@teacher-sched-empty.com", role="admin")
+    await login_as("admin@teacher-sched-empty.com", "testpassword123")
+    teacher = await create_teacher()
+    resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
+    assert resp.status_code == 200
+    assert resp.json() == {"placements": []}
+
+
+async def test_read_teacher_schedule_returns_placements_after_solve(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    await create_test_user(email="admin@teacher-sched-ok.com", role="admin")
+    await login_as("admin@teacher-sched-ok.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-teacher-sched-ok",
+    )
+    post = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post.status_code == 200, post.text
+    placements_via_class = post.json()["placements"]
+    assert len(placements_via_class) == 1
+    teacher_id_str = (
+        await db_session.execute(
+            select(Lesson.teacher_id).where(Lesson.id == placements_via_class[0]["lesson_id"])
+        )
+    ).scalar_one()
+    resp = await client.get(f"/api/teachers/{teacher_id_str}/schedule")
+    assert resp.status_code == 200, resp.text
+    placements_via_teacher = resp.json()["placements"]
+    assert placements_via_teacher == placements_via_class
+
+
+async def test_read_room_schedule_returns_404_for_unknown_room(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+) -> None:
+    await create_test_user(email="admin@room-sched-404.com", role="admin")
+    await login_as("admin@room-sched-404.com", "testpassword123")
+    resp = await client.get(f"/api/rooms/{uuid.uuid4()}/schedule")
+    assert resp.status_code == 404
+
+
+async def test_read_room_schedule_returns_empty_for_unscheduled_room(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+    create_room,
+) -> None:
+    await create_test_user(email="admin@room-sched-empty.com", role="admin")
+    await login_as("admin@room-sched-empty.com", "testpassword123")
+    room = await create_room()
+    resp = await client.get(f"/api/rooms/{room.id}/schedule")
+    assert resp.status_code == 200
+    assert resp.json() == {"placements": []}
+
+
+async def test_read_room_schedule_returns_placements_after_solve(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    await create_test_user(email="admin@room-sched-ok.com", role="admin")
+    await login_as("admin@room-sched-ok.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-room-sched-ok",
+    )
+    post = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post.status_code == 200, post.text
+    placements_via_class = post.json()["placements"]
+    assert len(placements_via_class) == 1
+    room_id_str = placements_via_class[0]["room_id"]
+    resp = await client.get(f"/api/rooms/{room_id_str}/schedule")
+    assert resp.status_code == 200, resp.text
+    placements_via_room = resp.json()["placements"]
+    assert placements_via_room == placements_via_class

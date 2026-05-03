@@ -33,6 +33,8 @@ from klassenzeit_backend.scheduling.solver_io import (
     collect_pinned_placements,
     filter_solution_for_class,
     persist_solution_for_all_classes,
+    read_schedule_for_room,
+    read_schedule_for_teacher,
     run_solve,
 )
 
@@ -1092,3 +1094,149 @@ async def test_persist_solution_for_all_classes_writes_every_class(
     for summary in summaries:
         assert summary.placements_count == 1
         assert summary.violations_count == 0
+
+
+async def test_read_schedule_for_teacher_404_when_missing(
+    db_session: AsyncSession,
+) -> None:
+    with pytest.raises(HTTPException) as excinfo:
+        await read_schedule_for_teacher(db_session, uuid.uuid4())
+    assert excinfo.value.status_code == 404
+
+
+async def test_read_schedule_for_teacher_returns_empty_when_no_placements(
+    db_session: AsyncSession,
+    create_teacher: CreateTeacherFn,
+) -> None:
+    teacher = await create_teacher()
+    rows = await read_schedule_for_teacher(db_session, teacher.id)
+    assert rows == []
+
+
+async def test_read_schedule_for_teacher_returns_placements_for_teachers_lessons(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    block = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=0,
+        start_time=time(8, 0),
+        end_time=time(8, 45),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    other_teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+    )
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=block.id,
+            room_id=room.id,
+        )
+    )
+    await db_session.flush()
+
+    rows = await read_schedule_for_teacher(db_session, teacher.id)
+    assert len(rows) == 1
+    assert rows[0].lesson_id == lesson.id
+    assert rows[0].time_block_id == block.id
+    assert rows[0].room_id == room.id
+
+    # Other teacher sees nothing.
+    other_rows = await read_schedule_for_teacher(db_session, other_teacher.id)
+    assert other_rows == []
+
+
+async def test_read_schedule_for_room_404_when_missing(
+    db_session: AsyncSession,
+) -> None:
+    with pytest.raises(HTTPException) as excinfo:
+        await read_schedule_for_room(db_session, uuid.uuid4())
+    assert excinfo.value.status_code == 404
+
+
+async def test_read_schedule_for_room_returns_empty_when_no_placements(
+    db_session: AsyncSession,
+    create_room: CreateRoomFn,
+) -> None:
+    room = await create_room()
+    rows = await read_schedule_for_room(db_session, room.id)
+    assert rows == []
+
+
+async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    block = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=0,
+        start_time=time(8, 0),
+        end_time=time(8, 45),
+    )
+    room = await create_room()
+    other_room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+    )
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=block.id,
+            room_id=room.id,
+        )
+    )
+    await db_session.flush()
+
+    rows = await read_schedule_for_room(db_session, room.id)
+    assert len(rows) == 1
+    assert rows[0].lesson_id == lesson.id
+    assert rows[0].time_block_id == block.id
+    assert rows[0].room_id == room.id
+
+    # Other room sees nothing.
+    other_rows = await read_schedule_for_room(db_session, other_room.id)
+    assert other_rows == []
