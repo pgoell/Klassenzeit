@@ -33,6 +33,7 @@ from klassenzeit_backend.db.models.teacher import (
 )
 from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.scheduling.schemas.schedule import (
+    ClassScheduleSummary,
     PlacementResponse,
     ViolationResponse,
 )
@@ -455,6 +456,77 @@ async def persist_solution_for_class(
             "rows_inserted": len(new_rows),
         },
     )
+
+
+async def persist_solution_for_all_classes(
+    db: AsyncSession,
+    solution: dict,
+) -> list[ClassScheduleSummary]:
+    """Persist the solution's placements for every class in one transaction.
+
+    Returns per-class summaries. A placement is attributed to every class its
+    lesson belongs to via ``LessonSchoolClass``. Violations are attributed
+    similarly: a violation on a cross-class lesson counts once per affected
+    class.
+
+    Existing ``ScheduledLesson`` rows for any lesson in the new placements are
+    deleted before the new placements are inserted (delete-then-insert). Runs
+    inside the caller's transaction; does not commit.
+    """
+    placements = solution["placements"]
+    violations = solution["violations"]
+
+    placement_lesson_ids = {UUID(p["lesson_id"]) for p in placements}
+    violation_lesson_ids = {UUID(v["lesson_id"]) for v in violations}
+    touched_lesson_ids = placement_lesson_ids | violation_lesson_ids
+
+    lesson_to_classes: dict[UUID, set[UUID]] = {}
+    if touched_lesson_ids:
+        rows = (
+            await db.execute(
+                select(LessonSchoolClass.lesson_id, LessonSchoolClass.school_class_id).where(
+                    LessonSchoolClass.lesson_id.in_(touched_lesson_ids)
+                )
+            )
+        ).all()
+        for lesson_id, class_id in rows:
+            lesson_to_classes.setdefault(lesson_id, set()).add(class_id)
+
+    if placement_lesson_ids:
+        await db.execute(
+            delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(placement_lesson_ids))
+        )
+
+    for p in placements:
+        db.add(
+            ScheduledLesson(
+                lesson_id=UUID(p["lesson_id"]),
+                time_block_id=UUID(p["time_block_id"]),
+                room_id=UUID(p["room_id"]),
+            )
+        )
+    await db.flush()
+
+    class_to_placements: dict[UUID, int] = {}
+    for p in placements:
+        for class_id in lesson_to_classes.get(UUID(p["lesson_id"]), set()):
+            class_to_placements[class_id] = class_to_placements.get(class_id, 0) + 1
+
+    class_to_violations: dict[UUID, int] = {}
+    for v in violations:
+        v_lesson = UUID(v["lesson_id"])
+        for class_id in lesson_to_classes.get(v_lesson, set()):
+            class_to_violations[class_id] = class_to_violations.get(class_id, 0) + 1
+
+    all_class_ids = sorted(set(class_to_placements) | set(class_to_violations))
+    return [
+        ClassScheduleSummary(
+            class_id=class_id,
+            placements_count=class_to_placements.get(class_id, 0),
+            violations_count=class_to_violations.get(class_id, 0),
+        )
+        for class_id in all_class_ids
+    ]
 
 
 async def read_schedule_for_class(

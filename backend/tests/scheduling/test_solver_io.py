@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
@@ -32,6 +32,7 @@ from klassenzeit_backend.scheduling.solver_io import (
     build_problem_json,
     collect_pinned_placements,
     filter_solution_for_class,
+    persist_solution_for_all_classes,
     run_solve,
 )
 
@@ -1010,3 +1011,84 @@ async def test_collect_pinned_placements_returns_empty_when_all_excluded(
     pins = await collect_pinned_placements(db_session, {class_a.id})
 
     assert pins == []
+
+
+# ─── persist_solution_for_all_classes tests ───────────────────────────────
+
+
+async def test_persist_solution_for_all_classes_writes_every_class(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """Persisting a multi-class solution writes ScheduledLesson rows for every
+    class and returns per-class summaries with correct counts."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=class_b.id),
+            TeacherQualification(teacher_id=teacher.id, subject_id=subject.id),
+        ]
+    )
+    await db_session.flush()
+
+    solution = {
+        "placements": [
+            {
+                "lesson_id": str(lesson_a.id),
+                "time_block_id": str(tb_a.id),
+                "room_id": str(room.id),
+            },
+            {
+                "lesson_id": str(lesson_b.id),
+                "time_block_id": str(tb_b.id),
+                "room_id": str(room.id),
+            },
+        ],
+        "violations": [],
+    }
+
+    summaries = await persist_solution_for_all_classes(db_session, solution)
+
+    persisted = (await db_session.execute(select(ScheduledLesson))).scalars().all()
+    assert len(persisted) == 2
+
+    expected_class_ids = sorted([class_a.id, class_b.id])
+    assert [s.class_id for s in summaries] == expected_class_ids
+    for summary in summaries:
+        assert summary.placements_count == 1
+        assert summary.violations_count == 0
