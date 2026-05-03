@@ -19,21 +19,27 @@ use crate::validate::{pre_solve_violations, validate_no_room_hopping, validate_s
 
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
-/// are `class_gap = teacher_gap = prefer_early_period = avoid_first_period
-///   = prefer_home_room = avoid_last_period = 1`. Callers wanting greedy-only
-/// behaviour (no LAHC pass) construct their own [`SolveConfig`] with
-/// `deadline: None` and call [`solve_with_config`] directly.
+/// are `class_gap = teacher_gap = 10`, `prefer_home_room = class_day_balance
+///   = 5`, and `prefer_early_period = avoid_first_period = avoid_last_period
+///   = prefer_late_period = 1`. The gap weights dominate so the optimiser
+/// treats compaction as the primary objective; `prefer_home_room` and
+/// `class_day_balance` form a mid tier that shapes which feasible compact
+/// schedules are preferred; the per-period preferences are tiebreakers.
+/// `prefer_late_period` is non-zero so the per-subject opt-in (e.g. FOe)
+/// has any effect at all. Callers wanting greedy-only behaviour (no LAHC
+/// pass) construct their own [`SolveConfig`] with `deadline: None` and call
+/// [`solve_with_config`] directly.
 pub fn solve(problem: &Problem) -> Result<Solution, Error> {
     let active_default = SolveConfig {
         weights: ConstraintWeights {
-            class_gap: 1,
-            teacher_gap: 1,
+            class_gap: 10,
+            teacher_gap: 10,
             prefer_early_period: 1,
             avoid_first_period: 1,
-            prefer_home_room: 1,
+            prefer_home_room: 5,
             avoid_last_period: 1,
-            prefer_late_period: 0,
-            class_day_balance: 0,
+            prefer_late_period: 1,
+            class_day_balance: 5,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
