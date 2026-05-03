@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use crate::error::Error;
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::types::{Problem, Violation, ViolationKind};
+use crate::types::{Placement, Problem, Violation, ViolationKind};
 
 /// Validate a `Problem` against purely structural rules: non-empty core
 /// collections, unique IDs, known references, `hours_per_week > 0`.
@@ -198,6 +198,52 @@ where
         }
     }
     Ok(set)
+}
+
+/// Hard-constraint sanity check: no `(class, day_of_week, subject)` triple may
+/// span more than one room. Returns `Err(Error::Input)` listing the
+/// violating triple and the conflicting rooms when triggered. A failure
+/// here indicates a solver bug rather than malformed input; production
+/// callers surface it as a runtime error.
+pub fn validate_no_room_hopping(problem: &Problem, placements: &[Placement]) -> Result<(), Error> {
+    use std::collections::hash_map::Entry;
+    use std::collections::HashMap;
+    let mut groups: HashMap<(SchoolClassId, u8, SubjectId), RoomId> = HashMap::new();
+    for placement in placements {
+        let lesson = problem
+            .lessons
+            .iter()
+            .find(|l| l.id == placement.lesson_id)
+            .ok_or_else(|| Error::Input(format!("unknown lesson {:?}", placement.lesson_id)))?;
+        let tb = problem
+            .time_blocks
+            .iter()
+            .find(|t| t.id == placement.time_block_id)
+            .ok_or_else(|| {
+                Error::Input(format!("unknown time block {:?}", placement.time_block_id))
+            })?;
+        for class_id in &lesson.school_class_ids {
+            let key = (*class_id, tb.day_of_week, lesson.subject_id);
+            match groups.entry(key) {
+                Entry::Vacant(v) => {
+                    v.insert(placement.room_id);
+                }
+                Entry::Occupied(o) => {
+                    if *o.get() != placement.room_id {
+                        return Err(Error::Input(format!(
+                            "room hopping for class {:?} day {} subject {:?}: rooms {:?} and {:?}",
+                            class_id,
+                            tb.day_of_week,
+                            lesson.subject_id,
+                            o.get(),
+                            placement.room_id
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Scan lessons for teacher / subject pairs that are not in

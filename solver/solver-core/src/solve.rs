@@ -9,13 +9,13 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::ids::{LessonId, RoomId, SchoolClassId, TeacherId, TimeBlockId};
+use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use crate::index::Indexed;
 use crate::types::{
     ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, TimeBlock, Violation,
     ViolationKind,
 };
-use crate::validate::{pre_solve_violations, validate_structural};
+use crate::validate::{pre_solve_violations, validate_no_room_hopping, validate_structural};
 
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
@@ -211,9 +211,13 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &mut state.used_teacher,
         &mut state.used_class,
         &mut state.used_room,
+        &mut state.locked_room,
         &pinned,
         &mut state.soft_score,
     );
+
+    // Post-solve hard-constraint sanity check. A failure here is a solver bug.
+    validate_no_room_hopping(problem, &solution.placements)?;
 
     solution.soft_score = state.soft_score;
     Ok(solution)
@@ -230,6 +234,15 @@ struct GreedyState {
     hours_by_teacher: HashMap<TeacherId, u8>,
     class_positions: HashMap<(SchoolClassId, u8), Vec<u8>>,
     teacher_positions: HashMap<(TeacherId, u8), Vec<u8>>,
+    /// Hard same-room invariant: every accepted placement records the room a
+    /// `(class, day_of_week, subject)` triple was first placed in plus a
+    /// reference count. Subsequent placements for the same triple must reuse
+    /// the same room. Across days the room can change. Pinned placements seed
+    /// the map before FFD runs and LAHC reads it to reject moves that would
+    /// introduce a hop. The count tracks how many placements share the
+    /// triple so LAHC can remove the lock when its last placement leaves the
+    /// triple.
+    locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
     soft_score: u32,
 }
 
@@ -242,6 +255,7 @@ impl GreedyState {
             hours_by_teacher: HashMap::new(),
             class_positions: HashMap::new(),
             teacher_positions: HashMap::new(),
+            locked_room: HashMap::new(),
             soft_score: 0,
         }
     }
@@ -396,10 +410,39 @@ fn try_place_block(
             }
         }
 
-        // Pick the lowest-id room feasible across the full window.
+        // Same-room hard constraint: if any member class already has this
+        // subject placed on this day, every member class must agree on that
+        // room. Disagreement would force two different rooms; skip the
+        // window. A consistent shared lock pins the candidate room.
+        let day = first_tb.day_of_week;
+        let mut shared_lock: Option<RoomId> = None;
+        let mut lock_conflict = false;
+        for class in class_ids {
+            if let Some(&(locked, _)) = state.locked_room.get(&(*class, day, lesson.subject_id)) {
+                match shared_lock {
+                    None => shared_lock = Some(locked),
+                    Some(prev) if prev != locked => {
+                        lock_conflict = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if lock_conflict {
+            continue;
+        }
+
+        // Pick the lowest-id room feasible across the full window. When the
+        // same-room lock pins a specific room, only consider that room.
         let mut chosen_room: Option<RoomId> = None;
         'rooms: for &room_idx in room_order {
             let room = &problem.rooms[room_idx];
+            if let Some(locked) = shared_lock {
+                if room.id != locked {
+                    continue;
+                }
+            }
             if !idx.room_suits_subject(room.id, lesson.subject_id) {
                 continue;
             }
@@ -457,6 +500,14 @@ fn try_place_block(
             let ins = class_part.binary_search(&pos).unwrap_or_else(|i| i);
             class_part.insert(ins, pos);
         }
+        // Increment the same-room lock by `n` (one per placed hour). The
+        // lock's room must already match `c.room_id` since the room picker
+        // honoured `shared_lock`.
+        let entry = state
+            .locked_room
+            .entry((*class, c.day, lesson.subject_id))
+            .or_insert((c.room_id, 0));
+        entry.1 += u32::from(n);
     }
     let teacher_part = state.teacher_positions.entry((teacher, c.day)).or_default();
     for pos in c.start_pos..=c.end_pos {
@@ -581,15 +632,45 @@ fn try_place_group(
             }
         }
 
+        // Same-room hard constraint per (class, day, subject) for each
+        // member: if any class already has the member's subject placed on
+        // this day, the chosen room must match; disagreement across that
+        // member's classes makes the window infeasible.
+        let day = first_tb.day_of_week;
         let mut chosen: Vec<RoomId> = Vec::with_capacity(members.len());
         let mut taken: HashSet<RoomId> = HashSet::new();
         let mut all_assigned = true;
         for member in &members {
+            let mut shared_lock: Option<RoomId> = None;
+            let mut lock_conflict = false;
+            for class in &member.school_class_ids {
+                if let Some(&(locked, _)) = state.locked_room.get(&(*class, day, member.subject_id))
+                {
+                    match shared_lock {
+                        None => shared_lock = Some(locked),
+                        Some(prev) if prev != locked => {
+                            lock_conflict = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if lock_conflict {
+                all_assigned = false;
+                break;
+            }
+
             let mut picked: Option<RoomId> = None;
             'rooms: for &room_idx in room_order {
                 let room = &problem.rooms[room_idx];
                 if taken.contains(&room.id) {
                     continue;
+                }
+                if let Some(locked) = shared_lock {
+                    if room.id != locked {
+                        continue;
+                    }
                 }
                 if !idx.room_suits_subject(room.id, member.subject_id) {
                     continue;
@@ -729,6 +810,16 @@ fn try_place_group(
         for pos in c.start_pos..=c.end_pos {
             let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
             part.insert(ins, pos);
+        }
+    }
+    for (member_pos, member) in members.iter().enumerate() {
+        let room_id = c.rooms[member_pos];
+        for class in &member.school_class_ids {
+            let entry = state
+                .locked_room
+                .entry((*class, c.day, member.subject_id))
+                .or_insert((room_id, 0));
+            entry.1 += u32::from(n);
         }
     }
     state.soft_score = c.score;
@@ -895,6 +986,14 @@ fn seed_greedy_state_from_pins(
                 .or_default();
             let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
             part.insert(ins, tb.position);
+            // Seed the same-room lock from authoritative pins so FFD's room
+            // picker sees an existing room for this triple. One placement per
+            // pinned hour increments the count by 1.
+            let entry = state
+                .locked_room
+                .entry((*class, tb.day_of_week, lesson.subject_id))
+                .or_insert((pl.room_id, 0));
+            entry.1 += 1;
         }
         let part = state
             .teacher_positions
@@ -1619,11 +1718,12 @@ mod tests {
         });
         let group_id = LessonGroupId(solve_uuid(70));
         p.lessons[0].lesson_group_id = Some(group_id);
-        p.lessons[0].school_class_ids =
-            vec![SchoolClassId(solve_uuid(50)), SchoolClassId(solve_uuid(51))];
+        // Each group member serves a distinct class; co-placement at one TB
+        // is the group invariant (typical Religion / Ethik split).
+        p.lessons[0].school_class_ids = vec![SchoolClassId(solve_uuid(50))];
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
-            school_class_ids: vec![SchoolClassId(solve_uuid(50)), SchoolClassId(solve_uuid(51))],
+            school_class_ids: vec![SchoolClassId(solve_uuid(51))],
             subject_id: SubjectId(solve_uuid(40)),
             teacher_id: TeacherId(solve_uuid(21)),
             hours_per_week: 1,
