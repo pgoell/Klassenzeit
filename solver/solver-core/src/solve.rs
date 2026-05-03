@@ -960,6 +960,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
@@ -1026,6 +1027,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.room_subject_suitabilities.push(RoomSubjectSuitability {
             room_id: RoomId(solve_uuid(30)),
@@ -1070,6 +1072,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -1102,6 +1105,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -1203,6 +1207,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1699,6 +1704,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(22)),
@@ -1773,6 +1779,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),

@@ -174,6 +174,12 @@ pub struct Subject {
     /// field deserialise to 0.
     #[serde(default)]
     pub avoid_last_period: u32,
+    /// Per-Subject weight applied to the late-period axis. Scoring adds
+    /// `(max_position_for_day - tb.position) * weights.prefer_late_period * subject.prefer_late_period`
+    /// per placement (saturating). Zero disables this axis for the subject.
+    /// Wire format is additive: callers omitting the field deserialise to 0.
+    #[serde(default)]
+    pub prefer_late_period: u32,
 }
 
 /// A school class that receives lessons.

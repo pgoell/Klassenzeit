@@ -59,6 +59,7 @@ pub fn feasible_problem(
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         })
         .collect();
     let classes_vec: Vec<SchoolClass> = (0..classes)

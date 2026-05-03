@@ -293,6 +293,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
@@ -466,6 +467,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let tb = TimeBlock {
             id: TimeBlockId(score_uuid(10)),
@@ -487,6 +489,7 @@ mod tests {
             prefer_early_period: 1,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 3,
@@ -512,6 +515,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 1,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let weights = ConstraintWeights {
             avoid_first_period: 9,
@@ -541,6 +545,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 1,
+            prefer_late_period: 0,
         };
         let weights = ConstraintWeights {
             avoid_last_period: 11,
@@ -593,6 +598,7 @@ mod tests {
                 prefer_early_period: prefer_early,
                 avoid_first_period: avoid_first,
                 avoid_last_period: avoid_last,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
@@ -845,6 +851,7 @@ mod tests {
             prefer_early_period: 1,
             avoid_first_period: 1,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 2,
@@ -883,6 +890,7 @@ mod tests {
             prefer_early_period: w,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         // single-weight = 2 * 3 * 1 = 6, double-weight = 2 * 3 * 2 = 12
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 6);
@@ -906,6 +914,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: w,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 5);
         assert_eq!(subject_preference_score(&mk(3), &tb, 6, &weights), 15);
@@ -928,6 +937,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: w,
+            prefer_late_period: 0,
         };
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 4);
         assert_eq!(subject_preference_score(&mk(2), &tb, 6, &weights), 8);
@@ -986,6 +996,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 1,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class_id,

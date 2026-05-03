@@ -109,6 +109,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(json_uuid(50)),
@@ -221,6 +222,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(json_uuid(50)),

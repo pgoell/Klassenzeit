@@ -52,12 +52,14 @@ fn pessimal_input_problem() -> Problem {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             },
             Subject {
                 id: SubjectId(ffd_uuid(41)),
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             },
         ],
         school_classes: vec![

@@ -259,6 +259,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let class = SchoolClass {
             id: SchoolClassId(uuid(5)),
@@ -442,6 +443,7 @@ mod tests {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         });
         p.teachers.push(Teacher {
             id: TeacherId(uuid(9)),

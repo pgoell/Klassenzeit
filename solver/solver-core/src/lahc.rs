@@ -671,6 +671,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -796,6 +797,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -942,6 +944,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![
                 SchoolClass {
@@ -1073,6 +1076,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1114,6 +1118,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1152,6 +1157,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
