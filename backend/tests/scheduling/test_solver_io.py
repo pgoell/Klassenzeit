@@ -642,6 +642,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "no_free_time_block",
         "no_suitable_room",
         "lesson_group_split",
+        "pinned_conflict",
     }
 
 
@@ -701,6 +702,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "no_free_time_block": 2,
         "no_suitable_room": 0,
         "lesson_group_split": 0,
+        "pinned_conflict": 0,
     }
 
 
