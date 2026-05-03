@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
 from klassenzeit_backend.db.models.school_class import SchoolClass
-from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
+from klassenzeit_backend.db.models.stundentafel import (
+    SchoolType,
+    Stundentafel,
+    StundentafelEntry,
+)
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
@@ -214,7 +218,11 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
     }
     tafeln_by_grade: dict[int, Stundentafel] = {}
     for grade in tafel_hours_by_grade:
-        tafel = Stundentafel(name=f"Grundschule {grade}", grade_level=grade)
+        tafel = Stundentafel(
+            name=f"Grundschule {grade}",
+            grade_level=grade,
+            school_type=SchoolType.GRUNDSCHULE,
+        )
         session.add(tafel)
         tafeln_by_grade[grade] = tafel
     await session.flush()
