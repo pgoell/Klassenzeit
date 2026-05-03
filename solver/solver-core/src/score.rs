@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::ids::{LessonId, RoomId, SchoolClassId, TeacherId, TimeBlockId};
-use crate::types::{ConstraintWeights, Lesson, Placement, Problem, TimeBlock};
+use crate::types::{ConstraintWeights, Lesson, Placement, Problem, SchoolClass, TimeBlock};
 
 /// Compute the total weighted soft-score for a placement set.
 ///
@@ -49,6 +49,13 @@ pub fn score_solution(
                     .or_insert(tb.position);
                 acc
             });
+    let days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
 
     let mut by_class_day: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
     let mut by_teacher_day: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
@@ -68,6 +75,7 @@ pub fn score_solution(
             .push(tb.position);
     }
 
+    let class_balance = class_day_balance_cost(&by_class_day, &problem.school_classes, days);
     let class_gaps: u32 = by_class_day
         .into_values()
         .map(|mut v| {
@@ -112,7 +120,55 @@ pub fn score_solution(
         .saturating_mul(class_gaps)
         .saturating_add(weights.teacher_gap.saturating_mul(teacher_gaps))
         .saturating_add(subject_preference)
+        .saturating_add(weights.class_day_balance.saturating_mul(class_balance))
         .saturating_add(home_room_total)
+}
+
+/// L1 distance from per-day mean placement count, summed across classes.
+/// Cost for one class is `sum over days of |c[day] * D - sum| / D` where
+/// `D` is the day count and `sum` is the class's total placements; the
+/// scaling by `D` keeps integer arithmetic precise (a perfectly even
+/// spread cancels exactly to zero). A class with zero placements
+/// contributes zero. Unweighted: caller multiplies by
+/// `weights.class_day_balance`.
+///
+/// Pure: depends only on the inputs. Allocation: one small per-class
+/// `Vec<u32>` of length `days` (typically `days <= 7`). Acceptable
+/// because `score_solution` is invoked per full evaluation, not per
+/// candidate placement; the placement-time hot paths in `solve.rs` and
+/// `lahc.rs` use granular delta helpers and never call this function.
+pub(crate) fn class_day_balance_cost(
+    by_class_day: &HashMap<(SchoolClassId, u8), Vec<u8>>,
+    classes: &[SchoolClass],
+    days: u8,
+) -> u32 {
+    if days == 0 {
+        return 0;
+    }
+    let mut total: u32 = 0;
+    let d = u32::from(days);
+    for class in classes {
+        let mut sum: u32 = 0;
+        let mut counts: Vec<u32> = Vec::with_capacity(usize::from(days));
+        for day in 0..days {
+            let c = by_class_day
+                .get(&(class.id, day))
+                .map(|v| v.len() as u32)
+                .unwrap_or(0);
+            counts.push(c);
+            sum = sum.saturating_add(c);
+        }
+        if sum == 0 {
+            continue;
+        }
+        let mut scaled: u32 = 0;
+        for c in &counts {
+            let lhs = c.saturating_mul(d);
+            scaled = scaled.saturating_add(lhs.abs_diff(sum));
+        }
+        total = total.saturating_add(scaled / d);
+    }
+    total
 }
 
 /// Count gap-hours in a sorted, deduplicated `positions` slice. A gap-hour is
@@ -1072,5 +1128,53 @@ mod tests {
         // weight 3 = 6.
         let placements = [p(10), p(11), p(12), p(14)];
         assert_eq!(score_solution(&problem, &placements, &weights), 6);
+    }
+
+    #[test]
+    fn class_day_balance_zero_for_perfectly_even_spread() {
+        // 4 placements over 4 days = 1/1/1/1, balance cost = 0.
+        let mut p = three_block_one_class_problem();
+        for day in 1..=3u8 {
+            p.time_blocks.push(TimeBlock {
+                id: TimeBlockId(score_uuid(20 + day)),
+                day_of_week: day,
+                position: 0,
+            });
+        }
+        let weights = ConstraintWeights {
+            class_day_balance: 5,
+            ..ConstraintWeights::default()
+        };
+        let placements = [place(60, 10), place(60, 21), place(60, 22), place(60, 23)];
+        assert_eq!(score_solution(&p, &placements, &weights), 0);
+    }
+
+    #[test]
+    fn class_day_balance_penalises_lopsided_spread() {
+        // 4 placements all on day 0 over 4 days = 4/0/0/0; cost = 6, weighted = 30.
+        let mut p = three_block_one_class_problem();
+        for day in 1..=3u8 {
+            p.time_blocks.push(TimeBlock {
+                id: TimeBlockId(score_uuid(20 + day)),
+                day_of_week: day,
+                position: 0,
+            });
+        }
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(score_uuid(13)),
+            day_of_week: 0,
+            position: 3,
+        });
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(score_uuid(14)),
+            day_of_week: 0,
+            position: 4,
+        });
+        let weights = ConstraintWeights {
+            class_day_balance: 5,
+            ..ConstraintWeights::default()
+        };
+        let placements = [place(60, 10), place(60, 11), place(60, 12), place(60, 13)];
+        assert_eq!(score_solution(&p, &placements, &weights), 30);
     }
 }
