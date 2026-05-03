@@ -40,7 +40,13 @@ function renderSchedulePage(initialPath: string) {
     path: "/schedule",
     component: () => <SchedulePage />,
     validateSearch: (search: Record<string, unknown>) => ({
+      view:
+        search.view === "class" || search.view === "teacher" || search.view === "room"
+          ? search.view
+          : undefined,
       class: typeof search.class === "string" ? search.class : undefined,
+      teacher: typeof search.teacher === "string" ? search.teacher : undefined,
+      room: typeof search.room === "string" ? search.room : undefined,
     }),
   });
   const router = createRouter({
@@ -60,6 +66,13 @@ describe("SchedulePage", () => {
   it("renders the pick-a-class empty state when no class is selected", async () => {
     renderSchedulePage("/schedule");
     expect(await screen.findByText(/pick a class to view its schedule/i)).toBeInTheDocument();
+  });
+
+  it("renders the teacher view when ?view=teacher is in the URL", async () => {
+    renderSchedulePage("/schedule?view=teacher");
+    expect(
+      await screen.findByText(/select a teacher above to see their weekly placements/i),
+    ).toBeInTheDocument();
   });
 
   it("renders the Generate CTA when the selected class has no placements", async () => {

@@ -56,6 +56,7 @@ describe("ScheduleToolbar", () => {
     render(
       wrapToolbar(
         <ScheduleToolbar
+          view="class"
           classes={CLASSES}
           classId="c1"
           onClassChange={vi.fn()}
@@ -75,6 +76,7 @@ describe("ScheduleToolbar", () => {
     render(
       wrapToolbar(
         <ScheduleToolbar
+          view="class"
           classes={CLASSES}
           classId="c1"
           onClassChange={vi.fn()}
@@ -95,6 +97,7 @@ describe("ScheduleToolbar", () => {
     render(
       wrapToolbar(
         <ScheduleToolbar
+          view="class"
           classes={CLASSES}
           classId="c1"
           onClassChange={vi.fn()}
@@ -121,6 +124,7 @@ describe("ScheduleToolbar", () => {
     render(
       wrapToolbar(
         <ScheduleToolbar
+          view="class"
           classes={CLASSES}
           classId="c1"
           onClassChange={vi.fn()}

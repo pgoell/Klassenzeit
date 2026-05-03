@@ -63,6 +63,7 @@ export function SchedulePageClassView() {
     return (
       <div className="space-y-4">
         <ScheduleToolbar
+          view="class"
           classes={classes.data ?? []}
           classId={undefined}
           onClassChange={onClassChange}
@@ -72,7 +73,7 @@ export function SchedulePageClassView() {
           confirming={false}
           pending={false}
         />
-        <p className="text-sm text-muted-foreground">{t("schedule.picker.none")}</p>
+        <p className="text-sm text-muted-foreground">{t("schedule.picker.class.none")}</p>
       </div>
     );
   }
@@ -123,6 +124,7 @@ export function SchedulePageClassView() {
   return (
     <>
       <ScheduleToolbar
+        view="class"
         classes={classes.data ?? []}
         classId={classId}
         onClassChange={onClassChange}

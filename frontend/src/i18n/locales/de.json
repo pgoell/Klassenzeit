@@ -305,9 +305,26 @@
     "title": "Stundenplan",
     "subtitle": "Stundenplan einer Klasse überprüfen und neu generieren.",
     "picker": {
-      "label": "Klasse",
-      "placeholder": "Klasse auswählen",
-      "none": "Wähle eine Klasse, um ihren Stundenplan zu sehen."
+      "class": {
+        "label": "Klasse",
+        "placeholder": "Klasse auswählen",
+        "none": "Wähle eine Klasse, um ihren Stundenplan zu sehen."
+      },
+      "teacher": {
+        "label": "Lehrkraft",
+        "placeholder": "Lehrkraft auswählen",
+        "none": "Wähle eine Lehrkraft, um ihre Woche zu sehen."
+      },
+      "room": {
+        "label": "Raum",
+        "placeholder": "Raum auswählen",
+        "none": "Wähle einen Raum, um seine Woche zu sehen."
+      }
+    },
+    "tabs": {
+      "class": "Klasse",
+      "teacher": "Lehrkraft",
+      "room": "Raum"
     },
     "generate": {
       "action": "Stundenplan generieren",
@@ -327,7 +344,9 @@
       "body": "Lass den Solver einen Wochenplan für diese Klasse erzeugen.",
       "step1": "Sicherstellen, dass die Klasse Unterrichtsstunden hat",
       "step2": "Solver ausführen",
-      "step3": "Verletzungen prüfen, falls vorhanden"
+      "step3": "Verletzungen prüfen, falls vorhanden",
+      "teacherBody": "Lehrkraft oben auswählen, um deren Wochenstunden zu sehen.",
+      "roomBody": "Raum oben auswählen, um seine Wochenstunden zu sehen."
     },
     "loadError": "Stundenplan konnte nicht geladen werden.",
     "retry": "Erneut versuchen",

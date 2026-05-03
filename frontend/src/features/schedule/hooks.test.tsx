@@ -3,12 +3,19 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api-client";
-import { scheduleByClassId, violationsByClassId } from "../../../tests/msw-handlers";
+import {
+  roomSchedulesByRoomId,
+  scheduleByClassId,
+  teacherSchedulesByTeacherId,
+  violationsByClassId,
+} from "../../../tests/msw-handlers";
 import {
   scheduleQueryKey,
   useClassSchedule,
   useGenerateAllSchedules,
   useGenerateClassSchedule,
+  useRoomSchedule,
+  useTeacherSchedule,
 } from "./hooks";
 
 const CLASS_ID = "00000000-0000-0000-0000-00000000a001";
@@ -122,5 +129,64 @@ describe("useGenerateAllSchedules", () => {
     await result.current.mutateAsync();
     const state = client.getQueryState(scheduleQueryKey(CLASS_ID));
     expect(state?.isInvalidated).toBe(true);
+  });
+});
+
+describe("useTeacherSchedule", () => {
+  beforeEach(() => {
+    for (const k of Object.keys(teacherSchedulesByTeacherId)) {
+      delete teacherSchedulesByTeacherId[k];
+    }
+  });
+
+  it("fetches placements for a teacher", async () => {
+    const teacherId = "11111111-1111-1111-1111-111111111111";
+    const lessonId = "22222222-2222-2222-2222-222222222222";
+    const blockId = "33333333-3333-3333-3333-333333333333";
+    const roomId = "44444444-4444-4444-4444-444444444444";
+    teacherSchedulesByTeacherId[teacherId] = [
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+    ];
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useTeacherSchedule(teacherId), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.placements).toEqual([
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+    ]);
+  });
+
+  it("does not fetch when teacherId is undefined", () => {
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useTeacherSchedule(undefined), { wrapper });
+    expect(result.current.fetchStatus).toBe("idle");
+  });
+});
+
+describe("useRoomSchedule", () => {
+  beforeEach(() => {
+    for (const k of Object.keys(roomSchedulesByRoomId)) {
+      delete roomSchedulesByRoomId[k];
+    }
+  });
+
+  it("fetches placements for a room", async () => {
+    const roomId = "55555555-5555-5555-5555-555555555555";
+    const lessonId = "66666666-6666-6666-6666-666666666666";
+    const blockId = "77777777-7777-7777-7777-777777777777";
+    roomSchedulesByRoomId[roomId] = [
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+    ];
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useRoomSchedule(roomId), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.placements).toEqual([
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+    ]);
+  });
+
+  it("does not fetch when roomId is undefined", () => {
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useRoomSchedule(undefined), { wrapper });
+    expect(result.current.fetchStatus).toBe("idle");
   });
 });
