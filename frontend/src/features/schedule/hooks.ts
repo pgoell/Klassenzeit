@@ -6,6 +6,7 @@ export type Placement = components["schemas"]["PlacementResponse"];
 export type Violation = components["schemas"]["ViolationResponse"];
 export type SchedulePostResponse = components["schemas"]["ScheduleResponse"];
 export type ScheduleGetResponse = components["schemas"]["ScheduleReadResponse"];
+export type WholeSchoolScheduleResponse = components["schemas"]["WholeSchoolScheduleResponse"];
 
 export function scheduleQueryKey(classId: string) {
   return ["schedule", classId] as const;
@@ -46,6 +47,24 @@ export function useGenerateClassSchedule() {
       queryClient.setQueryData(scheduleQueryKey(classId), {
         placements: result.placements,
       } satisfies ScheduleGetResponse);
+    },
+  });
+}
+
+export function useGenerateAllSchedules() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<WholeSchoolScheduleResponse> => {
+      const { data } = await client.POST("/api/schedule/all");
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from POST /schedule/all");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      // Invalidate every per-class schedule query so any open class view
+      // refetches its placements after a whole-school re-solve.
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
     },
   });
 }
