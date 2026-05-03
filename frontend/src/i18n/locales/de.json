@@ -13,6 +13,7 @@
     "search": "Suchen",
     "noResults": "Keine Treffer. Andere Suche versuchen.",
     "open": "Öffnen",
+    "actions": "Aktionen",
     "daysShort": {
       "0": "Mo",
       "1": "Di",
@@ -126,8 +127,7 @@
     "new": "Neues Fach",
     "columns": {
       "name": "Name",
-      "shortName": "Kürzel",
-      "actions": "Aktionen"
+      "shortName": "Kürzel"
     },
     "empty": {
       "title": "Fächerkatalog anlegen",
@@ -171,8 +171,7 @@
       "name": "Name",
       "shortName": "Kürzel",
       "capacity": "Kapazität",
-      "subjects": "Fächer",
-      "actions": "Aktionen"
+      "subjects": "Fächer"
     },
     "empty": {
       "title": "Noch keine Räume",
@@ -210,8 +209,7 @@
       "firstName": "Vorname",
       "lastName": "Nachname",
       "shortCode": "Kürzel",
-      "maxHoursPerWeek": "Max. Stunden / Woche",
-      "actions": "Aktionen"
+      "maxHoursPerWeek": "Max. Stunden / Woche"
     },
     "empty": {
       "title": "Noch keine Lehrkräfte",
@@ -262,8 +260,7 @@
     "new": "Neues Wochenschema",
     "columns": {
       "name": "Name",
-      "description": "Beschreibung",
-      "actions": "Aktionen"
+      "description": "Beschreibung"
     },
     "empty": {
       "title": "Noch keine Wochenschemata",
@@ -292,8 +289,7 @@
         "day": "Tag",
         "position": "Stunde",
         "start": "Start",
-        "end": "Ende",
-        "actions": "Aktionen"
+        "end": "Ende"
       },
       "createTitle": "Zeitblock hinzufügen",
       "editTitle": "Zeitblock bearbeiten",
@@ -357,8 +353,7 @@
       "name": "Name",
       "gradeLevel": "Jahrgang",
       "stundentafel": "Stundentafel",
-      "weekScheme": "Wochenschema",
-      "actions": "Aktionen"
+      "weekScheme": "Wochenschema"
     },
     "empty": {
       "title": "Noch keine Klassen",
@@ -407,8 +402,7 @@
       "subject": "Fach",
       "teacher": "Lehrkraft",
       "hoursPerWeek": "Stunden / Woche",
-      "blockSize": "Format",
-      "actions": "Aktionen"
+      "blockSize": "Format"
     },
     "empty": {
       "title": "Noch kein Unterricht",
@@ -455,8 +449,7 @@
     "loadError": "Stundentafeln konnten nicht geladen werden.",
     "columns": {
       "name": "Name",
-      "gradeLevel": "Jahrgang",
-      "actions": "Aktionen"
+      "gradeLevel": "Jahrgang"
     },
     "empty": {
       "title": "Noch keine Stundentafeln",
@@ -496,8 +489,7 @@
       "columns": {
         "subject": "Fach",
         "hoursPerWeek": "Stunden / Woche",
-        "blockSize": "Format",
-        "actions": "Aktionen"
+        "blockSize": "Format"
       },
       "createTitle": "Neuer Eintrag",
       "editTitle": "Eintrag bearbeiten",

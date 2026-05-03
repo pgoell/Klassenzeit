@@ -288,9 +288,7 @@ export function StundentafelEditDialog({ stundentafel, onClose }: StundentafelEd
                     <TableHead className="py-2">
                       {t("stundentafeln.entries.columns.blockSize")}
                     </TableHead>
-                    <TableHead className="w-40 py-2 text-right">
-                      {t("stundentafeln.entries.columns.actions")}
-                    </TableHead>
+                    <TableHead className="w-40 py-2 text-right">{t("common.actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

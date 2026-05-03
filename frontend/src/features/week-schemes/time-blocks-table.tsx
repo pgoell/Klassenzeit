@@ -81,9 +81,7 @@ export function TimeBlocksTable({ schemeId }: { schemeId: string }) {
                 </TableHead>
                 <TableHead className="py-2">{t("weekSchemes.timeBlocks.columns.start")}</TableHead>
                 <TableHead className="py-2">{t("weekSchemes.timeBlocks.columns.end")}</TableHead>
-                <TableHead className="py-2 text-right">
-                  {t("weekSchemes.timeBlocks.columns.actions")}
-                </TableHead>
+                <TableHead className="py-2 text-right">{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
