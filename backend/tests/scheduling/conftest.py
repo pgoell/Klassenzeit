@@ -36,6 +36,34 @@ class SeededClassWithPlacements(NamedTuple):
     unpinned_lesson_id_str: str
 
 
+class SeededMovablePlacement(NamedTuple):
+    """Bundle returned by ``seeded_movable_placement``."""
+
+    lesson_id: uuid.UUID
+    source_time_block_id: uuid.UUID
+    target_time_block_id: uuid.UUID
+    target_room_id: uuid.UUID
+
+
+class SeededCrossWeekFixture(NamedTuple):
+    """Bundle returned by ``seeded_movable_placement_cross_week``."""
+
+    lesson_id: uuid.UUID
+    source_time_block_id: uuid.UUID
+    foreign_time_block_id: uuid.UUID
+    target_room_id: uuid.UUID
+
+
+class SeededTwoPlacements(NamedTuple):
+    """Bundle returned by ``seeded_two_placements_for_swap``."""
+
+    lesson_a_id: uuid.UUID
+    time_block_a_id: uuid.UUID
+    lesson_b_id: uuid.UUID
+    time_block_b_id: uuid.UUID
+    room_id: uuid.UUID
+
+
 # Type aliases for the factory callables
 type CreateSubjectFn = Callable[..., Awaitable[Subject]]
 type CreateWeekSchemeFn = Callable[..., Awaitable[WeekScheme]]
@@ -497,3 +525,183 @@ async def seeded_class_without_pins(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     return cls.id
+
+
+@pytest.fixture
+async def seeded_movable_placement(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededMovablePlacement:
+    """Seed one Lesson with a single placement and a vacant target slot.
+
+    Layout: one WeekScheme, two TimeBlocks (source + target), one Room,
+    one Lesson belonging to one SchoolClass, one ScheduledLesson at the
+    source TimeBlock with ``pinned=False``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    source_tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    target_tb = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=source_tb.id,
+            room_id=room.id,
+            pinned=False,
+        )
+    )
+    await db_session.flush()
+    return SeededMovablePlacement(
+        lesson_id=lesson.id,
+        source_time_block_id=source_tb.id,
+        target_time_block_id=target_tb.id,
+        target_room_id=room.id,
+    )
+
+
+@pytest.fixture
+async def seeded_movable_placement_cross_week(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededCrossWeekFixture:
+    """Seed two SchoolClasses with their own WeekSchemes; lesson belongs to A only.
+
+    The placement lives at A's time_block. The ``foreign_time_block_id`` lives
+    in B's WeekScheme, so an attempted move there must trip the cross-week
+    validator.
+    """
+    subject = await create_subject()
+    scheme_a = await create_week_scheme()
+    scheme_b = await create_week_scheme()
+    source_tb = await create_time_block(week_scheme_id=scheme_a.id, position=1)
+    foreign_tb = await create_time_block(week_scheme_id=scheme_b.id, position=1)
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_a.id)
+    await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_b.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls_a.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=source_tb.id,
+            room_id=room.id,
+            pinned=False,
+        )
+    )
+    await db_session.flush()
+    return SeededCrossWeekFixture(
+        lesson_id=lesson.id,
+        source_time_block_id=source_tb.id,
+        foreign_time_block_id=foreign_tb.id,
+        target_room_id=room.id,
+    )
+
+
+@pytest.fixture
+async def seeded_two_placements_for_swap(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededTwoPlacements:
+    """Seed two Lessons in the same class + week scheme, each with one placement.
+
+    Both placements start with ``pinned=False`` so the swap test can assert the
+    handler flips both flags to ``True``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=cls.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=cls.id),
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb_a.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+            ScheduledLesson(
+                lesson_id=lesson_b.id,
+                time_block_id=tb_b.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+        ]
+    )
+    await db_session.flush()
+    return SeededTwoPlacements(
+        lesson_a_id=lesson_a.id,
+        time_block_a_id=tb_a.id,
+        lesson_b_id=lesson_b.id,
+        time_block_b_id=tb_b.id,
+        room_id=room.id,
+    )

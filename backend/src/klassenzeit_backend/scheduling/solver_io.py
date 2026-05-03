@@ -672,6 +672,7 @@ async def read_schedule_for_class(
             lesson_id=row.lesson_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
+            pinned=row.pinned,
         )
         for row in rows
     ]
@@ -716,6 +717,7 @@ async def read_schedule_for_teacher(
             lesson_id=row.lesson_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
+            pinned=row.pinned,
         )
         for row in rows
     ]
@@ -754,6 +756,7 @@ async def read_schedule_for_room(
             lesson_id=row.lesson_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
+            pinned=row.pinned,
         )
         for row in rows
     ]

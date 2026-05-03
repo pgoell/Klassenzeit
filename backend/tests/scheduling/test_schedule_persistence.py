@@ -345,3 +345,43 @@ async def test_read_raises_404_for_missing_class(db_session: AsyncSession) -> No
     with pytest.raises(HTTPException) as excinfo:
         await read_schedule_for_class(db_session, uuid.uuid4())
     assert excinfo.value.status_code == 404
+
+
+async def test_read_schedule_surfaces_pinned_flag(
+    db_session: AsyncSession,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """``read_schedule_for_class`` must propagate ``ScheduledLesson.pinned``.
+
+    Regression guard: the helper previously dropped the field when building
+    ``PlacementResponse``, masking pin state from per-class GET responses.
+    """
+    class_id, lesson_id, tb_id, room_id = await _seed_class_with_lesson(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-read-pinned",
+    )
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson_id,
+            time_block_id=tb_id,
+            room_id=room_id,
+            pinned=True,
+        )
+    )
+    await db_session.flush()
+    result = await read_schedule_for_class(db_session, class_id)
+    assert len(result) == 1
+    assert result[0].pinned is True
