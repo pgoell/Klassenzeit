@@ -456,6 +456,59 @@ async def collect_pinned_placements(
     ]
 
 
+async def collect_own_class_pins(
+    db: AsyncSession,
+    class_id: UUID,
+) -> list[dict[str, str]]:
+    """Return wire-format pin dicts for the requested class's pinned rows.
+
+    Pulls every ``ScheduledLesson`` whose ``Lesson`` is a member of
+    ``class_id`` AND whose ``pinned`` flag is true. Output is ordered by
+    ``(lesson_id, time_block_id)`` for determinism, matching
+    ``collect_pinned_placements``.
+    """
+    own_lessons_subq = (
+        select(LessonSchoolClass.lesson_id)
+        .where(LessonSchoolClass.school_class_id == class_id)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(ScheduledLesson)
+        .where(ScheduledLesson.lesson_id.in_(own_lessons_subq))
+        .where(ScheduledLesson.pinned.is_(True))
+        .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "lesson_id": str(row.lesson_id),
+            "time_block_id": str(row.time_block_id),
+            "room_id": str(row.room_id),
+        }
+        for row in rows
+    ]
+
+
+async def collect_all_pins(
+    db: AsyncSession,
+) -> list[dict[str, str]]:
+    """Return wire-format pin dicts for every ScheduledLesson with pinned=True."""
+    stmt = (
+        select(ScheduledLesson)
+        .where(ScheduledLesson.pinned.is_(True))
+        .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "lesson_id": str(row.lesson_id),
+            "time_block_id": str(row.time_block_id),
+            "room_id": str(row.room_id),
+        }
+        for row in rows
+    ]
+
+
 async def persist_solution_for_class(
     db: AsyncSession,
     class_id: UUID,

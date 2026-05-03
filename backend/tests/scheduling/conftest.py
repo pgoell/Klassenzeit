@@ -12,17 +12,29 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import time
 from itertools import count
+from typing import NamedTuple
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
+
+
+class SeededClassWithPlacements(NamedTuple):
+    """Bundle returned by ``seeded_class_with_two_placements``."""
+
+    class_id: uuid.UUID
+    pinned_lesson_id_str: str
+    unpinned_lesson_id_str: str
+
 
 # Type aliases for the factory callables
 type CreateSubjectFn = Callable[..., Awaitable[Subject]]
@@ -402,3 +414,86 @@ async def seeded_lesson_for_pinning(
     db_session.add(lesson)
     await db_session.flush()
     return lesson.id, time_block.id, room.id
+
+
+@pytest.fixture
+async def seeded_class_with_two_placements(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededClassWithPlacements:
+    """Seed one class with two ScheduledLesson rows; one pinned, one not.
+
+    Used by ``test_collect_own_class_pins_returns_only_pinned_rows_for_class``
+    to assert the helper filters by ``pinned=True``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_pinned = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_unpinned = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    pinned_lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    unpinned_lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([pinned_lesson, unpinned_lesson])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=pinned_lesson.id, school_class_id=cls.id),
+            LessonSchoolClass(lesson_id=unpinned_lesson.id, school_class_id=cls.id),
+            ScheduledLesson(
+                lesson_id=pinned_lesson.id,
+                time_block_id=tb_pinned.id,
+                room_id=room.id,
+                pinned=True,
+            ),
+            ScheduledLesson(
+                lesson_id=unpinned_lesson.id,
+                time_block_id=tb_unpinned.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+        ]
+    )
+    await db_session.flush()
+    return SeededClassWithPlacements(
+        class_id=cls.id,
+        pinned_lesson_id_str=str(pinned_lesson.id),
+        unpinned_lesson_id_str=str(unpinned_lesson.id),
+    )
+
+
+@pytest.fixture
+async def seeded_class_without_pins(
+    create_week_scheme: CreateWeekSchemeFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> uuid.UUID:
+    """Seed a class with no ScheduledLesson rows; returns its UUID."""
+    scheme = await create_week_scheme()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    return cls.id

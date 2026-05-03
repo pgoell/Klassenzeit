@@ -46,8 +46,10 @@ async def generate_schedule_for_class(
             different week_scheme, or if the rooms table is empty.
     """
     sibling_pins = await solver_io.collect_pinned_placements(db, {class_id})
+    own_pins = await solver_io.collect_own_class_pins(db, class_id)
+    all_pins = sibling_pins + own_pins
     problem_json, class_lesson_ids, input_counts = await solver_io.build_problem_json(
-        db, class_id, pinned_placements=sibling_pins
+        db, class_id, pinned_placements=all_pins
     )
     deadline_ms = request.app.state.settings.solve_deadline_ms
     solution = await solver_io.run_solve(
