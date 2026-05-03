@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
 import i18n from "@/i18n/init";
-import { scheduleByClassId, violationsByClassId } from "../../../tests/msw-handlers";
+import { scheduleByClassId, server, violationsByClassId } from "../../../tests/msw-handlers";
 import { ScheduleToolbar } from "./schedule-toolbar";
 
 beforeAll(async () => {
@@ -113,14 +114,18 @@ describe("ScheduleToolbar", () => {
     expect(button).toBeDisabled();
   });
 
-  it("renders 'Generate all' button and posts to /api/schedule/all on click", async () => {
-    scheduleByClassId.c1 = [
-      {
-        lesson_id: "00000000-0000-0000-0000-00000000b001",
-        time_block_id: "00000000-0000-0000-0000-00000000c001",
-        room_id: "00000000-0000-0000-0000-00000000d001",
-      },
-    ];
+  it("'Re-solve respecting my pins' posts respect_pins=true and toasts the pins-preserved copy", async () => {
+    const requestUrls: string[] = [];
+    server.use(
+      http.post("http://localhost:3000/api/schedule/all", ({ request }) => {
+        requestUrls.push(request.url);
+        return HttpResponse.json({
+          classes: [{ class_id: "c1", placements_count: 1, violations_count: 0 }],
+          total_placements: 1,
+          total_violations: 0,
+        });
+      }),
+    );
     render(
       wrapToolbar(
         <ScheduleToolbar
@@ -137,11 +142,51 @@ describe("ScheduleToolbar", () => {
       ),
     );
 
-    const button = screen.getByRole("button", { name: /generate all/i });
+    const button = screen.getByRole("button", { name: /re-solve respecting my pins/i });
     await userEvent.click(button);
 
     await waitFor(() => {
-      expect(screen.getByText(/Generated 1 classes/i)).toBeInTheDocument();
+      expect(screen.getByText(/your pins were preserved/i)).toBeInTheDocument();
     });
+    expect(requestUrls).toHaveLength(1);
+    expect(requestUrls[0]).toContain("respect_pins=true");
+  });
+
+  it("'Generate all from scratch' posts respect_pins=false and toasts the from-scratch copy", async () => {
+    const requestUrls: string[] = [];
+    server.use(
+      http.post("http://localhost:3000/api/schedule/all", ({ request }) => {
+        requestUrls.push(request.url);
+        return HttpResponse.json({
+          classes: [{ class_id: "c1", placements_count: 1, violations_count: 0 }],
+          total_placements: 1,
+          total_violations: 0,
+        });
+      }),
+    );
+    render(
+      wrapToolbar(
+        <ScheduleToolbar
+          view="class"
+          classes={CLASSES}
+          classId="c1"
+          onClassChange={vi.fn()}
+          onGenerate={vi.fn()}
+          onCancelConfirm={vi.fn()}
+          placementsCount={0}
+          confirming={false}
+          pending={false}
+        />,
+      ),
+    );
+
+    const button = screen.getByRole("button", { name: /generate all from scratch/i });
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByText(/regenerated from scratch/i)).toBeInTheDocument();
+    });
+    expect(requestUrls).toHaveLength(1);
+    expect(requestUrls[0]).toContain("respect_pins=false");
   });
 });

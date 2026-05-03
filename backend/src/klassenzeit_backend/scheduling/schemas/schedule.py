@@ -7,15 +7,23 @@ class's lessons by the route handler.
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlacementResponse(BaseModel):
-    """One placed lesson-hour: which lesson, in which time block, in which room."""
+    """One placed lesson-hour: which lesson, in which time block, in which room.
+
+    ``pinned`` reflects ``ScheduledLesson.pinned`` for persisted reads and the
+    placement-mutation endpoints; defaults to ``False`` for fresh solver
+    output, which carries no pinned flag in its wire format.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
 
     lesson_id: UUID
     time_block_id: UUID
     room_id: UUID
+    pinned: bool = False
 
 
 class ViolationResponse(BaseModel):

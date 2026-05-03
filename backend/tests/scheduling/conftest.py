@@ -12,16 +12,69 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import time
 from itertools import count
+from typing import NamedTuple
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
-from klassenzeit_backend.db.models.teacher import Teacher
+from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
+
+
+class SeededClassWithPlacements(NamedTuple):
+    """Bundle returned by ``seeded_class_with_two_placements``."""
+
+    class_id: uuid.UUID
+    pinned_lesson_id_str: str
+    unpinned_lesson_id_str: str
+
+
+class SeededMovablePlacement(NamedTuple):
+    """Bundle returned by ``seeded_movable_placement``."""
+
+    lesson_id: uuid.UUID
+    source_time_block_id: uuid.UUID
+    target_time_block_id: uuid.UUID
+    target_room_id: uuid.UUID
+
+
+class SeededCrossWeekFixture(NamedTuple):
+    """Bundle returned by ``seeded_movable_placement_cross_week``."""
+
+    lesson_id: uuid.UUID
+    source_time_block_id: uuid.UUID
+    foreign_time_block_id: uuid.UUID
+    target_room_id: uuid.UUID
+
+
+class SeededTwoPlacements(NamedTuple):
+    """Bundle returned by ``seeded_two_placements_for_swap``."""
+
+    lesson_a_id: uuid.UUID
+    time_block_a_id: uuid.UUID
+    lesson_b_id: uuid.UUID
+    time_block_b_id: uuid.UUID
+    room_id: uuid.UUID
+
+
+class SeededDreizuegigWithPin(NamedTuple):
+    """Bundle returned by ``seeded_dreizuegig_with_one_pin``.
+
+    Tiny two-class school with one ScheduledLesson row pre-pinned. Cheaper
+    than running the real dreizuegige seed: just enough for the solver to
+    produce one feasible placement per class.
+    """
+
+    pinned_lesson_id: uuid.UUID
+    pinned_time_block_id: uuid.UUID
+
 
 # Type aliases for the factory callables
 type CreateSubjectFn = Callable[..., Awaitable[Subject]]
@@ -371,3 +424,396 @@ def create_school_class(db_session: AsyncSession) -> CreateSchoolClassFn:
         return school_class
 
     return _make_school_class
+
+
+@pytest.fixture
+async def seeded_lesson_for_pinning(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_school_class: CreateSchoolClassFn,
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Seed one Lesson + one TimeBlock + one Room for ScheduledLesson.pinned tests.
+
+    Returns ``(lesson_id, time_block_id, room_id)``.
+    """
+    subject = await create_subject()
+    week_scheme = await create_week_scheme()
+    time_block = await create_time_block(week_scheme_id=week_scheme.id)
+    room = await create_room()
+    teacher = await create_teacher()
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    return lesson.id, time_block.id, room.id
+
+
+@pytest.fixture
+async def seeded_class_with_two_placements(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededClassWithPlacements:
+    """Seed one class with two ScheduledLesson rows; one pinned, one not.
+
+    Used by ``test_collect_own_class_pins_returns_only_pinned_rows_for_class``
+    to assert the helper filters by ``pinned=True``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_pinned = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_unpinned = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    pinned_lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    unpinned_lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([pinned_lesson, unpinned_lesson])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=pinned_lesson.id, school_class_id=cls.id),
+            LessonSchoolClass(lesson_id=unpinned_lesson.id, school_class_id=cls.id),
+            ScheduledLesson(
+                lesson_id=pinned_lesson.id,
+                time_block_id=tb_pinned.id,
+                room_id=room.id,
+                pinned=True,
+            ),
+            ScheduledLesson(
+                lesson_id=unpinned_lesson.id,
+                time_block_id=tb_unpinned.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+        ]
+    )
+    await db_session.flush()
+    return SeededClassWithPlacements(
+        class_id=cls.id,
+        pinned_lesson_id_str=str(pinned_lesson.id),
+        unpinned_lesson_id_str=str(unpinned_lesson.id),
+    )
+
+
+@pytest.fixture
+async def seeded_class_without_pins(
+    create_week_scheme: CreateWeekSchemeFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> uuid.UUID:
+    """Seed a class with no ScheduledLesson rows; returns its UUID."""
+    scheme = await create_week_scheme()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    return cls.id
+
+
+@pytest.fixture
+async def seeded_movable_placement(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededMovablePlacement:
+    """Seed one Lesson with a single placement and a vacant target slot.
+
+    Layout: one WeekScheme, two TimeBlocks (source + target), one Room,
+    one Lesson belonging to one SchoolClass, one ScheduledLesson at the
+    source TimeBlock with ``pinned=False``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    source_tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    target_tb = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=source_tb.id,
+            room_id=room.id,
+            pinned=False,
+        )
+    )
+    await db_session.flush()
+    return SeededMovablePlacement(
+        lesson_id=lesson.id,
+        source_time_block_id=source_tb.id,
+        target_time_block_id=target_tb.id,
+        target_room_id=room.id,
+    )
+
+
+@pytest.fixture
+async def seeded_movable_placement_cross_week(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededCrossWeekFixture:
+    """Seed two SchoolClasses with their own WeekSchemes; lesson belongs to A only.
+
+    The placement lives at A's time_block. The ``foreign_time_block_id`` lives
+    in B's WeekScheme, so an attempted move there must trip the cross-week
+    validator.
+    """
+    subject = await create_subject()
+    scheme_a = await create_week_scheme()
+    scheme_b = await create_week_scheme()
+    source_tb = await create_time_block(week_scheme_id=scheme_a.id, position=1)
+    foreign_tb = await create_time_block(week_scheme_id=scheme_b.id, position=1)
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_a.id)
+    await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_b.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls_a.id))
+    db_session.add(
+        ScheduledLesson(
+            lesson_id=lesson.id,
+            time_block_id=source_tb.id,
+            room_id=room.id,
+            pinned=False,
+        )
+    )
+    await db_session.flush()
+    return SeededCrossWeekFixture(
+        lesson_id=lesson.id,
+        source_time_block_id=source_tb.id,
+        foreign_time_block_id=foreign_tb.id,
+        target_room_id=room.id,
+    )
+
+
+@pytest.fixture
+async def seeded_two_placements_for_swap(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededTwoPlacements:
+    """Seed two Lessons in the same class + week scheme, each with one placement.
+
+    Both placements start with ``pinned=False`` so the swap test can assert the
+    handler flips both flags to ``True``.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=cls.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=cls.id),
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb_a.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+            ScheduledLesson(
+                lesson_id=lesson_b.id,
+                time_block_id=tb_b.id,
+                room_id=room.id,
+                pinned=False,
+            ),
+        ]
+    )
+    await db_session.flush()
+    return SeededTwoPlacements(
+        lesson_a_id=lesson_a.id,
+        time_block_a_id=tb_a.id,
+        lesson_b_id=lesson_b.id,
+        time_block_b_id=tb_b.id,
+        room_id=room.id,
+    )
+
+
+@pytest.fixture
+async def seeded_dreizuegig_with_one_pin(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> SeededDreizuegigWithPin:
+    """Tiny two-class school with one pre-pinned ScheduledLesson row.
+
+    Layout: one WeekScheme with four TimeBlocks (so the solver has slack),
+    two Rooms, two Subjects, two Teachers each qualified for one Subject,
+    one Stundentafel, two SchoolClasses. One Lesson per class, both with
+    a teacher set so ``build_problem_json`` picks them up. A single
+    ScheduledLesson row is pre-inserted with ``pinned=True`` for
+    ``lesson_a`` at ``tb_1``; the solver respects it under
+    ``respect_pins=true`` and the persist helper preserves the flag under
+    ``respect_pins=false``.
+    """
+    subject_a = await create_subject()
+    subject_b = await create_subject()
+    scheme = await create_week_scheme()
+    tb_1 = await create_time_block(week_scheme_id=scheme.id, day_of_week=0, position=1)
+    await create_time_block(
+        week_scheme_id=scheme.id,
+        day_of_week=0,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    await create_time_block(
+        week_scheme_id=scheme.id,
+        day_of_week=1,
+        position=1,
+    )
+    await create_time_block(
+        week_scheme_id=scheme.id,
+        day_of_week=1,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room_a = await create_room()
+    await create_room()
+    teacher_a = await create_teacher()
+    teacher_b = await create_teacher()
+    db_session.add_all(
+        [
+            TeacherQualification(teacher_id=teacher_a.id, subject_id=subject_a.id),
+            TeacherQualification(teacher_id=teacher_b.id, subject_id=subject_b.id),
+        ]
+    )
+    await db_session.flush()
+    tafel = await create_stundentafel()
+    cls_a = await create_school_class(
+        name="ClassPin-A",
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+    )
+    cls_b = await create_school_class(
+        name="ClassPin-B",
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+    )
+    lesson_a = Lesson(
+        subject_id=subject_a.id,
+        teacher_id=teacher_a.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject_b.id,
+        teacher_id=teacher_b.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=cls_a.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=cls_b.id),
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb_1.id,
+                room_id=room_a.id,
+                pinned=True,
+            ),
+        ]
+    )
+    await db_session.flush()
+    return SeededDreizuegigWithPin(
+        pinned_lesson_id=lesson_a.id,
+        pinned_time_block_id=tb_1.id,
+    )

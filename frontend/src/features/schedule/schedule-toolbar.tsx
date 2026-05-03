@@ -56,19 +56,17 @@ export function ScheduleToolbar(props: ScheduleToolbarProps) {
   const { t } = useTranslation();
   const generateAll = useGenerateAllSchedules();
 
-  const runGenerateAll = async () => {
+  const runGenerateAll = async (respect_pins: boolean) => {
     try {
-      const result = await generateAll.mutateAsync();
+      await generateAll.mutateAsync({ respect_pins });
       toast.success(
-        t("schedule.generate.allSuccessToast", {
-          classes: result.classes.length,
-          placements: result.total_placements,
-          violations: result.total_violations,
-        }),
+        respect_pins
+          ? t("schedule.generate.respectPinsSuccessToast")
+          : t("schedule.generate.fromScratchSuccessToast"),
       );
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : t("schedule.generate.allErrorToast");
-      toast.error(msg || t("schedule.generate.allErrorToast"));
+      const msg = err instanceof ApiError ? err.message : t("schedule.toasts.mutationError");
+      toast.error(msg || t("schedule.toasts.mutationError"));
     }
   };
 
@@ -110,7 +108,7 @@ export function ScheduleToolbar(props: ScheduleToolbarProps) {
             />
           ) : null}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {props.view === "class" ? (
             <Button
               onClick={props.onGenerate}
@@ -120,8 +118,19 @@ export function ScheduleToolbar(props: ScheduleToolbarProps) {
               {props.pending ? t("common.saving") : t("schedule.generate.action")}
             </Button>
           ) : null}
-          <Button variant="default" onClick={runGenerateAll} disabled={generateAll.isPending}>
-            {t("schedule.generate.allAction")}
+          <Button
+            variant="default"
+            onClick={() => runGenerateAll(true)}
+            disabled={generateAll.isPending}
+          >
+            {t("schedule.generate.respectPinsAction")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => runGenerateAll(false)}
+            disabled={generateAll.isPending}
+          >
+            {t("schedule.generate.fromScratchAction")}
           </Button>
         </div>
       </div>

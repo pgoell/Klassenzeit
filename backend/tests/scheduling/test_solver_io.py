@@ -26,6 +26,7 @@ from klassenzeit_backend.db.models.teacher import (
     TeacherQualification,
 )
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
+from klassenzeit_backend.scheduling import solver_io
 from klassenzeit_backend.scheduling.solver_io import (
     _VIOLATION_KINDS,
     _count_violations_by_kind,
@@ -37,6 +38,7 @@ from klassenzeit_backend.scheduling.solver_io import (
     read_schedule_for_teacher,
     run_solve,
 )
+from tests.scheduling.conftest import SeededClassWithPlacements
 
 # Type aliases matching the factory fixtures defined in conftest.py
 type CreateSubjectFn = Callable[..., Awaitable[Subject]]
@@ -1184,6 +1186,27 @@ async def test_read_schedule_for_room_returns_empty_when_no_placements(
     room = await create_room()
     rows = await read_schedule_for_room(db_session, room.id)
     assert rows == []
+
+
+async def test_collect_own_class_pins_returns_only_pinned_rows_for_class(
+    db_session: AsyncSession,
+    seeded_class_with_two_placements: SeededClassWithPlacements,
+) -> None:
+    """Pinned rows in the class are returned; unpinned rows are not."""
+    pins = await solver_io.collect_own_class_pins(
+        db_session, seeded_class_with_two_placements.class_id
+    )
+    pinned_ids = {pin["lesson_id"] for pin in pins}
+    assert seeded_class_with_two_placements.pinned_lesson_id_str in pinned_ids
+    assert seeded_class_with_two_placements.unpinned_lesson_id_str not in pinned_ids
+
+
+async def test_collect_own_class_pins_empty_when_class_has_none(
+    db_session: AsyncSession,
+    seeded_class_without_pins: uuid.UUID,
+) -> None:
+    pins = await solver_io.collect_own_class_pins(db_session, seeded_class_without_pins)
+    assert pins == []
 
 
 async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
