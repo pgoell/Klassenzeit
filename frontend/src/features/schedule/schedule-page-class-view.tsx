@@ -112,6 +112,7 @@ export function SchedulePageClassView() {
         roomName: room?.name ?? t("schedule.cellDeletedLesson"),
         lessonId: p.lesson_id,
         timeBlockId: p.time_block_id,
+        roomId: p.room_id,
         pinned: p.pinned,
       };
     })
@@ -123,6 +124,9 @@ export function SchedulePageClassView() {
   const positions = Array.from(
     new Set((weekScheme.data?.time_blocks ?? []).map((b) => b.position)),
   ).sort((a, b) => a - b);
+  const timeBlocksByDayPosition = new Map(
+    (weekScheme.data?.time_blocks ?? []).map((b) => [`${b.day_of_week}:${b.position}`, b.id]),
+  );
 
   return (
     <>
@@ -171,7 +175,13 @@ export function SchedulePageClassView() {
             violations={postViolations}
             lessonById={lessonById}
           />
-          <ScheduleGrid cells={cells} daysPresent={daysPresent} positions={positions} />
+          <ScheduleGrid
+            cells={cells}
+            daysPresent={daysPresent}
+            positions={positions}
+            dragEnabled
+            timeBlocksByDayPosition={timeBlocksByDayPosition}
+          />
         </>
       )}
     </>

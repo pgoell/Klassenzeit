@@ -65,6 +65,7 @@ export function SchedulePageTeacherView() {
         roomName: room?.name ?? t("schedule.cellDeletedLesson"),
         lessonId: p.lesson_id,
         timeBlockId: p.time_block_id,
+        roomId: p.room_id,
         pinned: p.pinned,
       };
     })

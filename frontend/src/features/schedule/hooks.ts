@@ -7,6 +7,7 @@ export type Violation = components["schemas"]["ViolationResponse"];
 export type SchedulePostResponse = components["schemas"]["ScheduleResponse"];
 export type ScheduleGetResponse = components["schemas"]["ScheduleReadResponse"];
 export type WholeSchoolScheduleResponse = components["schemas"]["WholeSchoolScheduleResponse"];
+export type SwapPlacementsResponse = components["schemas"]["SwapPlacementsResponse"];
 
 export function scheduleQueryKey(classId: string) {
   return ["schedule", classId] as const;
@@ -120,6 +121,58 @@ export function usePinPlacement() {
     onSuccess: () => {
       // Broad invalidation: a pin toggle can affect class, teacher, and room
       // schedule views, so refetch every schedule subkey.
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
+    },
+  });
+}
+
+export interface MovePlacementVars {
+  lesson_id: string;
+  source_time_block_id: string;
+  time_block_id: string;
+  room_id: string;
+}
+
+export function useMovePlacement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: MovePlacementVars): Promise<Placement> => {
+      const { lesson_id, source_time_block_id, time_block_id, room_id } = vars;
+      const { data } = await client.PATCH("/api/placements/{lesson_id}/{time_block_id}", {
+        params: { path: { lesson_id, time_block_id: source_time_block_id } },
+        body: { time_block_id, room_id },
+      });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from PATCH /placements/{ids}");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      // Broad invalidation: a move can shift the lesson out of one class,
+      // teacher, or room view and into another.
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
+    },
+  });
+}
+
+export interface SwapPlacementsVars {
+  a: { lesson_id: string; time_block_id: string };
+  b: { lesson_id: string; time_block_id: string };
+}
+
+export function useSwapPlacements() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: SwapPlacementsVars): Promise<SwapPlacementsResponse> => {
+      const { data } = await client.POST("/api/placements/swap", { body: vars });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from POST /placements/swap");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      // Broad invalidation: a swap touches two placements that may live in
+      // different class, teacher, or room views.
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
     },
   });

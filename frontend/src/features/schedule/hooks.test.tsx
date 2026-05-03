@@ -16,8 +16,10 @@ import {
   useClassSchedule,
   useGenerateAllSchedules,
   useGenerateClassSchedule,
+  useMovePlacement,
   usePinPlacement,
   useRoomSchedule,
+  useSwapPlacements,
   useTeacherSchedule,
 } from "./hooks";
 
@@ -200,6 +202,90 @@ describe("usePinPlacement", () => {
       room_id: roomId,
       pinned: true,
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["schedule"] });
+  });
+});
+
+describe("useMovePlacement", () => {
+  it("PATCHes the move endpoint and invalidates ['schedule'] queries", async () => {
+    const lessonId = "00000000-0000-0000-0000-000000000010";
+    const sourceBlockId = "00000000-0000-0000-0000-000000000020";
+    const targetBlockId = "00000000-0000-0000-0000-000000000021";
+    const targetRoomId = "00000000-0000-0000-0000-000000000030";
+    let receivedBody: unknown = null;
+    let receivedUrl = "";
+    server.use(
+      http.patch(
+        `http://localhost:3000/api/placements/${lessonId}/${sourceBlockId}`,
+        async ({ request }) => {
+          receivedUrl = request.url;
+          receivedBody = await request.json();
+          return HttpResponse.json({
+            lesson_id: lessonId,
+            time_block_id: targetBlockId,
+            room_id: targetRoomId,
+            pinned: true,
+          });
+        },
+      ),
+    );
+    const { client, wrapper } = wrapScheduleHook();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useMovePlacement(), { wrapper });
+    const data = await result.current.mutateAsync({
+      lesson_id: lessonId,
+      source_time_block_id: sourceBlockId,
+      time_block_id: targetBlockId,
+      room_id: targetRoomId,
+    });
+    expect(receivedUrl).toContain(`/api/placements/${lessonId}/${sourceBlockId}`);
+    expect(receivedBody).toEqual({
+      time_block_id: targetBlockId,
+      room_id: targetRoomId,
+    });
+    expect(data).toEqual({
+      lesson_id: lessonId,
+      time_block_id: targetBlockId,
+      room_id: targetRoomId,
+      pinned: true,
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["schedule"] });
+  });
+});
+
+describe("useSwapPlacements", () => {
+  it("POSTs the swap endpoint and invalidates ['schedule'] queries", async () => {
+    const lessonA = "00000000-0000-0000-0000-0000000000a1";
+    const blockA = "00000000-0000-0000-0000-0000000000a2";
+    const roomA = "00000000-0000-0000-0000-0000000000a3";
+    const lessonB = "00000000-0000-0000-0000-0000000000b1";
+    const blockB = "00000000-0000-0000-0000-0000000000b2";
+    const roomB = "00000000-0000-0000-0000-0000000000b3";
+    let receivedBody: unknown = null;
+    server.use(
+      http.post("http://localhost:3000/api/placements/swap", async ({ request }) => {
+        receivedBody = await request.json();
+        return HttpResponse.json({
+          a: { lesson_id: lessonA, time_block_id: blockB, room_id: roomB, pinned: true },
+          b: { lesson_id: lessonB, time_block_id: blockA, room_id: roomA, pinned: true },
+        });
+      }),
+    );
+    const { client, wrapper } = wrapScheduleHook();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useSwapPlacements(), { wrapper });
+    const data = await result.current.mutateAsync({
+      a: { lesson_id: lessonA, time_block_id: blockA },
+      b: { lesson_id: lessonB, time_block_id: blockB },
+    });
+    expect(receivedBody).toEqual({
+      a: { lesson_id: lessonA, time_block_id: blockA },
+      b: { lesson_id: lessonB, time_block_id: blockB },
+    });
+    expect(data.a.lesson_id).toBe(lessonA);
+    expect(data.a.time_block_id).toBe(blockB);
+    expect(data.b.lesson_id).toBe(lessonB);
+    expect(data.b.time_block_id).toBe(blockA);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["schedule"] });
   });
 });
