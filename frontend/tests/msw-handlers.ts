@@ -146,6 +146,12 @@ export const initialSchoolClasses = [
 // them in `beforeEach` by iterating `Object.keys`.
 export const scheduleByClassId: Record<string, components["schemas"]["PlacementResponse"][]> = {};
 export const violationsByClassId: Record<string, components["schemas"]["ViolationResponse"][]> = {};
+export const teacherSchedulesByTeacherId: Record<
+  string,
+  components["schemas"]["PlacementResponse"][]
+> = {};
+export const roomSchedulesByRoomId: Record<string, components["schemas"]["PlacementResponse"][]> =
+  {};
 
 export const initialLessons = [
   {
@@ -743,6 +749,22 @@ export const defaultHandlers = [
       return HttpResponse.json({ detail: "Class not found" }, { status: 404 });
     }
     return HttpResponse.json({ placements: scheduleByClassId[classId] ?? [] });
+  }),
+  http.get(`${BASE}/api/teachers/:teacher_id/schedule`, ({ params }) => {
+    const teacherId = String(params.teacher_id);
+    const list = teacherSchedulesByTeacherId[teacherId];
+    if (!list) {
+      return HttpResponse.json({ detail: "Teacher not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ placements: list });
+  }),
+  http.get(`${BASE}/api/rooms/:room_id/schedule`, ({ params }) => {
+    const roomId = String(params.room_id);
+    const list = roomSchedulesByRoomId[roomId];
+    if (!list) {
+      return HttpResponse.json({ detail: "Room not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ placements: list });
   }),
   http.post(`${BASE}/api/classes/:classId/schedule`, ({ params }) => {
     const classId = String(params.classId);

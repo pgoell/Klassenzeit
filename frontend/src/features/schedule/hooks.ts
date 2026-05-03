@@ -51,6 +51,52 @@ export function useGenerateClassSchedule() {
   });
 }
 
+export function teacherScheduleQueryKey(teacherId: string) {
+  return ["schedule", "teacher", teacherId] as const;
+}
+
+export function roomScheduleQueryKey(roomId: string) {
+  return ["schedule", "room", roomId] as const;
+}
+
+export function useTeacherSchedule(teacherId: string | undefined) {
+  return useQuery({
+    enabled: Boolean(teacherId),
+    queryKey: teacherId ? teacherScheduleQueryKey(teacherId) : ["schedule", "teacher", "disabled"],
+    queryFn: async (): Promise<ScheduleGetResponse> => {
+      if (!teacherId) {
+        throw new ApiError(400, null, "useTeacherSchedule called without teacherId");
+      }
+      const { data } = await client.GET("/api/teachers/{teacher_id}/schedule", {
+        params: { path: { teacher_id: teacherId } },
+      });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from GET /teachers/{id}/schedule");
+      }
+      return data;
+    },
+  });
+}
+
+export function useRoomSchedule(roomId: string | undefined) {
+  return useQuery({
+    enabled: Boolean(roomId),
+    queryKey: roomId ? roomScheduleQueryKey(roomId) : ["schedule", "room", "disabled"],
+    queryFn: async (): Promise<ScheduleGetResponse> => {
+      if (!roomId) {
+        throw new ApiError(400, null, "useRoomSchedule called without roomId");
+      }
+      const { data } = await client.GET("/api/rooms/{room_id}/schedule", {
+        params: { path: { room_id: roomId } },
+      });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from GET /rooms/{id}/schedule");
+      }
+      return data;
+    },
+  });
+}
+
 export function useGenerateAllSchedules() {
   const queryClient = useQueryClient();
   return useMutation({

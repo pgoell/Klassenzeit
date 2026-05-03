@@ -305,9 +305,26 @@
     "title": "Schedule",
     "subtitle": "Review and regenerate a class's schedule.",
     "picker": {
-      "label": "Class",
-      "placeholder": "Select a class",
-      "none": "Pick a class to view its schedule."
+      "class": {
+        "label": "Class",
+        "placeholder": "Select a class",
+        "none": "Pick a class to view its schedule."
+      },
+      "teacher": {
+        "label": "Teacher",
+        "placeholder": "Select a teacher",
+        "none": "Pick a teacher to view their week."
+      },
+      "room": {
+        "label": "Room",
+        "placeholder": "Select a room",
+        "none": "Pick a room to view its week."
+      }
+    },
+    "tabs": {
+      "class": "Class",
+      "teacher": "Teacher",
+      "room": "Room"
     },
     "generate": {
       "action": "Generate schedule",
@@ -327,7 +344,9 @@
       "body": "Run the solver to produce a weekly plan for this class.",
       "step1": "Confirm the class has lessons",
       "step2": "Run the solver",
-      "step3": "Review violations if any"
+      "step3": "Review violations if any",
+      "teacherBody": "Select a teacher above to see their weekly placements.",
+      "roomBody": "Select a room above to see its weekly placements."
     },
     "loadError": "Failed to load schedule.",
     "retry": "Retry",

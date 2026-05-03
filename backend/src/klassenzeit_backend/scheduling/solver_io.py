@@ -622,3 +622,85 @@ async def read_schedule_for_class(
         )
         for row in rows
     ]
+
+
+async def read_schedule_for_teacher(
+    db: AsyncSession,
+    teacher_id: UUID,
+) -> list[PlacementResponse]:
+    """Return persisted placements where the lesson's teacher matches.
+
+    Args:
+        db: The ambient async session.
+        teacher_id: UUID of the teacher to read.
+
+    Returns:
+        A list of :class:`PlacementResponse` values; empty if the teacher has no
+        scheduled lessons yet.
+
+    Raises:
+        HTTPException: 404 if the teacher doesn't exist. The empty-schedule
+            case is distinguished by returning an empty list.
+    """
+    teacher = await db.get(Teacher, teacher_id)
+    if teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
+
+    rows = (
+        (
+            await db.execute(
+                select(ScheduledLesson)
+                .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+                .where(Lesson.teacher_id == teacher_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    return [
+        PlacementResponse(
+            lesson_id=row.lesson_id,
+            time_block_id=row.time_block_id,
+            room_id=row.room_id,
+        )
+        for row in rows
+    ]
+
+
+async def read_schedule_for_room(
+    db: AsyncSession,
+    room_id: UUID,
+) -> list[PlacementResponse]:
+    """Return persisted placements where ``ScheduledLesson.room_id`` matches.
+
+    Args:
+        db: The ambient async session.
+        room_id: UUID of the room to read.
+
+    Returns:
+        A list of :class:`PlacementResponse` values; empty if the room has no
+        scheduled lessons yet.
+
+    Raises:
+        HTTPException: 404 if the room doesn't exist. The empty-schedule case
+            is distinguished by returning an empty list.
+    """
+    room = await db.get(Room, room_id)
+    if room is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+
+    rows = (
+        (await db.execute(select(ScheduledLesson).where(ScheduledLesson.room_id == room_id)))
+        .scalars()
+        .all()
+    )
+
+    return [
+        PlacementResponse(
+            lesson_id=row.lesson_id,
+            time_block_id=row.time_block_id,
+            room_id=row.room_id,
+        )
+        for row in rows
+    ]

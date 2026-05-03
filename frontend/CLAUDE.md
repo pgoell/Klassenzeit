@@ -50,6 +50,7 @@ Run from repo root unless noted.
 - **No `useNavigate` for in-app links.** Use `<Link>` so keyboard and middle-click work.
 - **Page components that consume search params should use `useSearch({ strict: false })`** with a typed cast, not `useSearch({ from: "/_authed/foo" })`. The test harness (`renderWithProviders`) mounts components at `/` with no route tree for the real path; strict matching throws at render.
 - **No direct `fetch`.** Use the typed `client` from `@/lib/api-client`, which wraps `openapi-fetch` over generated types. Error responses throw `ApiError`; inspect `err.status` and `err.data` in mutation `onError`.
+- **`useWeekSchemes` list response omits `time_blocks`; only `useWeekSchemeDetail` carries them.** Schedule-grid renderers that aggregate placements across classes (teacher / room views) need a per-scheme detail fetch per Klasse, then a flattened block index. Sprint B's `schedule-page-teacher-view.tsx` and `schedule-page-room-view.tsx` simplify this to one detail fetch on `classes.data?.[0]?.week_scheme_id`; multi-scheme schools are a known follow-up.
 
 ## Forms (RHF + Zod)
 

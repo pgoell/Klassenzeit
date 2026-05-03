@@ -7,7 +7,8 @@ export interface ScheduleCell {
   day: number;
   position: number;
   subjectName: string;
-  teacherName: string | undefined;
+  classNames?: string;
+  teacherName?: string;
   roomName: string;
 }
 
@@ -51,7 +52,9 @@ export function ScheduleGrid({ cells, daysPresent, positions }: ScheduleGridProp
                   <div className="flex flex-col leading-tight gap-0.5">
                     <span className="font-semibold text-foreground">{cell.subjectName}</span>
                     <span className="text-[10px] text-muted-foreground">
-                      {[cell.teacherName, cell.roomName].filter(Boolean).join(" · ")}
+                      {[cell.classNames, cell.teacherName, cell.roomName]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </div>
                 ) : null}
