@@ -86,6 +86,7 @@ prop_compose! {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         }
     }
 }
@@ -160,6 +161,7 @@ proptest! {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let placements = [Placement { lesson_id, time_block_id: tb_id, room_id }];
         let weights = ConstraintWeights {
@@ -209,6 +211,7 @@ proptest! {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let placements = [Placement { lesson_id, time_block_id: tb_id, room_id }];
         let weights = ConstraintWeights {

@@ -683,6 +683,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -806,6 +807,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -973,6 +975,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -1065,6 +1068,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -1105,6 +1109,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -1142,6 +1147,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();

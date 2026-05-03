@@ -124,6 +124,7 @@ fn grundschule() -> Problem {
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
+        pinned_placements: vec![],
     }
 }
 

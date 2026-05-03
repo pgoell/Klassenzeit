@@ -286,6 +286,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         }
     }
 

@@ -143,6 +143,7 @@ mod tests {
                 room_id: RoomId(u(3)),
                 subject_id: SubjectId(u(5)),
             }],
+            pinned_placements: vec![],
         }
     }
 

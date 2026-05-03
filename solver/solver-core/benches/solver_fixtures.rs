@@ -153,6 +153,7 @@ fn grundschule_fixture() -> Problem {
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
+        pinned_placements: vec![],
     }
 }
 
@@ -321,6 +322,7 @@ fn zweizuegig_fixture() -> Problem {
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
+        pinned_placements: vec![],
     }
 }
 
@@ -578,6 +580,7 @@ fn dreizuegig_fixture() -> Problem {
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
+        pinned_placements: vec![],
     }
 }
 

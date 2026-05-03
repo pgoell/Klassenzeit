@@ -81,7 +81,8 @@ mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification, TimeBlock,
+        Lesson, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
+        TeacherQualification, TimeBlock,
     };
     use uuid::Uuid;
 
@@ -129,6 +130,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         serde_json::to_string(&p).unwrap()
     }
@@ -173,6 +175,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         serde_json::to_string(&p).unwrap()
     }
@@ -193,5 +196,66 @@ mod tests {
         let with_config_parsed: serde_json::Value = serde_json::from_str(&with_config).unwrap();
         let default_parsed: serde_json::Value = serde_json::from_str(&default).unwrap();
         assert_eq!(with_config_parsed, default_parsed);
+    }
+
+    #[test]
+    fn problem_round_trip_preserves_pinned_placements() {
+        let lesson_uuid = json_uuid(60);
+        let time_block_uuid = json_uuid(10);
+        let room_uuid = json_uuid(30);
+        let original = Problem {
+            time_blocks: vec![TimeBlock {
+                id: TimeBlockId(time_block_uuid),
+                day_of_week: 0,
+                position: 0,
+            }],
+            teachers: vec![Teacher {
+                id: TeacherId(json_uuid(20)),
+                max_hours_per_week: 5,
+            }],
+            rooms: vec![Room {
+                id: RoomId(room_uuid),
+            }],
+            subjects: vec![Subject {
+                id: SubjectId(json_uuid(40)),
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+            }],
+            school_classes: vec![SchoolClass {
+                id: SchoolClassId(json_uuid(50)),
+                home_room_id: None,
+            }],
+            lessons: vec![Lesson {
+                id: LessonId(lesson_uuid),
+                school_class_ids: vec![SchoolClassId(json_uuid(50))],
+                subject_id: SubjectId(json_uuid(40)),
+                teacher_id: TeacherId(json_uuid(20)),
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id: TeacherId(json_uuid(20)),
+                subject_id: SubjectId(json_uuid(40)),
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![PinnedPlacement {
+                lesson_id: LessonId(lesson_uuid),
+                time_block_id: TimeBlockId(time_block_uuid),
+                room_id: RoomId(room_uuid),
+            }],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: Problem = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn problem_defaults_pinned_placements_to_empty_when_field_omitted() {
+        let parsed: Problem = serde_json::from_str(&trivially_empty_json()).unwrap();
+        assert!(parsed.pinned_placements.is_empty());
     }
 }

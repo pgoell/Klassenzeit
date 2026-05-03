@@ -104,5 +104,6 @@ pub fn feasible_problem(
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: Vec::<RoomSubjectSuitability>::new(),
+        pinned_placements: vec![],
     }
 }
