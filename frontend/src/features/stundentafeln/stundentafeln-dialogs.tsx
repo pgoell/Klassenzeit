@@ -56,9 +56,11 @@ import {
 import {
   EntryFormSchema,
   type EntryFormValues,
+  SchoolTypeValues,
   StundentafelFormSchema,
   type StundentafelFormValues,
 } from "./schema";
+import { schoolTypeLabelKey } from "./school-type-keys";
 
 interface StundentafelFormDialogProps {
   open: boolean;
@@ -69,7 +71,7 @@ export function StundentafelFormDialog({ open, onOpenChange }: StundentafelFormD
   const { t } = useTranslation();
   const form = useForm<StundentafelFormValues>({
     resolver: zodResolver(StundentafelFormSchema),
-    defaultValues: { name: "", grade_level: 1 },
+    defaultValues: { name: "", grade_level: 1, school_type: "Grundschule" },
   });
   const createMutation = useCreateStundentafel();
 
@@ -77,6 +79,7 @@ export function StundentafelFormDialog({ open, onOpenChange }: StundentafelFormD
     const body: StundentafelCreate = {
       name: values.name,
       grade_level: values.grade_level,
+      school_type: values.school_type,
     };
     try {
       await createMutation.mutateAsync(body);
@@ -117,6 +120,30 @@ export function StundentafelFormDialog({ open, onOpenChange }: StundentafelFormD
                   <FormControl>
                     <Input placeholder={t("stundentafeln.fields.namePlaceholder")} {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="school_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("stundentafeln.fields.schoolTypeLabel")}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {SchoolTypeValues.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {t(schoolTypeLabelKey(value))}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
@@ -173,6 +200,7 @@ export function StundentafelEditDialog({ stundentafel, onClose }: StundentafelEd
     defaultValues: {
       name: stundentafel.name,
       grade_level: stundentafel.grade_level,
+      school_type: stundentafel.school_type,
     },
   });
 
@@ -185,6 +213,7 @@ export function StundentafelEditDialog({ stundentafel, onClose }: StundentafelEd
     const body: StundentafelUpdate = {
       name: values.name,
       grade_level: values.grade_level,
+      school_type: values.school_type,
     };
     try {
       await updateMutation.mutateAsync({ id: stundentafel.id, body });
@@ -222,6 +251,30 @@ export function StundentafelEditDialog({ stundentafel, onClose }: StundentafelEd
                   <FormControl>
                     <Input placeholder={t("stundentafeln.fields.namePlaceholder")} {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="school_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("stundentafeln.fields.schoolTypeLabel")}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {SchoolTypeValues.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {t(schoolTypeLabelKey(value))}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

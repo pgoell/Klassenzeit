@@ -426,3 +426,93 @@ async def test_update_stundentafel_entry_rejects_block_size_change_breaking_divi
     )
     assert response.status_code == 422, response.text
     assert "preferred_block_size" in response.text
+
+
+async def test_create_stundentafel_default_school_type(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /stundentafeln without school_type defaults to Grundschule on the response."""
+    await create_test_user(email="admin@stf-st-default.com", role="admin")
+    await login_as("admin@stf-st-default.com", "testpassword123")
+    response = await client.post(
+        "/api/stundentafeln",
+        json={"name": "Tafel default", "grade_level": 1},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["school_type"] == "Grundschule"
+
+
+async def test_create_stundentafel_explicit_school_type(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /stundentafeln with an explicit school_type echoes it back."""
+    await create_test_user(email="admin@stf-st-explicit.com", role="admin")
+    await login_as("admin@stf-st-explicit.com", "testpassword123")
+    response = await client.post(
+        "/api/stundentafeln",
+        json={"name": "Gymnasium Tafel", "grade_level": 5, "school_type": "Gymnasium"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["school_type"] == "Gymnasium"
+    assert body["grade_level"] == 5
+
+
+async def test_create_stundentafel_grade_level_too_high(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /stundentafeln with grade_level above 13 returns 422."""
+    await create_test_user(email="admin@stf-st-toohigh.com", role="admin")
+    await login_as("admin@stf-st-toohigh.com", "testpassword123")
+    response = await client.post(
+        "/api/stundentafeln",
+        json={"name": "OverGymnasium", "grade_level": 14},
+    )
+    assert response.status_code == 422
+
+
+async def test_create_stundentafel_invalid_school_type(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /stundentafeln with an unknown school_type value returns 422."""
+    await create_test_user(email="admin@stf-st-invalid.com", role="admin")
+    await login_as("admin@stf-st-invalid.com", "testpassword123")
+    response = await client.post(
+        "/api/stundentafeln",
+        json={"name": "BadTypeTafel", "grade_level": 5, "school_type": "FH"},
+    )
+    assert response.status_code == 422
+
+
+async def test_update_stundentafel_school_type(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /stundentafeln/{id} updates school_type and the GET reflects it."""
+    await create_test_user(email="admin@stf-st-patch.com", role="admin")
+    await login_as("admin@stf-st-patch.com", "testpassword123")
+    create = await client.post(
+        "/api/stundentafeln",
+        json={"name": "PatchTafel", "grade_level": 6},
+    )
+    tafel_id = create.json()["id"]
+
+    patch = await client.patch(
+        f"/api/stundentafeln/{tafel_id}",
+        json={"school_type": "Gymnasium"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["school_type"] == "Gymnasium"
+
+    detail = await client.get(f"/api/stundentafeln/{tafel_id}")
+    assert detail.json()["school_type"] == "Gymnasium"

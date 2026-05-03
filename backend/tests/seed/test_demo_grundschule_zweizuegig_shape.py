@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
 from klassenzeit_backend.db.models.school_class import SchoolClass
-from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
+from klassenzeit_backend.db.models.stundentafel import (
+    SchoolType,
+    Stundentafel,
+    StundentafelEntry,
+)
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
@@ -152,3 +156,12 @@ async def test_zweizuegig_stundentafel_entries_match_einzuegig_total(
     # Einzuegig produces 34 StundentafelEntry rows (8 + 8 + 9 + 9). Zweizuegig
     # reuses the same Stundentafeln (1 per grade), so the count is identical.
     assert await _count_zw(seeded_zweizuegig, StundentafelEntry) == 34
+
+
+async def test_zweizuegig_stundentafeln_are_grundschule_school_type(
+    seeded_zweizuegig: AsyncSession,
+) -> None:
+    tafeln = (await seeded_zweizuegig.execute(select(Stundentafel))).scalars().all()
+    assert len(tafeln) == 4
+    for tafel in tafeln:
+        assert tafel.school_type is SchoolType.GRUNDSCHULE

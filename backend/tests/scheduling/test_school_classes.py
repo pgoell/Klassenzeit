@@ -383,3 +383,25 @@ async def test_update_school_class_clears_home_room_id_when_patched_null(
     )
     assert patch_response.status_code == 200
     assert patch_response.json()["home_room_id"] is None
+
+
+async def test_create_school_class_grade_level_too_high(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes with grade_level above 13 returns 422."""
+    await create_test_user(email="admin@sc-grade-high.com", role="admin")
+    await login_as("admin@sc-grade-high.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-Grade-High", 13)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-Grade-High")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "Klasse-OverSec",
+            "grade_level": 14,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+        },
+    )
+    assert response.status_code == 422

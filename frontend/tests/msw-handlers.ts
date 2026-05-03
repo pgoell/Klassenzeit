@@ -89,6 +89,7 @@ export const initialStundentafeln = [
     id: "99999999-9999-9999-9999-999999999999",
     name: "Grundschule Klasse 1",
     grade_level: 1,
+    school_type: "Grundschule" as const,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -487,12 +488,17 @@ export const defaultHandlers = [
   }),
   http.get(`${BASE}/api/stundentafeln`, () => HttpResponse.json(initialStundentafeln)),
   http.post(`${BASE}/api/stundentafeln`, async ({ request }) => {
-    const body = (await request.json()) as { name: string; grade_level: number };
+    const body = (await request.json()) as {
+      name: string;
+      grade_level: number;
+      school_type?: components["schemas"]["SchoolType"];
+    };
     return HttpResponse.json(
       {
         id: "aaaa0000-0000-0000-0000-000000000099",
         name: body.name,
         grade_level: body.grade_level,
+        school_type: body.school_type ?? "Grundschule",
         created_at: "2026-04-20T00:00:00Z",
         updated_at: "2026-04-20T00:00:00Z",
       },
@@ -509,13 +515,18 @@ export const defaultHandlers = [
       id: base.id,
       name: base.name,
       grade_level: base.grade_level,
+      school_type: base.school_type,
       entries: stundentafelEntriesByTafelId[base.id] ?? [],
       created_at: base.created_at,
       updated_at: base.updated_at,
     });
   }),
   http.patch(`${BASE}/api/stundentafeln/:tafel_id`, async ({ request, params }) => {
-    const body = (await request.json()) as { name?: string; grade_level?: number };
+    const body = (await request.json()) as {
+      name?: string;
+      grade_level?: number;
+      school_type?: components["schemas"]["SchoolType"] | null;
+    };
     const id = String(params.tafel_id);
     const base = initialStundentafeln.find((s) => s.id === id) ?? initialStundentafeln[0];
     if (!base) {
@@ -525,6 +536,7 @@ export const defaultHandlers = [
       id: base.id,
       name: body.name ?? base.name,
       grade_level: body.grade_level ?? base.grade_level,
+      school_type: body.school_type ?? base.school_type,
       created_at: base.created_at,
       updated_at: "2026-04-20T00:00:00Z",
     });

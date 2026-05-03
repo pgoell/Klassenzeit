@@ -49,3 +49,4 @@ sections, and add the new entry to the index below.
 | 0023 | [Home-room preference soft constraint](0023-home-room-preference.md) | Accepted |
 | 0024 | [Avoid-last-period soft constraint](0024-avoid-last-period.md) | Accepted |
 | 0025 | [Per-Subject preference weights](0025-subject-preference-weights.md) | Accepted |
+| 0026 | [Stundentafel school-type enum and grade-range expansion](0026-stundentafel-school-type-and-grade-range.md) | Accepted |

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school_class import SchoolClass
+from klassenzeit_backend.db.models.stundentafel import SchoolType, Stundentafel
 from klassenzeit_backend.seed.demo_grundschule_dreizuegig import (
     seed_demo_grundschule_dreizuegig,
 )
@@ -62,3 +63,13 @@ async def test_dreizuegig_religion_lessons_are_multi_class(
             )
         ).scalar_one()
         assert members == 3, "each Religion lesson must span three classes"
+
+
+async def test_dreizuegig_stundentafeln_are_grundschule_school_type(
+    db_session: AsyncSession,
+) -> None:
+    await seed_demo_grundschule_dreizuegig(db_session)
+    tafeln = (await db_session.execute(select(Stundentafel))).scalars().all()
+    assert len(tafeln) == 4
+    for tafel in tafeln:
+        assert tafel.school_type is SchoolType.GRUNDSCHULE

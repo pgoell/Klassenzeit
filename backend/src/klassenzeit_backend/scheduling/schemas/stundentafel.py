@@ -5,19 +5,23 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
+from klassenzeit_backend.db.models.stundentafel import SchoolType
+
 
 class StundentafelCreate(BaseModel):
     """Request body for creating a Stundentafel."""
 
     name: str
-    grade_level: int = Field(ge=1)
+    grade_level: int = Field(ge=1, le=13)
+    school_type: SchoolType = SchoolType.GRUNDSCHULE
 
 
 class StundentafelUpdate(BaseModel):
     """Request body for patching a Stundentafel."""
 
     name: str | None = None
-    grade_level: int | None = Field(default=None, ge=1)
+    grade_level: int | None = Field(default=None, ge=1, le=13)
+    school_type: SchoolType | None = None
 
 
 class EntrySubjectResponse(BaseModel):
@@ -43,6 +47,7 @@ class StundentafelListResponse(BaseModel):
     id: uuid.UUID
     name: str
     grade_level: int
+    school_type: SchoolType
     created_at: datetime
     updated_at: datetime
 
@@ -53,6 +58,7 @@ class StundentafelDetailResponse(BaseModel):
     id: uuid.UUID
     name: str
     grade_level: int
+    school_type: SchoolType
     entries: list[StundentafelEntryResponse]
     created_at: datetime
     updated_at: datetime

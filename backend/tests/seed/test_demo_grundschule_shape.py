@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
 from klassenzeit_backend.db.models.school_class import SchoolClass
-from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
+from klassenzeit_backend.db.models.stundentafel import (
+    SchoolType,
+    Stundentafel,
+    StundentafelEntry,
+)
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
@@ -89,6 +93,15 @@ async def test_school_class_grade_matches_stundentafel_grade(
         ("3a", 3, 3),
         ("4a", 4, 4),
     ]
+
+
+async def test_stundentafeln_are_grundschule_school_type(
+    seeded_session: AsyncSession,
+) -> None:
+    tafeln = (await seeded_session.execute(select(Stundentafel))).scalars().all()
+    assert len(tafeln) == 4
+    for tafel in tafeln:
+        assert tafel.school_type is SchoolType.GRUNDSCHULE
 
 
 async def test_stundentafel_hour_sums_match_hessen_reference(

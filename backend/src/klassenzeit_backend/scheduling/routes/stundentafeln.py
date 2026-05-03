@@ -87,7 +87,7 @@ async def create_stundentafel_route(
     Raises:
         HTTPException: 409 if a Stundentafel with this name already exists.
     """
-    tafel = Stundentafel(name=body.name, grade_level=body.grade_level)
+    tafel = Stundentafel(name=body.name, grade_level=body.grade_level, school_type=body.school_type)
     db.add(tafel)
     try:
         await db.commit()
@@ -101,6 +101,7 @@ async def create_stundentafel_route(
         id=tafel.id,
         name=tafel.name,
         grade_level=tafel.grade_level,
+        school_type=tafel.school_type,
         created_at=tafel.created_at,
         updated_at=tafel.updated_at,
     )
@@ -126,6 +127,7 @@ async def list_stundentafeln(
             id=t.id,
             name=t.name,
             grade_level=t.grade_level,
+            school_type=t.school_type,
             created_at=t.created_at,
             updated_at=t.updated_at,
         )
@@ -171,6 +173,7 @@ async def get_stundentafel(
         id=tafel.id,
         name=tafel.name,
         grade_level=tafel.grade_level,
+        school_type=tafel.school_type,
         entries=entries,
         created_at=tafel.created_at,
         updated_at=tafel.updated_at,
@@ -204,6 +207,8 @@ async def update_stundentafel_route(
         tafel.name = body.name
     if body.grade_level is not None:
         tafel.grade_level = body.grade_level
+    if body.school_type is not None:
+        tafel.school_type = body.school_type
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -216,6 +221,7 @@ async def update_stundentafel_route(
         id=tafel.id,
         name=tafel.name,
         grade_level=tafel.grade_level,
+        school_type=tafel.school_type,
         created_at=tafel.created_at,
         updated_at=tafel.updated_at,
     )
