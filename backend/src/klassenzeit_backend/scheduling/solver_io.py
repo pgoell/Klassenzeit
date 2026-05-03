@@ -304,6 +304,7 @@ async def build_problem_json(
             {
                 "id": str(s.id),
                 "prefer_early_period": s.prefer_early_period,
+                "prefer_late_period": s.prefer_late_period,
                 "avoid_first_period": s.avoid_first_period,
                 "avoid_last_period": s.avoid_last_period,
             }

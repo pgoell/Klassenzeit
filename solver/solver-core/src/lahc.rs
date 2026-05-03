@@ -36,6 +36,7 @@ pub(crate) fn run(
     used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
     used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
     used_room: &mut HashSet<(RoomId, TimeBlockId)>,
+    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
     pinned: &HashSet<LessonId>,
     current_score: &mut u32,
 ) {
@@ -90,6 +91,7 @@ pub(crate) fn run(
             used_teacher,
             used_class,
             used_room,
+            locked_room,
             pinned,
             current_score,
             &lahc_list,
@@ -124,6 +126,7 @@ fn try_change_move(
     used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
     used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
     used_room: &mut HashSet<(RoomId, TimeBlockId)>,
+    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
     pinned: &HashSet<LessonId>,
     current_score: &mut u32,
     lahc_list: &[u32],
@@ -169,6 +172,28 @@ fn try_change_move(
         return false;
     }
 
+    // Same-room hard constraint at new_day: the destination triple's lock
+    // (if any) constrains which room the move may use. Disagreement among
+    // member classes makes the move infeasible.
+    let mut new_day_lock: Option<RoomId> = None;
+    for class in class_ids {
+        let key = (*class, new_tb.day_of_week, lesson.subject_id);
+        if let Some(&(locked, count)) = locked_room.get(&key) {
+            // When old_day == new_day and the current placement is the only
+            // one in the triple, the lock is effectively cleared by removing
+            // self before re-adding. Otherwise the lock's room must hold.
+            let self_only = old_tb.day_of_week == new_tb.day_of_week && count == 1;
+            if self_only {
+                continue;
+            }
+            match new_day_lock {
+                None => new_day_lock = Some(locked),
+                Some(prev) if prev != locked => return false,
+                _ => {}
+            }
+        }
+    }
+
     let Some(new_room_id) = pick_room(
         problem,
         idx,
@@ -176,9 +201,17 @@ fn try_change_move(
         p.room_id,
         new_tb.id,
         used_room,
+        new_day_lock,
     ) else {
         return false;
     };
+
+    // If a lock exists at the destination triple, the chosen room must match.
+    if let Some(locked) = new_day_lock {
+        if new_room_id != locked {
+            return false;
+        }
+    }
 
     let subject = subject_lookup[&lesson.subject_id];
     let old_max = max_position_per_day
@@ -230,20 +263,23 @@ fn try_change_move(
         new_room_id,
         class_ids,
         teacher,
+        lesson.subject_id,
         placements,
         class_positions,
         teacher_positions,
         used_teacher,
         used_class,
         used_room,
+        locked_room,
     );
     *current_score = new_score;
     true
 }
 
 /// Pick a room for the Change move's destination tb. Prefers reusing
-/// `old_room_id`; falls back to the lowest-id hard-feasible room. Returns
-/// `None` if no room is feasible.
+/// `old_room_id`; falls back to the lowest-id hard-feasible room. When
+/// `lock` is `Some`, only that room is considered. Returns `None` if no
+/// room is feasible.
 fn pick_room(
     problem: &Problem,
     idx: &Indexed,
@@ -251,22 +287,22 @@ fn pick_room(
     old_room_id: RoomId,
     new_tb_id: TimeBlockId,
     used_room: &HashSet<(RoomId, TimeBlockId)>,
+    lock: Option<RoomId>,
 ) -> Option<RoomId> {
-    let old_room_feasible = idx.room_suits_subject(old_room_id, subject_id)
-        && !idx.room_blocked(old_room_id, new_tb_id)
-        && !used_room.contains(&(old_room_id, new_tb_id));
-    if old_room_feasible {
+    let feasible = |room_id: RoomId| {
+        idx.room_suits_subject(room_id, subject_id)
+            && !idx.room_blocked(room_id, new_tb_id)
+            && !used_room.contains(&(room_id, new_tb_id))
+    };
+    if let Some(locked) = lock {
+        return if feasible(locked) { Some(locked) } else { None };
+    }
+    if feasible(old_room_id) {
         return Some(old_room_id);
     }
     let mut best: Option<RoomId> = None;
     for room in &problem.rooms {
-        if !idx.room_suits_subject(room.id, subject_id) {
-            continue;
-        }
-        if idx.room_blocked(room.id, new_tb_id) {
-            continue;
-        }
-        if used_room.contains(&(room.id, new_tb_id)) {
+        if !feasible(room.id) {
             continue;
         }
         match best {
@@ -408,7 +444,8 @@ fn gap_count_after_swap(positions: &[u8], old_pos: u8, new_pos: u8) -> u32 {
 }
 
 /// Apply the accepted move's mutations: rewrite the placement entry,
-/// update the partition maps, swap the used-* set entries. For multi-class
+/// update the partition maps, swap the used-* set entries, and adjust the
+/// per-`(class, day, subject)` same-room lock counts. For multi-class
 /// lessons, every member of `class_ids` has its partition and `used_class`
 /// entries updated.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper
@@ -420,12 +457,14 @@ fn apply_change_move(
     new_room_id: RoomId,
     class_ids: &[SchoolClassId],
     teacher: TeacherId,
+    subject_id: SubjectId,
     placements: &mut [Placement],
     class_positions: &mut HashMap<(SchoolClassId, u8), Vec<u8>>,
     teacher_positions: &mut HashMap<(TeacherId, u8), Vec<u8>>,
     used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
     used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
     used_room: &mut HashSet<(RoomId, TimeBlockId)>,
+    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
 ) {
     placements[placement_idx] = Placement {
         lesson_id: old_p.lesson_id,
@@ -475,6 +514,23 @@ fn apply_change_move(
     }
     used_room.remove(&(old_p.room_id, old_tb.id));
     used_room.insert((new_room_id, new_tb.id));
+
+    // Same-room lock bookkeeping. The placement leaves
+    // `(class, old_day, subject)` and joins `(class, new_day, subject)`.
+    // Decrement the old triple's count (removing the entry when zero) and
+    // increment the new triple's count.
+    for class in class_ids {
+        let old_key = (*class, old_tb.day_of_week, subject_id);
+        if let Some(entry) = locked_room.get_mut(&old_key) {
+            entry.1 = entry.1.saturating_sub(1);
+            if entry.1 == 0 {
+                locked_room.remove(&old_key);
+            }
+        }
+        let new_key = (*class, new_tb.day_of_week, subject_id);
+        let entry = locked_room.entry(new_key).or_insert((new_room_id, 0));
+        entry.1 += 1;
+    }
 }
 
 #[cfg(test)]
@@ -607,6 +663,10 @@ mod tests {
 
         let old_tb_id = old_tb.id;
         let new_tb_id = new_tb.id;
+        let subject = SubjectId(lahc_uuid(40));
+        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
+            HashMap::new();
+        locked_room.insert((class, old_tb.day_of_week, subject), (old_room, 1));
         apply_change_move(
             0,
             &placements[0].clone(),
@@ -615,12 +675,14 @@ mod tests {
             new_room,
             &[class],
             teacher,
+            subject,
             &mut placements,
             &mut class_positions,
             &mut teacher_positions,
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &mut locked_room,
         );
 
         assert_eq!(placements[0].time_block_id, new_tb_id);
@@ -671,6 +733,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -725,6 +788,9 @@ mod tests {
             max_iterations: Some(600),
         };
 
+        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
+            HashMap::new();
+        locked_room.insert((class, 0, subject), (room, 1));
         run(
             &problem,
             &idx,
@@ -735,6 +801,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &mut locked_room,
             &HashSet::new(),
             &mut current_score,
         );
@@ -796,6 +863,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
@@ -859,6 +927,9 @@ mod tests {
             max_iterations: Some(2000),
         };
 
+        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
+            HashMap::new();
+        locked_room.insert((class, 0, subject), (room, 2));
         run(
             &problem,
             &idx,
@@ -869,6 +940,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &mut locked_room,
             &HashSet::new(),
             &mut current_score,
         );
@@ -942,6 +1014,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 1,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![
                 SchoolClass {
@@ -1029,6 +1102,10 @@ mod tests {
             max_iterations: Some(2000),
         };
 
+        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
+            HashMap::new();
+        locked_room.insert((class_a, 0, subject), (room_a, 1));
+        locked_room.insert((class_b, 0, subject), (room_b, 1));
         run(
             &problem,
             &idx,
@@ -1039,6 +1116,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &mut locked_room,
             &HashSet::new(),
             &mut current_score,
         );
@@ -1073,6 +1151,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1086,7 +1165,7 @@ mod tests {
         let used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
 
         assert_eq!(
-            pick_room(&problem, &idx, subject, old_room, new_tb, &used),
+            pick_room(&problem, &idx, subject, old_room, new_tb, &used, None),
             Some(old_room)
         );
     }
@@ -1114,6 +1193,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1128,7 +1208,7 @@ mod tests {
         used.insert((old_room, new_tb));
 
         assert_eq!(
-            pick_room(&problem, &idx, subject, old_room, new_tb, &used),
+            pick_room(&problem, &idx, subject, old_room, new_tb, &used, None),
             Some(alt_room)
         );
     }
@@ -1152,6 +1232,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -1166,7 +1247,7 @@ mod tests {
         used.insert((old_room, new_tb));
 
         assert_eq!(
-            pick_room(&problem, &idx, subject, old_room, new_tb, &used),
+            pick_room(&problem, &idx, subject, old_room, new_tb, &used, None),
             None
         );
     }

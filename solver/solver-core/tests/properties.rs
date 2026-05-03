@@ -186,6 +186,7 @@ proptest! {
             prefer_early_period: 0,
             avoid_first_period: 0,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         };
         let class = SchoolClass {
             id: SchoolClassId(Uuid::from_bytes([50; 16])),

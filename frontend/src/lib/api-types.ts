@@ -2149,6 +2149,11 @@ export interface components {
              */
             prefer_early_period: number;
             /**
+             * Prefer Late Period
+             * @default 0
+             */
+            prefer_late_period: number;
+            /**
              * Avoid First Period
              * @default 0
              */
@@ -2177,6 +2182,8 @@ export interface components {
             color: string;
             /** Prefer Early Period */
             prefer_early_period: number;
+            /** Prefer Late Period */
+            prefer_late_period: number;
             /** Avoid First Period */
             avoid_first_period: number;
             /** Avoid Last Period */
@@ -2205,6 +2212,8 @@ export interface components {
             color?: string | null;
             /** Prefer Early Period */
             prefer_early_period?: number | null;
+            /** Prefer Late Period */
+            prefer_late_period?: number | null;
             /** Avoid First Period */
             avoid_first_period?: number | null;
             /** Avoid Last Period */

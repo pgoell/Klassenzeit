@@ -6,6 +6,7 @@ export const SubjectFormSchema = z.object({
   short_name: z.string().trim().min(1, "Short name is required").max(10),
   color: z.string().regex(COLOR_PATTERN, "Invalid color"),
   prefer_early_period: z.number().int().min(0).max(10),
+  prefer_late_period: z.number().int().min(0).max(10),
   avoid_first_period: z.number().int().min(0).max(10),
   avoid_last_period: z.number().int().min(0).max(10),
 });

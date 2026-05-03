@@ -145,6 +145,10 @@
         "label": "Prefer early periods (weight)",
         "help": "Higher values steer this subject to earlier periods more strongly. 0 disables this axis."
       },
+      "preferLatePeriod": {
+        "label": "Prefer late periods (weight)",
+        "help": "Higher values steer this subject to later periods more strongly. 0 disables this axis."
+      },
       "avoidFirstPeriod": {
         "label": "Avoid first period (weight)",
         "help": "Higher values penalise placement in the first period more strongly. 0 disables this axis."

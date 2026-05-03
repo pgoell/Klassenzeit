@@ -35,7 +35,7 @@ prop_compose! {
         slots_per_day in 2u8..=5,
     ) -> Problem {
         let subject_a = SubjectId(lahc_id_from(1));
-        let subjects = vec![Subject { id: subject_a, prefer_early_period: 0, avoid_first_period: 0, avoid_last_period: 0 }];
+        let subjects = vec![Subject { id: subject_a, prefer_early_period: 0, avoid_first_period: 0, avoid_last_period: 0, prefer_late_period: 0 }];
 
         let teachers: Vec<Teacher> = (0..n_teachers)
             .map(|i| Teacher {
@@ -243,6 +243,7 @@ fn build_lahc_pinned_problem() -> Problem {
             prefer_early_period: 0,
             avoid_first_period: 1,
             avoid_last_period: 0,
+            prefer_late_period: 0,
         }],
         school_classes: vec![SchoolClass {
             id: class,

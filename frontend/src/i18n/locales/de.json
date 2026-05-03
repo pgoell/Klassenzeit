@@ -145,6 +145,10 @@
         "label": "Frühe Stunden bevorzugen (Gewicht)",
         "help": "Höhere Werte verschieben dieses Fach stärker in frühe Stunden. 0 deaktiviert diese Achse."
       },
+      "preferLatePeriod": {
+        "label": "Späte Stunden bevorzugen (Gewicht)",
+        "help": "Höhere Werte verschieben dieses Fach stärker in späte Stunden. 0 deaktiviert diese Achse."
+      },
       "avoidFirstPeriod": {
         "label": "Erste Stunde meiden (Gewicht)",
         "help": "Höhere Werte gewichten die Platzierung in der ersten Stunde stärker negativ. 0 deaktiviert diese Achse."

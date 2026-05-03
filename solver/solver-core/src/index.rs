@@ -106,12 +106,14 @@ mod tests {
                     prefer_early_period: 0,
                     avoid_first_period: 0,
                     avoid_last_period: 0,
+                    prefer_late_period: 0,
                 },
                 Subject {
                     id: SubjectId(u(6)),
                     prefer_early_period: 0,
                     avoid_first_period: 0,
                     avoid_last_period: 0,
+                    prefer_late_period: 0,
                 },
             ],
             school_classes: vec![SchoolClass {

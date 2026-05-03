@@ -47,6 +47,7 @@ export function SubjectFormDialog({
       short_name: subject?.short_name ?? "",
       color: subject?.color ?? autoPickColor(""),
       prefer_early_period: subject?.prefer_early_period ?? 0,
+      prefer_late_period: subject?.prefer_late_period ?? 0,
       avoid_first_period: subject?.avoid_first_period ?? 0,
       avoid_last_period: subject?.avoid_last_period ?? 0,
     },
@@ -143,6 +144,29 @@ export function SubjectFormDialog({
                     />
                   </FormControl>
                   <FormDescription>{t("subjects.fields.preferEarlyPeriod.help")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="prefer_late_period"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("subjects.fields.preferLatePeriod.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      className="w-24"
+                    />
+                  </FormControl>
+                  <FormDescription>{t("subjects.fields.preferLatePeriod.help")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

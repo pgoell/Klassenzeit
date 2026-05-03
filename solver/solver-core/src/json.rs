@@ -24,20 +24,23 @@ pub fn solve_json(json: &str) -> Result<String, Error> {
 /// wall-clock deadline (milliseconds). `None` skips the LAHC pass entirely
 /// and returns the greedy result; `Some(n)` runs LAHC for `n` milliseconds.
 /// Soft-constraint weights are the production active defaults
-/// (`class_gap = teacher_gap = prefer_early_period = avoid_first_period
-///   = avoid_last_period = 1`) so that the only knob exposed via the JSON
+/// (`class_gap = teacher_gap = 10`, `prefer_home_room = class_day_balance
+///   = 5`, `prefer_early_period = avoid_first_period = avoid_last_period
+///   = prefer_late_period = 1`) so that the only knob exposed via the JSON
 /// adapter is the deadline.
 pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<String, Error> {
     let problem: Problem =
         serde_json::from_str(json).map_err(|e| Error::Input(format!("json: {e}")))?;
     let config = SolveConfig {
         weights: ConstraintWeights {
-            class_gap: 1,
-            teacher_gap: 1,
+            class_gap: 10,
+            teacher_gap: 10,
             prefer_early_period: 1,
             avoid_first_period: 1,
-            prefer_home_room: 0,
+            prefer_home_room: 5,
             avoid_last_period: 1,
+            prefer_late_period: 1,
+            class_day_balance: 5,
         },
         deadline: deadline_ms.map(Duration::from_millis),
         ..SolveConfig::default()
@@ -109,6 +112,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(json_uuid(50)),
@@ -221,6 +225,7 @@ mod tests {
                 prefer_early_period: 0,
                 avoid_first_period: 0,
                 avoid_last_period: 0,
+                prefer_late_period: 0,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(json_uuid(50)),
