@@ -88,6 +88,35 @@ pub struct Problem {
     pub room_blocked_times: Vec<RoomBlockedTime>,
     /// Room / subject pairs that explicitly mark a room as suitable for a subject.
     pub room_subject_suitabilities: Vec<RoomSubjectSuitability>,
+    /// Pre-placed lessons the solver must keep verbatim. See
+    /// `PinnedPlacement` for the contract; an empty list is the
+    /// default for callers that do not need pin enforcement.
+    /// Wire format is additive: callers omitting the field
+    /// deserialise to an empty Vec.
+    #[serde(default)]
+    pub pinned_placements: Vec<PinnedPlacement>,
+}
+
+/// A pre-placed lesson that the solver must keep at its given
+/// (time_block, room) without modification. FFD seeding skips lessons
+/// whose ids appear in `Problem.pinned_placements`; LAHC moves never
+/// select a placement whose lesson is pinned.
+///
+/// A multi-hour lesson (`preferred_block_size > 1`) appears as
+/// multiple `PinnedPlacement` entries with the same `lesson_id` on
+/// consecutive time-blocks of the same day. Malformed pins (unknown
+/// lesson, non-contiguous block, duplicate slot) are reported as
+/// `ViolationKind::PinnedConflict` and dropped from the active set so
+/// the rest of the solve proceeds.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinnedPlacement {
+    /// The lesson whose placement is fixed.
+    pub lesson_id: LessonId,
+    /// The time-block the lesson is pinned to.
+    pub time_block_id: TimeBlockId,
+    /// The room the lesson is pinned to.
+    pub room_id: RoomId,
 }
 
 /// A single time slot (e.g., a period on a given weekday).
@@ -277,6 +306,11 @@ pub struct Violation {
     pub lesson_id: LessonId,
     /// Zero-based hour index within the lesson.
     pub hour_index: u8,
+    /// Optional reason string accompanying the violation. Today only
+    /// `PinnedConflict` populates this; other variants leave it `None`.
+    /// Wire format is additive (`#[serde(default)]`).
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Discriminator for `Violation`.
@@ -295,6 +329,11 @@ pub enum ViolationKind {
     /// admits all group members with pairwise-distinct rooms and free
     /// teachers / classes. One entry per qualified member per failed block.
     LessonGroupSplit,
+    /// A pin-on-input entry was malformed and dropped. The accompanying
+    /// `Violation.reason` carries the diagnostic code: one of
+    /// `"unknown_lesson"`, `"unknown_time_block"`, `"unknown_room"`,
+    /// `"duplicate_slot"`, `"block_size_mismatch"`.
+    PinnedConflict,
 }
 
 #[cfg(test)]
@@ -319,6 +358,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let json = serde_json::to_string(&original).unwrap();
         let parsed: Problem = serde_json::from_str(&json).unwrap();
@@ -466,6 +506,7 @@ mod tests {
                 kind: ViolationKind::TeacherOverCapacity,
                 lesson_id: lesson_id(),
                 hour_index: 0,
+                reason: None,
             }],
             soft_score: 0,
         };

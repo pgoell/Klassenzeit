@@ -753,6 +753,20 @@ export const defaultHandlers = [
     const violations = violationsByClassId[classId] ?? [];
     return HttpResponse.json({ placements, violations });
   }),
+  http.post(`${BASE}/api/schedule/all`, () => {
+    const summaries = Object.entries(scheduleByClassId).map(([classId, placements]) => ({
+      class_id: classId,
+      placements_count: placements.length,
+      violations_count: (violationsByClassId[classId] ?? []).length,
+    }));
+    const totalPlacements = summaries.reduce((sum, c) => sum + c.placements_count, 0);
+    const totalViolations = summaries.reduce((sum, c) => sum + c.violations_count, 0);
+    return HttpResponse.json({
+      classes: summaries,
+      total_placements: totalPlacements,
+      total_violations: totalViolations,
+    });
+  }),
 ];
 
 export const server = setupServer(...defaultHandlers);

@@ -33,6 +33,7 @@ from klassenzeit_backend.db.models.teacher import (
 )
 from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.scheduling.schemas.schedule import (
+    ClassScheduleSummary,
     PlacementResponse,
     ViolationResponse,
 )
@@ -80,21 +81,67 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
     }
 
 
+async def _resolve_anchor_class(db: AsyncSession, class_id: UUID | None) -> SchoolClass:
+    """Return the anchor class used to scope the solver input.
+
+    For a per-class solve this is the requested class. For a whole-school
+    solve (``class_id is None``) it is any one existing class, used solely
+    to anchor the ``week_scheme`` / ``time_blocks`` lookup; the
+    heterogeneous-week_scheme check downstream still rejects mixed schemes.
+
+    Raises:
+        HTTPException: 404 if ``class_id`` is provided and missing; 422 if
+            ``class_id`` is None and no school classes exist.
+    """
+    if class_id is not None:
+        existing = await db.get(SchoolClass, class_id)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+        return existing
+    first = (
+        (await db.execute(select(SchoolClass).order_by(SchoolClass.name).limit(1)))
+        .scalars()
+        .first()
+    )
+    if first is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="no school classes configured; cannot solve",
+        )
+    return first
+
+
 async def build_problem_json(
-    db: AsyncSession, class_id: UUID
+    db: AsyncSession,
+    class_id: UUID | None = None,
+    *,
+    pinned_placements: list[dict[str, str]] | None = None,
 ) -> tuple[str, set[UUID], dict[str, int]]:
-    """Load the school-wide solver input for the class and serialize it to JSON.
+    """Load the school-wide solver input and serialize it to JSON.
 
     Returns ``(problem_json, class_lesson_ids, input_counts)``.
 
+    When ``class_id`` is a UUID, ``class_lesson_ids`` is the set of Lesson
+    UUIDs belonging to that class (used by the per-class response filter).
+    When ``class_id`` is ``None`` (whole-school solve), ``class_lesson_ids``
+    is empty: the whole-school caller persists every placement and never
+    needs the per-class filter.
+
+    The optional ``pinned_placements`` is forwarded verbatim into the wire
+    format under the same-named key. Default-empty mirrors the solver-core
+    ``#[serde(default)]`` behavior so callers omitting the field work
+    unchanged.
+
     Raises:
-        HTTPException: 404 if the class doesn't exist, 422 on a pre-solve data
-            invariant (no time_blocks for the class's week_scheme, empty rooms
-            table, classes referencing different week_schemes).
+        HTTPException: 404 if ``class_id`` is provided and the class doesn't
+            exist; 422 on a pre-solve data invariant (no time_blocks for the
+            class's week_scheme, empty rooms table, classes referencing
+            different week_schemes). For the whole-school path the 422 fires
+            on missing rooms and on heterogeneous week_schemes across
+            existing classes; the time-blocks check is anchored on the
+            first class found.
     """
-    requested_class = await db.get(SchoolClass, class_id)
-    if requested_class is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    requested_class = await _resolve_anchor_class(db, class_id)
 
     time_blocks = (
         (
@@ -293,13 +340,19 @@ async def build_problem_json(
             {"room_id": str(s.room_id), "subject_id": str(s.subject_id)}
             for s in room_subject_suitabilities
         ],
+        "pinned_placements": pinned_placements or [],
     }
 
-    class_lesson_ids = {
-        lesson.id
-        for lesson in lessons
-        if requested_class.id in classes_by_lesson.get(lesson.id, [])
-    }
+    class_lesson_ids: set[UUID]
+    if class_id is None:
+        # Whole-school solve: caller persists every placement, no filter needed.
+        class_lesson_ids = set()
+    else:
+        class_lesson_ids = {
+            lesson.id
+            for lesson in lessons
+            if requested_class.id in classes_by_lesson.get(lesson.id, [])
+        }
 
     counts = {
         "time_blocks": len(problem["time_blocks"]),
@@ -319,15 +372,22 @@ async def build_problem_json(
 
 async def run_solve(
     problem_json: str,
-    school_class_id: UUID,
+    scope_id: UUID | None,
     input_counts: dict[str, int],
     *,
     deadline_ms: int | None,
 ) -> dict:
-    """Run the solver off the event loop, emit structured log events, return the Solution dict."""
+    """Run the solver off the event loop, emit structured log events, return the Solution dict.
+
+    ``scope_id`` is the per-class UUID for a single-class solve, or ``None``
+    for a whole-school solve. It is logged under ``school_class_id`` for
+    continuity with existing log shape; ``None`` is logged verbatim so the
+    whole-school path is identifiable in structured-log queries.
+    """
+    scope_str = str(scope_id) if scope_id is not None else None
     logger.info(
         "solver.solve.start",
-        extra={"school_class_id": str(school_class_id), **input_counts},
+        extra={"school_class_id": scope_str, **input_counts},
     )
     started = time.monotonic()
     try:
@@ -337,7 +397,7 @@ async def run_solve(
         logger.error(
             "solver.solve.error",
             extra={
-                "school_class_id": str(school_class_id),
+                "school_class_id": scope_str,
                 "duration_ms": duration_ms,
                 "exc_class": type(exc).__name__,
             },
@@ -349,7 +409,7 @@ async def run_solve(
     logger.info(
         "solver.solve.done",
         extra={
-            "school_class_id": str(school_class_id),
+            "school_class_id": scope_str,
             "duration_ms": duration_ms,
             "placements_total": len(solution["placements"]),
             "violations_total": len(solution["violations"]),
@@ -358,6 +418,42 @@ async def run_solve(
         },
     )
     return solution
+
+
+async def collect_pinned_placements(
+    db: AsyncSession,
+    exclude_class_ids: set[UUID],
+) -> list[dict[str, str]]:
+    """Return persisted ScheduledLesson rows as solver wire-format pin entries.
+
+    Returns one ``{"lesson_id", "time_block_id", "room_id"}`` dict per
+    ScheduledLesson row whose Lesson does NOT belong to any class in
+    ``exclude_class_ids``. Cross-class lessons (membership in >= 2 classes)
+    are pinned only if NONE of their classes are excluded; if at least one
+    is excluded, the placement is dropped because it spans the requested
+    class scope.
+
+    Output ordered by ``(lesson_id, time_block_id)`` for determinism.
+    """
+    excluded_lessons_subq = (
+        select(LessonSchoolClass.lesson_id)
+        .where(LessonSchoolClass.school_class_id.in_(exclude_class_ids))
+        .scalar_subquery()
+    )
+    stmt = (
+        select(ScheduledLesson)
+        .where(ScheduledLesson.lesson_id.notin_(excluded_lessons_subq))
+        .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "lesson_id": str(row.lesson_id),
+            "time_block_id": str(row.time_block_id),
+            "room_id": str(row.room_id),
+        }
+        for row in rows
+    ]
 
 
 async def persist_solution_for_class(
@@ -410,6 +506,77 @@ async def persist_solution_for_class(
             "rows_inserted": len(new_rows),
         },
     )
+
+
+async def persist_solution_for_all_classes(
+    db: AsyncSession,
+    solution: dict,
+) -> list[ClassScheduleSummary]:
+    """Persist the solution's placements for every class in one transaction.
+
+    Returns per-class summaries. A placement is attributed to every class its
+    lesson belongs to via ``LessonSchoolClass``. Violations are attributed
+    similarly: a violation on a cross-class lesson counts once per affected
+    class.
+
+    Existing ``ScheduledLesson`` rows for any lesson in the new placements are
+    deleted before the new placements are inserted (delete-then-insert). Runs
+    inside the caller's transaction; does not commit.
+    """
+    placements = solution["placements"]
+    violations = solution["violations"]
+
+    placement_lesson_ids = {UUID(p["lesson_id"]) for p in placements}
+    violation_lesson_ids = {UUID(v["lesson_id"]) for v in violations}
+    touched_lesson_ids = placement_lesson_ids | violation_lesson_ids
+
+    lesson_to_classes: dict[UUID, set[UUID]] = {}
+    if touched_lesson_ids:
+        rows = (
+            await db.execute(
+                select(LessonSchoolClass.lesson_id, LessonSchoolClass.school_class_id).where(
+                    LessonSchoolClass.lesson_id.in_(touched_lesson_ids)
+                )
+            )
+        ).all()
+        for lesson_id, class_id in rows:
+            lesson_to_classes.setdefault(lesson_id, set()).add(class_id)
+
+    if placement_lesson_ids:
+        await db.execute(
+            delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(placement_lesson_ids))
+        )
+
+    for p in placements:
+        db.add(
+            ScheduledLesson(
+                lesson_id=UUID(p["lesson_id"]),
+                time_block_id=UUID(p["time_block_id"]),
+                room_id=UUID(p["room_id"]),
+            )
+        )
+    await db.flush()
+
+    class_to_placements: dict[UUID, int] = {}
+    for p in placements:
+        for class_id in lesson_to_classes.get(UUID(p["lesson_id"]), set()):
+            class_to_placements[class_id] = class_to_placements.get(class_id, 0) + 1
+
+    class_to_violations: dict[UUID, int] = {}
+    for v in violations:
+        v_lesson = UUID(v["lesson_id"])
+        for class_id in lesson_to_classes.get(v_lesson, set()):
+            class_to_violations[class_id] = class_to_violations.get(class_id, 0) + 1
+
+    all_class_ids = sorted(set(class_to_placements) | set(class_to_violations))
+    return [
+        ClassScheduleSummary(
+            class_id=class_id,
+            placements_count=class_to_placements.get(class_id, 0),
+            violations_count=class_to_violations.get(class_id, 0),
+        )
+        for class_id in all_class_ids
+    ]
 
 
 async def read_schedule_for_class(

@@ -221,6 +221,7 @@ pub fn pre_solve_violations(problem: &Problem) -> Vec<Violation> {
                 kind: ViolationKind::NoQualifiedTeacher,
                 lesson_id: lesson.id,
                 hour_index: block_index * n,
+                reason: None,
             });
         }
     }
@@ -286,6 +287,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         }
     }
 

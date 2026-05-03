@@ -115,6 +115,8 @@ Each subagent prompt must include: the plan task it owns (paste the checkbox blo
 
 **If a subagent reports `DONE_WITH_CONCERNS` and the concern is in-scope** (perf-budget regression on a solver task, an unfixed lint, a missing test the spec required), fix it before committing, either in the main session or by re-dispatching with the gap added to the acceptance criteria. Do not carry the concern into the PR. For algorithm-phase work specifically, include the BASELINE.md 20% regression budget as an explicit acceptance criterion in the subagent prompt so the agent knows to optimise within its own task rather than surface the breach.
 
+**Solver-binding rebuild discipline.** When a subagent runs Python tests or backend integration tests that consume `klassenzeit_solver` (the maturin-built PyO3 binding) AFTER an earlier task in the same /autopilot run touched `solver/solver-core/` or `solver/solver-py/`, the agent's prompt MUST include `mise run solver:rebuild` as an explicit step before pytest. Otherwise the binding is stale and the agent observes phantom wire-format bugs (a Sprint A subagent misdiagnosed a non-existent `kind`-as-tagged-dict bug from a stale binding). Same shape applies to `mise run fe:types` after backend Pydantic schema changes if the next task touches frontend types.
+
 Then:
 
 - Commit in logical chunks with Conventional Commits scopes matching the module (e.g. `feat(frontend): ...`, `build(mise): ...`, `test(scripts): ...`).

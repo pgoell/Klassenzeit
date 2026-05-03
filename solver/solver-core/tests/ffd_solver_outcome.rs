@@ -106,6 +106,7 @@ fn pessimal_input_problem() -> Problem {
             room_id: RoomId(ffd_uuid(31)),
             subject_id: SubjectId(ffd_uuid(41)),
         }],
+        pinned_placements: vec![],
     }
 }
 

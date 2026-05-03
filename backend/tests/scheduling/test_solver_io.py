@@ -10,12 +10,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room, RoomAvailability
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.subject import Subject
@@ -29,7 +30,9 @@ from klassenzeit_backend.scheduling.solver_io import (
     _VIOLATION_KINDS,
     _count_violations_by_kind,
     build_problem_json,
+    collect_pinned_placements,
     filter_solution_for_class,
+    persist_solution_for_all_classes,
     run_solve,
 )
 
@@ -190,6 +193,7 @@ async def test_build_problem_json_returns_populated_shape(
         "teacher_blocked_times",
         "room_blocked_times",
         "room_subject_suitabilities",
+        "pinned_placements",
     }
     assert set(problem.keys()) == expected_keys
 
@@ -642,6 +646,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "no_free_time_block",
         "no_suitable_room",
         "lesson_group_split",
+        "pinned_conflict",
     }
 
 
@@ -701,6 +706,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "no_free_time_block": 2,
         "no_suitable_room": 0,
         "lesson_group_split": 0,
+        "pinned_conflict": 0,
     }
 
 
@@ -840,3 +846,249 @@ async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["home_room_id"] is None
+
+
+# ─── collect_pinned_placements tests ──────────────────────────────────────
+
+
+async def test_collect_pinned_placements_excludes_target_class(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When exclude_class_ids contains class A, ScheduledLesson rows for class A
+    are excluded; class B's persisted placement is returned as a wire-format pin.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room_a = await create_room()
+    room_b = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=class_b.id),
+            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb_a.id, room_id=room_a.id),
+            ScheduledLesson(lesson_id=lesson_b.id, time_block_id=tb_b.id, room_id=room_b.id),
+        ]
+    )
+    await db_session.flush()
+
+    pins = await collect_pinned_placements(db_session, {class_a.id})
+
+    assert len(pins) == 1
+    assert pins[0]["lesson_id"] == str(lesson_b.id)
+    assert pins[0]["time_block_id"] == str(tb_b.id)
+    assert pins[0]["room_id"] == str(room_b.id)
+
+
+async def test_build_problem_json_threads_pinned_placements_into_wire_format(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """build_problem_json embeds pinned_placements verbatim into the returned wire JSON."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    pins = [
+        {
+            "lesson_id": "00000000-0000-0000-0000-000000000001",
+            "time_block_id": "00000000-0000-0000-0000-000000000002",
+            "room_id": "00000000-0000-0000-0000-000000000003",
+        }
+    ]
+
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id, pinned_placements=pins)
+    parsed = json.loads(problem_json)
+
+    assert parsed["pinned_placements"] == pins
+
+
+async def test_build_problem_json_omits_pinned_placements_defaults_to_empty_list(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """Callers omitting pinned_placements get an empty list in the wire format."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    parsed = json.loads(problem_json)
+    assert parsed["pinned_placements"] == []
+
+
+async def test_collect_pinned_placements_returns_empty_when_all_excluded(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """exclude_class_ids covering every class returns an empty list."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson_a)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb.id, room_id=room.id),
+        ]
+    )
+    await db_session.flush()
+
+    pins = await collect_pinned_placements(db_session, {class_a.id})
+
+    assert pins == []
+
+
+# ─── persist_solution_for_all_classes tests ───────────────────────────────
+
+
+async def test_persist_solution_for_all_classes_writes_every_class(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """Persisting a multi-class solution writes ScheduledLesson rows for every
+    class and returns per-class summaries with correct counts."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=class_b.id),
+            TeacherQualification(teacher_id=teacher.id, subject_id=subject.id),
+        ]
+    )
+    await db_session.flush()
+
+    solution = {
+        "placements": [
+            {
+                "lesson_id": str(lesson_a.id),
+                "time_block_id": str(tb_a.id),
+                "room_id": str(room.id),
+            },
+            {
+                "lesson_id": str(lesson_b.id),
+                "time_block_id": str(tb_b.id),
+                "room_id": str(room.id),
+            },
+        ],
+        "violations": [],
+    }
+
+    summaries = await persist_solution_for_all_classes(db_session, solution)
+
+    persisted = (await db_session.execute(select(ScheduledLesson))).scalars().all()
+    assert len(persisted) == 2
+
+    expected_class_ids = sorted([class_a.id, class_b.id])
+    assert [s.class_id for s in summaries] == expected_class_ids
+    for summary in summaries:
+        assert summary.placements_count == 1
+        assert summary.violations_count == 0

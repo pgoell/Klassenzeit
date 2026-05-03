@@ -9,10 +9,11 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use crate::error::Error;
-use crate::ids::{RoomId, SchoolClassId, TeacherId, TimeBlockId};
+use crate::ids::{LessonId, RoomId, SchoolClassId, TeacherId, TimeBlockId};
 use crate::index::Indexed;
 use crate::types::{
-    ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, Violation, ViolationKind,
+    ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, TimeBlock, Violation,
+    ViolationKind,
 };
 use crate::validate::{pre_solve_violations, validate_structural};
 
@@ -46,10 +47,16 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
 pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solution, Error> {
     validate_structural(problem)?;
 
+    let (seed_placements, pinned, mut pin_violations) = validate_pins(problem);
+
     let idx = Indexed::new(problem);
     let mut solution = Solution {
-        placements: Vec::new(),
-        violations: pre_solve_violations(problem),
+        placements: seed_placements,
+        violations: {
+            let mut v = pre_solve_violations(problem);
+            v.append(&mut pin_violations);
+            v
+        },
         soft_score: 0,
     };
 
@@ -67,6 +74,10 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         .iter()
         .map(|t| (t.id, t.max_hours_per_week))
         .collect();
+
+    // Seed greedy bookkeeping from surviving pinned placements so the FFD
+    // loop's existing conflict checks treat pinned slots as occupied.
+    seed_greedy_state_from_pins(problem, &solution.placements, &mut state);
 
     // Iterate time-blocks in (day, position) order and rooms in id order so
     // the lowest-delta picker can prune later candidates whose tiebreak rank
@@ -92,6 +103,10 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
     let order = crate::ordering::ffd_order(problem, &idx);
     for &lesson_idx in &order {
         let lesson = &problem.lessons[lesson_idx];
+        // Pinned lessons keep their seeded placement; FFD must not retry them.
+        if pinned.contains(&lesson.id) {
+            continue;
+        }
         // Skip placements for lessons with pre-solve violations; `pre_solve_violations`
         // already recorded one violation per hour.
         if !idx.teacher_qualified(lesson.teacher_id, lesson.subject_id) {
@@ -140,6 +155,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                                 kind: ViolationKind::LessonGroupSplit,
                                 lesson_id: member.id,
                                 hour_index: block_index * n,
+                                reason: None,
                             });
                         }
                     }
@@ -177,6 +193,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                     ),
                     lesson_id: lesson.id,
                     hour_index: block_index * n,
+                    reason: None,
                 });
             }
         }
@@ -192,6 +209,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &mut state.used_teacher,
         &mut state.used_class,
         &mut state.used_room,
+        &pinned,
         &mut state.soft_score,
     );
 
@@ -715,13 +733,183 @@ fn try_place_group(
     true
 }
 
+/// Walk `problem.pinned_placements`, drop any malformed entry (recording one
+/// `PinnedConflict` violation per drop), and return:
+/// 1. `seed_placements` to feed directly into `Solution.placements`,
+/// 2. `pinned` lesson-id set for FFD to skip,
+/// 3. `pin_violations` to merge into `Solution.violations`.
+///
+/// Reason codes: `unknown_lesson`, `unknown_time_block`, `unknown_room`,
+/// `duplicate_slot`, `block_size_mismatch`. Bad pins do not abort the solve.
+fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<Violation>) {
+    let lessons_by_id: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    let time_blocks_by_id: HashMap<TimeBlockId, &TimeBlock> =
+        problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    let room_ids: HashSet<RoomId> = problem.rooms.iter().map(|r| r.id).collect();
+
+    let mut violations: Vec<Violation> = Vec::new();
+    let mut surviving_per_lesson: HashMap<LessonId, Vec<&crate::types::PinnedPlacement>> =
+        HashMap::new();
+    let mut taken_slots: HashSet<(TimeBlockId, RoomId)> = HashSet::new();
+
+    let push_violation = |violations: &mut Vec<Violation>, lesson_id: LessonId, reason: &str| {
+        violations.push(Violation {
+            kind: ViolationKind::PinnedConflict,
+            lesson_id,
+            hour_index: 0,
+            reason: Some(reason.to_string()),
+        });
+    };
+
+    // First pass: per-entry validation (id existence + duplicate-slot).
+    for pin in &problem.pinned_placements {
+        if !lessons_by_id.contains_key(&pin.lesson_id) {
+            push_violation(&mut violations, pin.lesson_id, "unknown_lesson");
+            continue;
+        }
+        if !time_blocks_by_id.contains_key(&pin.time_block_id) {
+            push_violation(&mut violations, pin.lesson_id, "unknown_time_block");
+            continue;
+        }
+        if !room_ids.contains(&pin.room_id) {
+            push_violation(&mut violations, pin.lesson_id, "unknown_room");
+            continue;
+        }
+        if !taken_slots.insert((pin.time_block_id, pin.room_id)) {
+            push_violation(&mut violations, pin.lesson_id, "duplicate_slot");
+            continue;
+        }
+        surviving_per_lesson
+            .entry(pin.lesson_id)
+            .or_default()
+            .push(pin);
+    }
+
+    // Second pass: per-lesson block-shape validation. The pin set for a
+    // lesson must cover exactly `hours_per_week` hours, partitioned into
+    // `hours_per_week / preferred_block_size` blocks. Each block is a run
+    // of `preferred_block_size` time-blocks with consecutive `position`
+    // values on the same `day_of_week`, sharing one `room_id`.
+    let mut seed: Vec<Placement> = Vec::new();
+    let mut pinned_set: HashSet<LessonId> = HashSet::new();
+    for (lesson_id, pins) in surviving_per_lesson {
+        let lesson = lessons_by_id[&lesson_id];
+        let hours = lesson.hours_per_week as usize;
+        let n = lesson.preferred_block_size as usize;
+
+        // Full pinning required: a partial pin set leaves the lesson in
+        // limbo (FFD would skip it because it's "pinned" but its remaining
+        // hours never get placed). Reject partial pins as block_size_mismatch.
+        if pins.len() != hours {
+            push_violation(&mut violations, lesson_id, "block_size_mismatch");
+            for pin in &pins {
+                taken_slots.remove(&(pin.time_block_id, pin.room_id));
+            }
+            continue;
+        }
+
+        // Group pins by day_of_week, sort by position within each day.
+        let mut by_day: HashMap<u8, Vec<&crate::types::PinnedPlacement>> = HashMap::new();
+        for pin in &pins {
+            let tb = time_blocks_by_id[&pin.time_block_id];
+            by_day.entry(tb.day_of_week).or_default().push(pin);
+        }
+        for day_pins in by_day.values_mut() {
+            day_pins.sort_by_key(|p| time_blocks_by_id[&p.time_block_id].position);
+        }
+
+        // Walk each day's pins in chunks of `n`. Each chunk must be
+        // (a) consecutive positions and (b) same room_id throughout.
+        let mut shape_ok = true;
+        'outer: for day_pins in by_day.values() {
+            if day_pins.len() % n != 0 {
+                shape_ok = false;
+                break;
+            }
+            for chunk in day_pins.chunks(n) {
+                let first_tb = time_blocks_by_id[&chunk[0].time_block_id];
+                let same_room = chunk.iter().all(|p| p.room_id == chunk[0].room_id);
+                let consecutive = chunk.iter().enumerate().all(|(i, p)| {
+                    let tb = time_blocks_by_id[&p.time_block_id];
+                    tb.day_of_week == first_tb.day_of_week
+                        && tb.position == first_tb.position + (i as u8)
+                });
+                if !same_room || !consecutive {
+                    shape_ok = false;
+                    break 'outer;
+                }
+            }
+        }
+
+        if !shape_ok {
+            push_violation(&mut violations, lesson_id, "block_size_mismatch");
+            // Surrender the slots so they can be reused; the lesson stays
+            // un-pinned and FFD will place it normally.
+            for pin in &pins {
+                taken_slots.remove(&(pin.time_block_id, pin.room_id));
+            }
+            continue;
+        }
+
+        for pin in &pins {
+            seed.push(Placement {
+                lesson_id: pin.lesson_id,
+                time_block_id: pin.time_block_id,
+                room_id: pin.room_id,
+            });
+        }
+        pinned_set.insert(lesson_id);
+    }
+
+    (seed, pinned_set, violations)
+}
+
+/// Replay seeded placements into greedy bookkeeping so the FFD loop's
+/// conflict checks treat pinned slots as occupied. Mirrors the bookkeeping
+/// updates in `try_place_block`.
+fn seed_greedy_state_from_pins(
+    problem: &Problem,
+    placements: &[Placement],
+    state: &mut GreedyState,
+) {
+    let lessons_by_id: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    let tb_by_id: HashMap<TimeBlockId, &TimeBlock> =
+        problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    for pl in placements {
+        let lesson = lessons_by_id[&pl.lesson_id];
+        let tb = tb_by_id[&pl.time_block_id];
+        state.used_teacher.insert((lesson.teacher_id, tb.id));
+        state.used_room.insert((pl.room_id, tb.id));
+        for class in &lesson.school_class_ids {
+            state.used_class.insert((*class, tb.id));
+        }
+        *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+        for class in &lesson.school_class_ids {
+            let part = state
+                .class_positions
+                .entry((*class, tb.day_of_week))
+                .or_default();
+            let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
+            part.insert(ins, tb.position);
+        }
+        let part = state
+            .teacher_positions
+            .entry((lesson.teacher_id, tb.day_of_week))
+            .or_default();
+        let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
+        part.insert(ins, tb.position);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, Problem, Room, RoomBlockedTime, RoomSubjectSuitability, SchoolClass, Subject,
-        Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
+        Lesson, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
+        SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
     };
     use uuid::Uuid;
 
@@ -793,6 +981,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         }
     }
 
@@ -1574,6 +1763,99 @@ mod tests {
     }
 
     #[test]
+    fn solve_skips_ffd_for_pinned_lesson() {
+        // Two lessons share one teacher and class across two same-day TBs.
+        // Lesson 0 is pinned to (TB0, Room0); lesson 1 is free and must
+        // still place into the remaining slot.
+        let mut p = base_problem();
+        p.subjects.push(Subject {
+            id: SubjectId(solve_uuid(41)),
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(solve_uuid(20)),
+            subject_id: SubjectId(solve_uuid(41)),
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(solve_uuid(61)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50))],
+            subject_id: SubjectId(solve_uuid(41)),
+            teacher_id: TeacherId(solve_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        // Pin lesson 0 to TB1 (position 1) so without the pin FFD would pick
+        // TB0 first; the pin must override that.
+        p.pinned_placements.push(PinnedPlacement {
+            lesson_id: LessonId(solve_uuid(60)),
+            time_block_id: TimeBlockId(solve_uuid(11)),
+            room_id: RoomId(solve_uuid(30)),
+        });
+
+        let solution = greedy_solve(&p).unwrap();
+
+        let pinned_lesson_id = LessonId(solve_uuid(60));
+        let pinned_in_solution = solution
+            .placements
+            .iter()
+            .find(|pl| pl.lesson_id == pinned_lesson_id)
+            .expect("pinned lesson must appear");
+        assert_eq!(
+            pinned_in_solution.time_block_id,
+            TimeBlockId(solve_uuid(11))
+        );
+        assert_eq!(pinned_in_solution.room_id, RoomId(solve_uuid(30)));
+
+        let free_lesson_id = LessonId(solve_uuid(61));
+        assert!(
+            solution
+                .placements
+                .iter()
+                .any(|pl| pl.lesson_id == free_lesson_id),
+            "free lesson must also be placed"
+        );
+        assert!(
+            solution.violations.is_empty(),
+            "no violations expected for valid pin"
+        );
+    }
+
+    #[test]
+    fn solve_emits_pinned_conflict_for_unknown_lesson_id() {
+        let mut p = base_problem();
+        let bogus_lesson_id = LessonId(Uuid::from_u128(0xDEAD_BEEF));
+        p.pinned_placements.push(PinnedPlacement {
+            lesson_id: bogus_lesson_id,
+            time_block_id: TimeBlockId(solve_uuid(10)),
+            room_id: RoomId(solve_uuid(30)),
+        });
+
+        let solution = greedy_solve(&p).unwrap();
+
+        let pin_violations: Vec<_> = solution
+            .violations
+            .iter()
+            .filter(|v| {
+                matches!(v.kind, ViolationKind::PinnedConflict)
+                    && v.lesson_id == bogus_lesson_id
+                    && v.reason.as_deref() == Some("unknown_lesson")
+            })
+            .collect();
+        assert_eq!(
+            pin_violations.len(),
+            1,
+            "expected one PinnedConflict for unknown_lesson"
+        );
+        assert!(
+            !solution.placements.is_empty(),
+            "valid lesson is still placed"
+        );
+    }
+
+    #[test]
     fn greedy_packs_prefer_early_subject_into_lower_positions_when_multiple_hours() {
         // Two-hour lesson of a prefer-early subject across a four-block day.
         // With prefer_early weight = 1, positions 0 and 1 should win over
@@ -1638,5 +1920,95 @@ mod tests {
                 .collect::<std::collections::HashSet<_>>(),
             std::collections::HashSet::from([0u8, 1u8])
         );
+    }
+
+    #[test]
+    fn solve_accepts_multi_block_pinned_lesson() {
+        // One lesson with hours_per_week = 4, preferred_block_size = 2.
+        // Two Doppelstunden: (Mon pos 0+1) and (Tue pos 0+1), same room.
+        // The full 4-pin set must seed verbatim with no PinnedConflict.
+        let mut p = base_problem();
+        p.time_blocks = vec![
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(10)),
+                day_of_week: 0,
+                position: 0,
+            },
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(11)),
+                day_of_week: 0,
+                position: 1,
+            },
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(12)),
+                day_of_week: 1,
+                position: 0,
+            },
+            TimeBlock {
+                id: TimeBlockId(solve_uuid(13)),
+                day_of_week: 1,
+                position: 1,
+            },
+        ];
+        p.lessons = vec![Lesson {
+            id: LessonId(solve_uuid(60)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50))],
+            subject_id: SubjectId(solve_uuid(40)),
+            teacher_id: TeacherId(solve_uuid(20)),
+            hours_per_week: 4,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        }];
+        p.pinned_placements = vec![
+            PinnedPlacement {
+                lesson_id: LessonId(solve_uuid(60)),
+                time_block_id: TimeBlockId(solve_uuid(10)),
+                room_id: RoomId(solve_uuid(30)),
+            },
+            PinnedPlacement {
+                lesson_id: LessonId(solve_uuid(60)),
+                time_block_id: TimeBlockId(solve_uuid(11)),
+                room_id: RoomId(solve_uuid(30)),
+            },
+            PinnedPlacement {
+                lesson_id: LessonId(solve_uuid(60)),
+                time_block_id: TimeBlockId(solve_uuid(12)),
+                room_id: RoomId(solve_uuid(30)),
+            },
+            PinnedPlacement {
+                lesson_id: LessonId(solve_uuid(60)),
+                time_block_id: TimeBlockId(solve_uuid(13)),
+                room_id: RoomId(solve_uuid(30)),
+            },
+        ];
+
+        let solution = greedy_solve(&p).unwrap();
+
+        assert!(
+            solution.violations.is_empty(),
+            "no violations expected for valid multi-block pin set; got {:?}",
+            solution.violations
+        );
+        assert_eq!(
+            solution.placements.len(),
+            4,
+            "all four pinned hours must seed as placements"
+        );
+        let lesson_id = LessonId(solve_uuid(60));
+        let pinned_tb_ids: std::collections::HashSet<TimeBlockId> = p
+            .pinned_placements
+            .iter()
+            .map(|pp| pp.time_block_id)
+            .collect();
+        for tb_id in pinned_tb_ids {
+            assert!(
+                solution.placements.iter().any(|pl| {
+                    pl.lesson_id == lesson_id
+                        && pl.time_block_id == tb_id
+                        && pl.room_id == RoomId(solve_uuid(30))
+                }),
+                "pin for tb {tb_id:?} must appear verbatim in placements"
+            );
+        }
     }
 }

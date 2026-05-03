@@ -317,7 +317,10 @@
       "cancel": "Cancel",
       "successToast_one": "Schedule generated. 1 placement saved.",
       "successToast_other": "Schedule generated. {{count}} placements saved.",
-      "errorToast": "Failed to generate schedule."
+      "errorToast": "Failed to generate schedule.",
+      "allAction": "Generate all",
+      "allSuccessToast": "Generated {{classes}} classes ({{placements}} placements, {{violations}} violations)",
+      "allErrorToast": "Could not generate all schedules"
     },
     "empty": {
       "title": "No schedule yet",
@@ -340,7 +343,8 @@
       "teacherOverCapacity": "{{subject}} (hour {{hour}}): {{teacher}} would exceed their max weekly hours.",
       "noFreeTimeBlock": "{{subject}} (hour {{hour}}): no free slot for {{teacher}} and {{class}}.",
       "noSuitableRoom": "{{subject}} (hour {{hour}}): no suitable room is available.",
-      "lessonGroupSplit": "Lesson group could not be placed in a single time block."
+      "lessonGroupSplit": "Lesson group could not be placed in a single time block.",
+      "pinnedConflict": "A pinned placement was malformed and dropped: {{reason}}."
     },
     "cellDeletedLesson": "(deleted lesson)"
   },

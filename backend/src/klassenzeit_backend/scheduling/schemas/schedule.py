@@ -27,9 +27,11 @@ class ViolationResponse(BaseModel):
         "no_free_time_block",
         "no_suitable_room",
         "lesson_group_split",
+        "pinned_conflict",
     ]
     lesson_id: UUID
     hour_index: int = Field(ge=0)
+    reason: str | None = None
 
 
 class ScheduleResponse(BaseModel):
@@ -49,3 +51,24 @@ class ScheduleReadResponse(BaseModel):
     """
 
     placements: list[PlacementResponse]
+
+
+class ClassScheduleSummary(BaseModel):
+    """Per-class outcome of `POST /api/schedule/all`."""
+
+    class_id: UUID
+    placements_count: int
+    violations_count: int
+
+
+class WholeSchoolScheduleResponse(BaseModel):
+    """Slim response for `POST /api/schedule/all`.
+
+    The per-class GET endpoint fetches full placements when needed; this
+    response carries counts only to keep the wire size manageable when the
+    schedule spans many classes.
+    """
+
+    classes: list[ClassScheduleSummary]
+    total_placements: int
+    total_violations: int

@@ -21,6 +21,8 @@
       "Bash(mise run db:stop)",
       "Bash(mise run db:migrate)",
       "Bash(mise run solver:rebuild)",
+      "Bash(mise run dev)",
+      "Bash(mise run fe:dev)",
       "Bash(mise run e2e)",
       "Bash(mise run bench)",
       "Bash(mise run bench:record)",

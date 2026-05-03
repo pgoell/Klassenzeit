@@ -684,6 +684,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedule/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Schedule For All Classes
+         * @description Run the solver for every class in one transaction and persist atomically.
+         *
+         *     Sibling-pin enforcement does not apply here: whole-school re-solves
+         *     every lesson from scratch, so ``pinned_placements`` is empty.
+         *
+         *     Args:
+         *         request: The FastAPI request, used to read ``solve_deadline_ms``.
+         *         _admin: Injected admin user (enforces authentication).
+         *         db: Injected async database session.
+         *
+         *     Returns:
+         *         :class:`WholeSchoolScheduleResponse` with per-class summaries plus
+         *         school-wide placement and violation totals.
+         *
+         *     Raises:
+         *         HTTPException: 422 on a pre-solve data invariant (no school
+         *             classes, no rooms, heterogeneous week_schemes across classes,
+         *             no time_blocks for the anchor class's week_scheme).
+         */
+        post: operations["generate_schedule_for_all_classes_api_schedule_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/teachers": {
         parameters: {
             query?: never;
@@ -1353,6 +1390,21 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * ClassScheduleSummary
+         * @description Per-class outcome of `POST /api/schedule/all`.
+         */
+        ClassScheduleSummary: {
+            /**
+             * Class Id
+             * Format: uuid
+             */
+            class_id: string;
+            /** Placements Count */
+            placements_count: number;
+            /** Violations Count */
+            violations_count: number;
         };
         /**
          * CreateUserRequest
@@ -2228,7 +2280,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split";
+            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict";
             /**
              * Lesson Id
              * Format: uuid
@@ -2236,6 +2288,8 @@ export interface components {
             lesson_id: string;
             /** Hour Index */
             hour_index: number;
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * WeekSchemeCreate
@@ -2308,6 +2362,22 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * WholeSchoolScheduleResponse
+         * @description Slim response for `POST /api/schedule/all`.
+         *
+         *     The per-class GET endpoint fetches full placements when needed; this
+         *     response carries counts only to keep the wire size manageable when the
+         *     schedule spans many classes.
+         */
+        WholeSchoolScheduleResponse: {
+            /** Classes */
+            classes: components["schemas"]["ClassScheduleSummary"][];
+            /** Total Placements */
+            total_placements: number;
+            /** Total Violations */
+            total_violations: number;
         };
         /**
          * AvailabilityReplaceRequest
@@ -3358,6 +3428,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_schedule_for_all_classes_api_schedule_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WholeSchoolScheduleResponse"];
                 };
             };
             /** @description Validation Error */

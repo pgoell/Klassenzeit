@@ -4,7 +4,12 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api-client";
 import { scheduleByClassId, violationsByClassId } from "../../../tests/msw-handlers";
-import { scheduleQueryKey, useClassSchedule, useGenerateClassSchedule } from "./hooks";
+import {
+  scheduleQueryKey,
+  useClassSchedule,
+  useGenerateAllSchedules,
+  useGenerateClassSchedule,
+} from "./hooks";
 
 const CLASS_ID = "00000000-0000-0000-0000-00000000a001";
 
@@ -78,5 +83,44 @@ describe("useGenerateClassSchedule", () => {
     expect(response.placements).toBeDefined();
     const cached = client.getQueryData(scheduleQueryKey(CLASS_ID));
     expect(cached).toEqual({ placements: response.placements });
+  });
+});
+
+describe("useGenerateAllSchedules", () => {
+  beforeEach(() => {
+    for (const key of Object.keys(scheduleByClassId)) delete scheduleByClassId[key];
+    for (const key of Object.keys(violationsByClassId)) delete violationsByClassId[key];
+  });
+
+  it("posts to /api/schedule/all and returns the WholeSchoolScheduleResponse", async () => {
+    scheduleByClassId[CLASS_ID] = [
+      {
+        lesson_id: "00000000-0000-0000-0000-00000000b001",
+        time_block_id: "00000000-0000-0000-0000-00000000c001",
+        room_id: "00000000-0000-0000-0000-00000000d001",
+      },
+    ];
+    violationsByClassId[CLASS_ID] = [];
+    const { wrapper } = wrapScheduleHook();
+    const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
+    const response = await result.current.mutateAsync();
+    expect(response.total_placements).toBe(1);
+    expect(response.total_violations).toBe(0);
+    expect(response.classes).toEqual([
+      { class_id: CLASS_ID, placements_count: 1, violations_count: 0 },
+    ]);
+  });
+
+  it("invalidates ['schedule'] queries on success so open class schedules refetch", async () => {
+    scheduleByClassId[CLASS_ID] = [];
+    violationsByClassId[CLASS_ID] = [];
+    const { client, wrapper } = wrapScheduleHook();
+    // Seed a cached entry under the schedule prefix; the mutation's onSuccess
+    // should mark it stale, triggering a refetch on next observer.
+    client.setQueryData(scheduleQueryKey(CLASS_ID), { placements: [] });
+    const { result } = renderHook(() => useGenerateAllSchedules(), { wrapper });
+    await result.current.mutateAsync();
+    const state = client.getQueryState(scheduleQueryKey(CLASS_ID));
+    expect(state?.isInvalidated).toBe(true);
   });
 });

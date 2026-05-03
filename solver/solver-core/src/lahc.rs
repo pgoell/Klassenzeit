@@ -36,6 +36,7 @@ pub(crate) fn run(
     used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
     used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
     used_room: &mut HashSet<(RoomId, TimeBlockId)>,
+    pinned: &HashSet<LessonId>,
     current_score: &mut u32,
 ) {
     let Some(deadline) = config.deadline else {
@@ -89,6 +90,7 @@ pub(crate) fn run(
             used_teacher,
             used_class,
             used_room,
+            pinned,
             current_score,
             &lahc_list,
             iter,
@@ -122,6 +124,7 @@ fn try_change_move(
     used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
     used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
     used_room: &mut HashSet<(RoomId, TimeBlockId)>,
+    pinned: &HashSet<LessonId>,
     current_score: &mut u32,
     lahc_list: &[u32],
     iter: u64,
@@ -136,6 +139,12 @@ fn try_change_move(
         return false;
     }
     if lesson.lesson_group_id.is_some() {
+        return false;
+    }
+    // Pinned placements are caller-fixed (Problem.pinned_placements) and must
+    // survive LAHC verbatim. Same RNG-invariance argument as the block / group
+    // guards above: the two random_range draws are already consumed.
+    if pinned.contains(&p.lesson_id) {
         return false;
     }
     let old_tb = tb_lookup[&p.time_block_id].clone();
@@ -683,6 +692,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -725,6 +735,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &HashSet::new(),
             &mut current_score,
         );
 
@@ -806,6 +817,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -857,6 +869,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &HashSet::new(),
             &mut current_score,
         );
 
@@ -973,6 +986,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -1025,6 +1039,7 @@ mod tests {
             &mut used_teacher,
             &mut used_class,
             &mut used_room,
+            &HashSet::new(),
             &mut current_score,
         );
 
@@ -1065,6 +1080,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -1105,6 +1121,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -1142,6 +1159,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
