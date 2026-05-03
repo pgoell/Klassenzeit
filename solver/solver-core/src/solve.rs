@@ -207,6 +207,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &mut state.used_teacher,
         &mut state.used_class,
         &mut state.used_room,
+        &pinned,
         &mut state.soft_score,
     );
 

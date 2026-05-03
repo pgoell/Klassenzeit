@@ -6,8 +6,8 @@ use std::time::Duration;
 use proptest::prelude::*;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::types::{
-    ConstraintWeights, Lesson, Problem, Room, SchoolClass, SolveConfig, Subject, Teacher,
-    TeacherQualification, TimeBlock,
+    ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, SolveConfig, Subject,
+    Teacher, TeacherQualification, TimeBlock,
 };
 use solver_core::{score_solution, solve_with_config};
 use uuid::Uuid;
@@ -166,5 +166,128 @@ proptest! {
         }).unwrap();
         let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
         prop_assert_eq!(lahc.soft_score, recomputed);
+    }
+
+    #[test]
+    fn lahc_pinned_placements_preserved(seed in any::<u64>()) {
+        let problem = build_lahc_pinned_problem();
+        let pin = problem.pinned_placements[0].clone();
+
+        let solution = solve_with_config(&problem, &SolveConfig {
+            weights: ConstraintWeights {
+                avoid_first_period: 1,
+                ..ConstraintWeights::default()
+            },
+            seed,
+            deadline: Some(Duration::from_millis(20)),
+            ..SolveConfig::default()
+        }).unwrap();
+
+        let pinned_in_solution = solution
+            .placements
+            .iter()
+            .find(|p| p.lesson_id == pin.lesson_id)
+            .expect("pinned lesson missing from solution");
+        prop_assert_eq!(pinned_in_solution.time_block_id, pin.time_block_id);
+        prop_assert_eq!(pinned_in_solution.room_id, pin.room_id);
+    }
+}
+
+/// Build a tiny problem with one pinned lesson at TB0 (under `avoid_first_period`,
+/// so an unguarded LAHC has incentive to drift it). Four time-blocks on day 0 so
+/// the skip-guard assertion is honest per `solver/CLAUDE.md` (with only two TBs
+/// LAHC oscillates and lands back on TB0 by accident at the iteration cap).
+fn build_lahc_pinned_problem() -> Problem {
+    let subject = SubjectId(lahc_id_from(1));
+    let teacher = TeacherId(lahc_id_from(1000));
+    let class = SchoolClassId(lahc_id_from(2000));
+    let room = RoomId(lahc_id_from(3000));
+    let tb_zero = TimeBlockId(lahc_id_from(4000));
+    let tb_one = TimeBlockId(lahc_id_from(4001));
+    let tb_two = TimeBlockId(lahc_id_from(4002));
+    let tb_three = TimeBlockId(lahc_id_from(4003));
+    let lesson_pinned = LessonId(lahc_id_from(5000));
+    let lesson_free_a = LessonId(lahc_id_from(5001));
+    let lesson_free_b = LessonId(lahc_id_from(5002));
+
+    Problem {
+        time_blocks: vec![
+            TimeBlock {
+                id: tb_zero,
+                day_of_week: 0,
+                position: 0,
+            },
+            TimeBlock {
+                id: tb_one,
+                day_of_week: 0,
+                position: 1,
+            },
+            TimeBlock {
+                id: tb_two,
+                day_of_week: 0,
+                position: 2,
+            },
+            TimeBlock {
+                id: tb_three,
+                day_of_week: 0,
+                position: 3,
+            },
+        ],
+        teachers: vec![Teacher {
+            id: teacher,
+            max_hours_per_week: 40,
+        }],
+        rooms: vec![Room { id: room }],
+        subjects: vec![Subject {
+            id: subject,
+            prefer_early_period: 0,
+            avoid_first_period: 1,
+            avoid_last_period: 0,
+        }],
+        school_classes: vec![SchoolClass {
+            id: class,
+            home_room_id: None,
+        }],
+        lessons: vec![
+            Lesson {
+                id: lesson_pinned,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            },
+            Lesson {
+                id: lesson_free_a,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            },
+            Lesson {
+                id: lesson_free_b,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            },
+        ],
+        teacher_qualifications: vec![TeacherQualification {
+            teacher_id: teacher,
+            subject_id: subject,
+        }],
+        teacher_blocked_times: vec![],
+        room_blocked_times: vec![],
+        room_subject_suitabilities: vec![],
+        pinned_placements: vec![PinnedPlacement {
+            lesson_id: lesson_pinned,
+            time_block_id: tb_zero,
+            room_id: room,
+        }],
     }
 }
