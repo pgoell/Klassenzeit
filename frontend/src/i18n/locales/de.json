@@ -317,7 +317,10 @@
       "cancel": "Abbrechen",
       "successToast_one": "Stundenplan erstellt. 1 Eintrag gespeichert.",
       "successToast_other": "Stundenplan erstellt. {{count}} Einträge gespeichert.",
-      "errorToast": "Stundenplan konnte nicht erstellt werden."
+      "errorToast": "Stundenplan konnte nicht erstellt werden.",
+      "allAction": "Alle generieren",
+      "allSuccessToast": "{{classes}} Klassen generiert ({{placements}} Platzierungen, {{violations}} Verstöße)",
+      "allErrorToast": "Konnte nicht alle Stundenpläne erstellen"
     },
     "empty": {
       "title": "Noch kein Stundenplan",

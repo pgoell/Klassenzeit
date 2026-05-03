@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -8,6 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { SchoolClass } from "@/features/school-classes/hooks";
+import { ApiError } from "@/lib/api-client";
+import { useGenerateAllSchedules } from "./hooks";
 
 interface ScheduleToolbarProps {
   classes: SchoolClass[];
@@ -31,7 +34,25 @@ export function ScheduleToolbar({
   pending,
 }: ScheduleToolbarProps) {
   const { t } = useTranslation();
+  const generateAll = useGenerateAllSchedules();
   const disabled = pending || !classId;
+
+  const runGenerateAll = async () => {
+    try {
+      const result = await generateAll.mutateAsync();
+      toast.success(
+        t("schedule.generate.allSuccessToast", {
+          classes: result.classes.length,
+          placements: result.total_placements,
+          violations: result.total_violations,
+        }),
+      );
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : t("schedule.generate.allErrorToast");
+      toast.error(msg || t("schedule.generate.allErrorToast"));
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-card px-4 py-3">
@@ -55,9 +76,14 @@ export function ScheduleToolbar({
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={onGenerate} disabled={disabled}>
-          {pending ? t("common.saving") : t("schedule.generate.action")}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={onGenerate} variant="secondary" disabled={disabled}>
+            {pending ? t("common.saving") : t("schedule.generate.action")}
+          </Button>
+          <Button variant="default" onClick={runGenerateAll} disabled={generateAll.isPending}>
+            {t("schedule.generate.allAction")}
+          </Button>
+        </div>
       </div>
       {confirming ? (
         <div

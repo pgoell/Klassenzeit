@@ -317,7 +317,10 @@
       "cancel": "Cancel",
       "successToast_one": "Schedule generated. 1 placement saved.",
       "successToast_other": "Schedule generated. {{count}} placements saved.",
-      "errorToast": "Failed to generate schedule."
+      "errorToast": "Failed to generate schedule.",
+      "allAction": "Generate all",
+      "allSuccessToast": "Generated {{classes}} classes ({{placements}} placements, {{violations}} violations)",
+      "allErrorToast": "Could not generate all schedules"
     },
     "empty": {
       "title": "No schedule yet",
