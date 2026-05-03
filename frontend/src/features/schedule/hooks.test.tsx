@@ -47,6 +47,7 @@ describe("useClassSchedule", () => {
         lesson_id: "00000000-0000-0000-0000-00000000b001",
         time_block_id: "00000000-0000-0000-0000-00000000c001",
         room_id: "00000000-0000-0000-0000-00000000d001",
+        pinned: false,
       },
     ];
     const { wrapper } = wrapScheduleHook();
@@ -110,6 +111,7 @@ describe("useGenerateAllSchedules", () => {
         lesson_id: "00000000-0000-0000-0000-00000000b001",
         time_block_id: "00000000-0000-0000-0000-00000000c001",
         room_id: "00000000-0000-0000-0000-00000000d001",
+        pinned: false,
       },
     ];
     violationsByClassId[CLASS_ID] = [];
@@ -186,13 +188,13 @@ describe("useTeacherSchedule", () => {
     const blockId = "33333333-3333-3333-3333-333333333333";
     const roomId = "44444444-4444-4444-4444-444444444444";
     teacherSchedulesByTeacherId[teacherId] = [
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
     ];
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useTeacherSchedule(teacherId), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.placements).toEqual([
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
     ]);
   });
 
@@ -338,13 +340,13 @@ describe("useRoomSchedule", () => {
     const lessonId = "66666666-6666-6666-6666-666666666666";
     const blockId = "77777777-7777-7777-7777-777777777777";
     roomSchedulesByRoomId[roomId] = [
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
     ];
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useRoomSchedule(roomId), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.placements).toEqual([
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId },
+      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
     ]);
   });
 
