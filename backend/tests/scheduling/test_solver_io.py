@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room, RoomAvailability
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.subject import Subject
@@ -29,6 +30,7 @@ from klassenzeit_backend.scheduling.solver_io import (
     _VIOLATION_KINDS,
     _count_violations_by_kind,
     build_problem_json,
+    collect_pinned_placements,
     filter_solution_for_class,
     run_solve,
 )
@@ -842,3 +844,107 @@ async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["home_room_id"] is None
+
+
+# ─── collect_pinned_placements tests ──────────────────────────────────────
+
+
+async def test_collect_pinned_placements_excludes_target_class(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When exclude_class_ids contains class A, ScheduledLesson rows for class A
+    are excluded; class B's persisted placement is returned as a wire-format pin.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb_a = await create_time_block(week_scheme_id=scheme.id, position=1)
+    tb_b = await create_time_block(
+        week_scheme_id=scheme.id,
+        position=2,
+        start_time=time(8, 45),
+        end_time=time(9, 30),
+    )
+    room_a = await create_room()
+    room_b = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    lesson_b = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a, lesson_b])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=class_b.id),
+            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb_a.id, room_id=room_a.id),
+            ScheduledLesson(lesson_id=lesson_b.id, time_block_id=tb_b.id, room_id=room_b.id),
+        ]
+    )
+    await db_session.flush()
+
+    pins = await collect_pinned_placements(db_session, {class_a.id})
+
+    assert len(pins) == 1
+    assert pins[0]["lesson_id"] == str(lesson_b.id)
+    assert pins[0]["time_block_id"] == str(tb_b.id)
+    assert pins[0]["room_id"] == str(room_b.id)
+
+
+async def test_collect_pinned_placements_returns_empty_when_all_excluded(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """exclude_class_ids covering every class returns an empty list."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    room = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+
+    lesson_a = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson_a)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
+            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb.id, room_id=room.id),
+        ]
+    )
+    await db_session.flush()
+
+    pins = await collect_pinned_placements(db_session, {class_a.id})
+
+    assert pins == []

@@ -360,6 +360,42 @@ async def run_solve(
     return solution
 
 
+async def collect_pinned_placements(
+    db: AsyncSession,
+    exclude_class_ids: set[UUID],
+) -> list[dict[str, str]]:
+    """Return persisted ScheduledLesson rows as solver wire-format pin entries.
+
+    Returns one ``{"lesson_id", "time_block_id", "room_id"}`` dict per
+    ScheduledLesson row whose Lesson does NOT belong to any class in
+    ``exclude_class_ids``. Cross-class lessons (membership in >= 2 classes)
+    are pinned only if NONE of their classes are excluded; if at least one
+    is excluded, the placement is dropped because it spans the requested
+    class scope.
+
+    Output ordered by ``(lesson_id, time_block_id)`` for determinism.
+    """
+    excluded_lessons_subq = (
+        select(LessonSchoolClass.lesson_id)
+        .where(LessonSchoolClass.school_class_id.in_(exclude_class_ids))
+        .scalar_subquery()
+    )
+    stmt = (
+        select(ScheduledLesson)
+        .where(ScheduledLesson.lesson_id.notin_(excluded_lessons_subq))
+        .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "lesson_id": str(row.lesson_id),
+            "time_block_id": str(row.time_block_id),
+            "room_id": str(row.room_id),
+        }
+        for row in rows
+    ]
+
+
 async def persist_solution_for_class(
     db: AsyncSession,
     class_id: UUID,
