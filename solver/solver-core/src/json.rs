@@ -17,7 +17,7 @@ use crate::types::{Problem, SolveConfig};
 /// [`Error::Input`] so callers can distinguish client mistakes from
 /// solver-internal issues.
 pub fn solve_json(json: &str) -> Result<String, Error> {
-    solve_json_with_config(json, Some(200))
+    solve_json_with_config(json, Some(200), None, None)
 }
 
 /// Solve a timetable problem supplied as a JSON string with an explicit LAHC
@@ -28,12 +28,24 @@ pub fn solve_json(json: &str) -> Result<String, Error> {
 ///   = 5`, `prefer_early_period = avoid_first_period = avoid_last_period
 ///   = prefer_late_period = 1`) so that the only knob exposed via the JSON
 /// adapter is the deadline.
-pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<String, Error> {
+///
+/// `lahc_rr_period` and `lahc_kempe_period` enable the corresponding LAHC
+/// moves; both default to `None` (disabled), preserving the pre-Sprint-4
+/// single-Change behaviour. The bake-off backends pass `Some(25)` (R&R only)
+/// or `Some(25)` plus `Some(23)` (R&R plus Kempe).
+pub fn solve_json_with_config(
+    json: &str,
+    deadline_ms: Option<u64>,
+    lahc_rr_period: Option<u32>,
+    lahc_kempe_period: Option<u32>,
+) -> Result<String, Error> {
     let problem: Problem =
         serde_json::from_str(json).map_err(|e| Error::Input(format!("json: {e}")))?;
     let config = SolveConfig {
         weights: crate::PRODUCTION_ACTIVE_WEIGHTS.clone(),
         deadline: deadline_ms.map(Duration::from_millis),
+        lahc_rr_period,
+        lahc_kempe_period,
         ..SolveConfig::default()
     };
     let solution = solve_with_config(&problem, &config)?;
@@ -177,7 +189,7 @@ mod tests {
 
     #[test]
     fn solve_json_with_config_none_skips_lahc_and_returns_greedy() {
-        let out = solve_json_with_config(&trivially_empty_json(), None).unwrap();
+        let out = solve_json_with_config(&trivially_empty_json(), None, None, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["placements"].as_array().unwrap().len(), 0);
         assert_eq!(parsed["violations"].as_array().unwrap().len(), 0);
@@ -186,7 +198,7 @@ mod tests {
     #[test]
     fn solve_json_with_config_some_matches_solve_json_for_default_deadline() {
         let problem = trivially_empty_json();
-        let with_config = solve_json_with_config(&problem, Some(200)).unwrap();
+        let with_config = solve_json_with_config(&problem, Some(200), None, None).unwrap();
         let default = solve_json(&problem).unwrap();
         let with_config_parsed: serde_json::Value = serde_json::from_str(&with_config).unwrap();
         let default_parsed: serde_json::Value = serde_json::from_str(&default).unwrap();

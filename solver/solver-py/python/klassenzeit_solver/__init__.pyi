@@ -6,13 +6,23 @@ def solve_json(problem_json: str) -> str:
     variant that lets the caller pick (or skip) the deadline.
     """
 
-def solve_json_with_config(problem_json: str, deadline_ms: int | None) -> str:
+def solve_json_with_config(
+    problem_json: str,
+    deadline_ms: int | None,
+    lahc_rr_period: int | None = None,
+    lahc_kempe_period: int | None = None,
+) -> str:
     """Solve a Problem encoded as JSON with an explicit LAHC deadline.
 
     ``deadline_ms=None`` skips the LAHC pass entirely (greedy-only) and is
-    the canonical choice for binding-contract tests where the 200 ms wall
-    clock would dominate the run. ``deadline_ms=Some(n)`` matches the
-    production behaviour of ``solve_json`` when ``n == 200``.
+    the canonical choice for binding-contract tests. ``deadline_ms=Some(n)``
+    matches the production behaviour of ``solve_json`` when ``n == 200``.
+
+    ``lahc_rr_period`` and ``lahc_kempe_period`` enable the corresponding
+    LAHC moves; both default to ``None`` (disabled), preserving the
+    pre-Sprint-4 single-Change behaviour. The bake-off backends pass
+    ``lahc_rr_period=25`` (R&R only) or ``lahc_rr_period=25,
+    lahc_kempe_period=23`` (R&R + Kempe).
 
     The input JSON may include a ``pinned_placements`` array of
     ``{lesson_id, time_block_id, room_id}`` entries; the solver preserves
