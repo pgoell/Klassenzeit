@@ -23,22 +23,15 @@ use crate::types::{
 const LAHC_LIST_LEN: usize = 500;
 
 /// Run the LAHC loop over the placement set produced by greedy. Mutates
-/// `placements` and the partition / used-* state in place. Caller-owned
-/// `current_score` is updated to reflect the post-LAHC running total.
-#[allow(clippy::too_many_arguments)] // Reason: internal helper; bundling args into a struct hurts clarity more than it helps
+/// `placements` and the partition / used-* state in place via `state`. The
+/// post-LAHC running total ends up in `state.soft_score`.
 pub(crate) fn run(
     problem: &Problem,
     idx: &Indexed,
     config: &SolveConfig,
     placements: &mut [Placement],
-    class_positions: &mut HashMap<(SchoolClassId, u8), Vec<u8>>,
-    teacher_positions: &mut HashMap<(TeacherId, u8), Vec<u8>>,
-    used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
-    used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
-    used_room: &mut HashSet<(RoomId, TimeBlockId)>,
-    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
+    state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
-    current_score: &mut u32,
 ) {
     let Some(deadline) = config.deadline else {
         return;
@@ -48,7 +41,7 @@ pub(crate) fn run(
     }
     let start = Instant::now();
     let mut rng = SmallRng::seed_from_u64(config.seed);
-    let mut lahc_list = vec![*current_score; LAHC_LIST_LEN];
+    let mut lahc_list = vec![state.soft_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
@@ -86,22 +79,16 @@ pub(crate) fn run(
             &max_position_per_day,
             &config.weights,
             placements,
-            class_positions,
-            teacher_positions,
-            used_teacher,
-            used_class,
-            used_room,
-            locked_room,
+            state,
             pinned,
-            current_score,
             &lahc_list,
             iter,
         ) {
-            // accepted; current_score already updated by try_change_move
+            // accepted; state.soft_score already updated by try_change_move
         }
 
         iter += 1;
-        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = *current_score;
+        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
     }
 }
 
@@ -121,14 +108,8 @@ fn try_change_move(
     max_position_per_day: &HashMap<u8, u8>,
     weights: &ConstraintWeights,
     placements: &mut [Placement],
-    class_positions: &mut HashMap<(SchoolClassId, u8), Vec<u8>>,
-    teacher_positions: &mut HashMap<(TeacherId, u8), Vec<u8>>,
-    used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
-    used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
-    used_room: &mut HashSet<(RoomId, TimeBlockId)>,
-    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
+    state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
-    current_score: &mut u32,
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
@@ -160,11 +141,11 @@ fn try_change_move(
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     let teacher = lesson.teacher_id;
 
-    if used_teacher.contains(&(teacher, new_tb.id)) {
+    if state.used_teacher.contains(&(teacher, new_tb.id)) {
         return false;
     }
     for class in class_ids {
-        if used_class.contains(&(*class, new_tb.id)) {
+        if state.used_class.contains(&(*class, new_tb.id)) {
             return false;
         }
     }
@@ -178,7 +159,7 @@ fn try_change_move(
     let mut new_day_lock: Option<RoomId> = None;
     for class in class_ids {
         let key = (*class, new_tb.day_of_week, lesson.subject_id);
-        if let Some(&(locked, count)) = locked_room.get(&key) {
+        if let Some(&(locked, count)) = state.locked_room.get(&key) {
             // When old_day == new_day and the current placement is the only
             // one in the triple, the lock is effectively cleared by removing
             // self before re-adding. Otherwise the lock's room must hold.
@@ -200,7 +181,7 @@ fn try_change_move(
         lesson.subject_id,
         p.room_id,
         new_tb.id,
-        used_room,
+        &state.used_room,
         new_day_lock,
     ) else {
         return false;
@@ -235,22 +216,22 @@ fn try_change_move(
         old_tb.position,
         new_tb.day_of_week,
         new_tb.position,
-        class_positions,
-        teacher_positions,
+        &state.class_positions,
+        &state.teacher_positions,
         weights,
     ) + subject_pref_delta;
 
-    let new_score_signed = i64::from(*current_score) + delta;
+    let new_score_signed = i64::from(state.soft_score) + delta;
     debug_assert!(
         new_score_signed >= 0,
         "running score must remain non-negative; current_score={} delta={}",
-        *current_score,
+        state.soft_score,
         delta
     );
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
 
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let accept = new_score <= *current_score || new_score <= prior;
+    let accept = new_score <= state.soft_score || new_score <= prior;
     if !accept {
         return false;
     }
@@ -265,14 +246,9 @@ fn try_change_move(
         teacher,
         lesson.subject_id,
         placements,
-        class_positions,
-        teacher_positions,
-        used_teacher,
-        used_class,
-        used_room,
-        locked_room,
+        state,
     );
-    *current_score = new_score;
+    state.soft_score = new_score;
     true
 }
 
@@ -459,12 +435,7 @@ fn apply_change_move(
     teacher: TeacherId,
     subject_id: SubjectId,
     placements: &mut [Placement],
-    class_positions: &mut HashMap<(SchoolClassId, u8), Vec<u8>>,
-    teacher_positions: &mut HashMap<(TeacherId, u8), Vec<u8>>,
-    used_teacher: &mut HashSet<(TeacherId, TimeBlockId)>,
-    used_class: &mut HashSet<(SchoolClassId, TimeBlockId)>,
-    used_room: &mut HashSet<(RoomId, TimeBlockId)>,
-    locked_room: &mut HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
+    state: &mut crate::solve::GreedyState,
 ) {
     placements[placement_idx] = Placement {
         lesson_id: old_p.lesson_id,
@@ -473,15 +444,16 @@ fn apply_change_move(
     };
 
     for class in class_ids {
-        if let Some(part) = class_positions.get_mut(&(*class, old_tb.day_of_week)) {
+        if let Some(part) = state.class_positions.get_mut(&(*class, old_tb.day_of_week)) {
             if let Ok(i) = part.binary_search(&old_tb.position) {
                 part.remove(i);
             }
             if part.is_empty() {
-                class_positions.remove(&(*class, old_tb.day_of_week));
+                state.class_positions.remove(&(*class, old_tb.day_of_week));
             }
         }
-        let part = class_positions
+        let part = state
+            .class_positions
             .entry((*class, new_tb.day_of_week))
             .or_default();
         let ins = part.binary_search(&new_tb.position).unwrap_or_else(|i| i);
@@ -490,15 +462,21 @@ fn apply_change_move(
         }
     }
 
-    if let Some(part) = teacher_positions.get_mut(&(teacher, old_tb.day_of_week)) {
+    if let Some(part) = state
+        .teacher_positions
+        .get_mut(&(teacher, old_tb.day_of_week))
+    {
         if let Ok(i) = part.binary_search(&old_tb.position) {
             part.remove(i);
         }
         if part.is_empty() {
-            teacher_positions.remove(&(teacher, old_tb.day_of_week));
+            state
+                .teacher_positions
+                .remove(&(teacher, old_tb.day_of_week));
         }
     }
-    let part = teacher_positions
+    let part = state
+        .teacher_positions
         .entry((teacher, new_tb.day_of_week))
         .or_default();
     let ins = part.binary_search(&new_tb.position).unwrap_or_else(|i| i);
@@ -506,14 +484,14 @@ fn apply_change_move(
         part.insert(ins, new_tb.position);
     }
 
-    used_teacher.remove(&(teacher, old_tb.id));
-    used_teacher.insert((teacher, new_tb.id));
+    state.used_teacher.remove(&(teacher, old_tb.id));
+    state.used_teacher.insert((teacher, new_tb.id));
     for class in class_ids {
-        used_class.remove(&(*class, old_tb.id));
-        used_class.insert((*class, new_tb.id));
+        state.used_class.remove(&(*class, old_tb.id));
+        state.used_class.insert((*class, new_tb.id));
     }
-    used_room.remove(&(old_p.room_id, old_tb.id));
-    used_room.insert((new_room_id, new_tb.id));
+    state.used_room.remove(&(old_p.room_id, old_tb.id));
+    state.used_room.insert((new_room_id, new_tb.id));
 
     // Same-room lock bookkeeping. The placement leaves
     // `(class, old_day, subject)` and joins `(class, new_day, subject)`.
@@ -521,14 +499,14 @@ fn apply_change_move(
     // increment the new triple's count.
     for class in class_ids {
         let old_key = (*class, old_tb.day_of_week, subject_id);
-        if let Some(entry) = locked_room.get_mut(&old_key) {
+        if let Some(entry) = state.locked_room.get_mut(&old_key) {
             entry.1 = entry.1.saturating_sub(1);
             if entry.1 == 0 {
-                locked_room.remove(&old_key);
+                state.locked_room.remove(&old_key);
             }
         }
         let new_key = (*class, new_tb.day_of_week, subject_id);
-        let entry = locked_room.entry(new_key).or_insert((new_room_id, 0));
+        let entry = state.locked_room.entry(new_key).or_insert((new_room_id, 0));
         entry.1 += 1;
     }
 }
@@ -650,23 +628,19 @@ mod tests {
             time_block_id: old_tb.id,
             room_id: old_room,
         }];
-        let mut class_positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
-        class_positions.insert((class, 0), vec_part(&[0]));
-        let mut teacher_positions: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
-        teacher_positions.insert((teacher, 0), vec_part(&[0]));
-        let mut used_teacher: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
-        used_teacher.insert((teacher, old_tb.id));
-        let mut used_class: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
-        used_class.insert((class, old_tb.id));
-        let mut used_room: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
-        used_room.insert((old_room, old_tb.id));
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0]));
+        state.teacher_positions.insert((teacher, 0), vec_part(&[0]));
+        state.used_teacher.insert((teacher, old_tb.id));
+        state.used_class.insert((class, old_tb.id));
+        state.used_room.insert((old_room, old_tb.id));
 
         let old_tb_id = old_tb.id;
         let new_tb_id = new_tb.id;
         let subject = SubjectId(lahc_uuid(40));
-        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
-            HashMap::new();
-        locked_room.insert((class, old_tb.day_of_week, subject), (old_room, 1));
+        state
+            .locked_room
+            .insert((class, old_tb.day_of_week, subject), (old_room, 1));
         apply_change_move(
             0,
             &placements[0].clone(),
@@ -677,23 +651,24 @@ mod tests {
             teacher,
             subject,
             &mut placements,
-            &mut class_positions,
-            &mut teacher_positions,
-            &mut used_teacher,
-            &mut used_class,
-            &mut used_room,
-            &mut locked_room,
+            &mut state,
         );
 
         assert_eq!(placements[0].time_block_id, new_tb_id);
         assert_eq!(placements[0].room_id, new_room);
-        assert_eq!(class_positions.get(&(class, 0)), Some(&vec_part(&[1])));
-        assert_eq!(teacher_positions.get(&(teacher, 0)), Some(&vec_part(&[1])));
-        assert!(used_teacher.contains(&(teacher, new_tb_id)));
-        assert!(!used_teacher.contains(&(teacher, old_tb_id)));
-        assert!(used_class.contains(&(class, new_tb_id)));
-        assert!(used_room.contains(&(new_room, new_tb_id)));
-        assert!(!used_room.contains(&(old_room, old_tb_id)));
+        assert_eq!(
+            state.class_positions.get(&(class, 0)),
+            Some(&vec_part(&[1]))
+        );
+        assert_eq!(
+            state.teacher_positions.get(&(teacher, 0)),
+            Some(&vec_part(&[1]))
+        );
+        assert!(state.used_teacher.contains(&(teacher, new_tb_id)));
+        assert!(!state.used_teacher.contains(&(teacher, old_tb_id)));
+        assert!(state.used_class.contains(&(class, new_tb_id)));
+        assert!(state.used_room.contains(&(new_room, new_tb_id)));
+        assert!(!state.used_room.contains(&(old_room, old_tb_id)));
     }
 
     #[test]
@@ -764,17 +739,13 @@ mod tests {
             time_block_id: tb_zero,
             room_id: room,
         }];
-        let mut class_positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
-        class_positions.insert((class, 0), vec_part(&[0]));
-        let mut teacher_positions: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
-        teacher_positions.insert((teacher, 0), vec_part(&[0]));
-        let mut used_teacher: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
-        used_teacher.insert((teacher, tb_zero));
-        let mut used_class: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
-        used_class.insert((class, tb_zero));
-        let mut used_room: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
-        used_room.insert((room, tb_zero));
-        let mut current_score: u32 = 1; // avoid_first penalty active at position 0
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0]));
+        state.teacher_positions.insert((teacher, 0), vec_part(&[0]));
+        state.used_teacher.insert((teacher, tb_zero));
+        state.used_class.insert((class, tb_zero));
+        state.used_room.insert((room, tb_zero));
+        state.soft_score = 1; // avoid_first penalty active at position 0
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -788,22 +759,14 @@ mod tests {
             max_iterations: Some(600),
         };
 
-        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
-            HashMap::new();
-        locked_room.insert((class, 0, subject), (room, 1));
+        state.locked_room.insert((class, 0, subject), (room, 1));
         run(
             &problem,
             &idx,
             &config,
             &mut placements,
-            &mut class_positions,
-            &mut teacher_positions,
-            &mut used_teacher,
-            &mut used_class,
-            &mut used_room,
-            &mut locked_room,
+            &mut state,
             &HashSet::new(),
-            &mut current_score,
         );
 
         assert_eq!(placements.len(), 1);
@@ -811,7 +774,7 @@ mod tests {
             placements[0].time_block_id, tb_one,
             "LAHC should move the avoid-first lesson off position 0"
         );
-        assert_eq!(current_score, 0);
+        assert_eq!(state.soft_score, 0);
     }
 
     #[test]
@@ -902,20 +865,18 @@ mod tests {
                 room_id: room,
             },
         ];
-        let mut class_positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
-        class_positions.insert((class, 0), vec_part(&[0, 1]));
-        let mut teacher_positions: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
-        teacher_positions.insert((teacher, 0), vec_part(&[0, 1]));
-        let mut used_teacher: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
-        used_teacher.insert((teacher, tb_zero));
-        used_teacher.insert((teacher, tb_one));
-        let mut used_class: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
-        used_class.insert((class, tb_zero));
-        used_class.insert((class, tb_one));
-        let mut used_room: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
-        used_room.insert((room, tb_zero));
-        used_room.insert((room, tb_one));
-        let mut current_score: u32 = 1; // avoid_first penalty active at position 0
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_zero));
+        state.used_teacher.insert((teacher, tb_one));
+        state.used_class.insert((class, tb_zero));
+        state.used_class.insert((class, tb_one));
+        state.used_room.insert((room, tb_zero));
+        state.used_room.insert((room, tb_one));
+        state.soft_score = 1; // avoid_first penalty active at position 0
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -927,22 +888,14 @@ mod tests {
             max_iterations: Some(2000),
         };
 
-        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
-            HashMap::new();
-        locked_room.insert((class, 0, subject), (room, 2));
+        state.locked_room.insert((class, 0, subject), (room, 2));
         run(
             &problem,
             &idx,
             &config,
             &mut placements,
-            &mut class_positions,
-            &mut teacher_positions,
-            &mut used_teacher,
-            &mut used_class,
-            &mut used_room,
-            &mut locked_room,
+            &mut state,
             &HashSet::new(),
-            &mut current_score,
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
@@ -1075,22 +1028,22 @@ mod tests {
                 room_id: room_b,
             },
         ];
-        let mut class_positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
-        class_positions.insert((class_a, 0), vec_part(&[0]));
-        class_positions.insert((class_b, 0), vec_part(&[0]));
-        let mut teacher_positions: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
-        teacher_positions.insert((teacher_a, 0), vec_part(&[0]));
-        teacher_positions.insert((teacher_b, 0), vec_part(&[0]));
-        let mut used_teacher: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
-        used_teacher.insert((teacher_a, tb_zero));
-        used_teacher.insert((teacher_b, tb_zero));
-        let mut used_class: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
-        used_class.insert((class_a, tb_zero));
-        used_class.insert((class_b, tb_zero));
-        let mut used_room: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
-        used_room.insert((room_a, tb_zero));
-        used_room.insert((room_b, tb_zero));
-        let mut current_score: u32 = 2;
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class_a, 0), vec_part(&[0]));
+        state.class_positions.insert((class_b, 0), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher_a, 0), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher_b, 0), vec_part(&[0]));
+        state.used_teacher.insert((teacher_a, tb_zero));
+        state.used_teacher.insert((teacher_b, tb_zero));
+        state.used_class.insert((class_a, tb_zero));
+        state.used_class.insert((class_b, tb_zero));
+        state.used_room.insert((room_a, tb_zero));
+        state.used_room.insert((room_b, tb_zero));
+        state.soft_score = 2;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -1102,23 +1055,15 @@ mod tests {
             max_iterations: Some(2000),
         };
 
-        let mut locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> =
-            HashMap::new();
-        locked_room.insert((class_a, 0, subject), (room_a, 1));
-        locked_room.insert((class_b, 0, subject), (room_b, 1));
+        state.locked_room.insert((class_a, 0, subject), (room_a, 1));
+        state.locked_room.insert((class_b, 0, subject), (room_b, 1));
         run(
             &problem,
             &idx,
             &config,
             &mut placements,
-            &mut class_positions,
-            &mut teacher_positions,
-            &mut used_teacher,
-            &mut used_class,
-            &mut used_room,
-            &mut locked_room,
+            &mut state,
             &HashSet::new(),
-            &mut current_score,
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
