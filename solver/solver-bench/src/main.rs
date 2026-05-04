@@ -22,12 +22,14 @@ use solver_core::types::{ConstraintWeights, Problem, SolveConfig};
 #[derive(Clone, Copy)]
 enum BenchBackend {
     Lahc,
+    LahcRr,
 }
 
 impl BenchBackend {
     fn label(self) -> &'static str {
         match self {
             BenchBackend::Lahc => "lahc",
+            BenchBackend::LahcRr => "lahc_rr",
         }
     }
 }
@@ -123,7 +125,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let backends = [BenchBackend::Lahc];
+    let backends = [BenchBackend::Lahc, BenchBackend::LahcRr];
     let mut markdown = String::new();
     write_header(&mut markdown);
 
@@ -174,17 +176,21 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
+    let lahc_rr_period = match backend {
+        BenchBackend::Lahc => None,
+        BenchBackend::LahcRr => Some(25u32),
+    };
+
     for seed in 1..=seeds {
         let cfg = SolveConfig {
             weights: weights.clone(),
             deadline: Some(budget),
             seed,
+            lahc_rr_period,
             ..SolveConfig::default()
         };
         let start = Instant::now();
-        let solution = match backend {
-            BenchBackend::Lahc => solve_with_config(problem, &cfg).expect("lahc solve"),
-        };
+        let solution = solve_with_config(problem, &cfg).expect("solve");
         let total_ms = start.elapsed().as_secs_f64() * 1_000.0;
         let hard = solution.violations.len() as u32;
         let feasible = hard == 0;
@@ -382,5 +388,20 @@ mod tests {
         assert!(out.contains("| 0/20 |"));
         assert!(out.contains("| - |"));
         assert!(out.contains("| 0.05 |"));
+    }
+
+    #[test]
+    fn write_row_renders_lahc_rr_backend_label() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 20,
+            hard_violations_median: 0,
+            soft_score_median: Some(10),
+            ffd_ms_median: 1.0,
+            total_ms_median: 60100.0,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::LahcRr, &cell);
+        assert!(out.contains("| lahc_rr |"));
     }
 }

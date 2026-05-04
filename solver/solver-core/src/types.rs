@@ -26,6 +26,13 @@ pub struct SolveConfig {
     /// determinism without depending on wall-clock; production callers
     /// should leave this `None`.
     pub max_iterations: Option<u64>,
+    /// Period for the ruin-and-recreate LAHC move. `None` (default) disables
+    /// R&R; the LAHC loop runs Change-only. `Some(n)` triggers an R&R attempt
+    /// every nth iteration, with Change attempts on the other (n-1)/n. The
+    /// bake-off bench's `lahc_rr` backend sets this to `Some(25)`. Production
+    /// callers leave this `None`; the active default in `solve()` is
+    /// unchanged.
+    pub lahc_rr_period: Option<u32>,
 }
 
 /// Soft-constraint weights consumed by `score_solution` and the lowest-delta
@@ -360,6 +367,12 @@ mod tests {
 
     fn lesson_id() -> LessonId {
         LessonId(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
+    }
+
+    #[test]
+    fn solve_config_default_disables_rr() {
+        let cfg = SolveConfig::default();
+        assert_eq!(cfg.lahc_rr_period, None);
     }
 
     #[test]

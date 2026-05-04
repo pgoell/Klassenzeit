@@ -215,14 +215,8 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &idx,
         config,
         &mut solution.placements,
-        &mut state.class_positions,
-        &mut state.teacher_positions,
-        &mut state.used_teacher,
-        &mut state.used_class,
-        &mut state.used_room,
-        &mut state.locked_room,
+        &mut state,
         &pinned,
-        &mut state.soft_score,
     );
 
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
@@ -236,13 +230,13 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
 /// greedy solve. Hard-constraint sets prevent double-booking; partition maps
 /// and `soft_score` enable O(1) candidate scoring without reiterating placed
 /// lessons.
-struct GreedyState {
-    used_teacher: HashSet<(TeacherId, TimeBlockId)>,
-    used_class: HashSet<(SchoolClassId, TimeBlockId)>,
-    used_room: HashSet<(RoomId, TimeBlockId)>,
-    hours_by_teacher: HashMap<TeacherId, u8>,
-    class_positions: HashMap<(SchoolClassId, u8), Vec<u8>>,
-    teacher_positions: HashMap<(TeacherId, u8), Vec<u8>>,
+pub(crate) struct GreedyState {
+    pub(crate) used_teacher: HashSet<(TeacherId, TimeBlockId)>,
+    pub(crate) used_class: HashSet<(SchoolClassId, TimeBlockId)>,
+    pub(crate) used_room: HashSet<(RoomId, TimeBlockId)>,
+    pub(crate) hours_by_teacher: HashMap<TeacherId, u8>,
+    pub(crate) class_positions: HashMap<(SchoolClassId, u8), Vec<u8>>,
+    pub(crate) teacher_positions: HashMap<(TeacherId, u8), Vec<u8>>,
     /// Hard same-room invariant: every accepted placement records the room a
     /// `(class, day_of_week, subject)` triple was first placed in plus a
     /// reference count. Subsequent placements for the same triple must reuse
@@ -251,12 +245,12 @@ struct GreedyState {
     /// introduce a hop. The count tracks how many placements share the
     /// triple so LAHC can remove the lock when its last placement leaves the
     /// triple.
-    locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
-    soft_score: u32,
+    pub(crate) locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
+    pub(crate) soft_score: u32,
 }
 
 impl GreedyState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             used_teacher: HashSet::new(),
             used_class: HashSet::new(),
@@ -304,7 +298,7 @@ fn gap_count_after_window_insert(positions: Option<&Vec<u8>>, start: u8, end: u8
 }
 
 #[allow(clippy::too_many_arguments)] // Reason: internal helper; refactoring to a struct hurts clarity more than it helps
-fn try_place_block(
+pub(crate) fn try_place_block(
     problem: &Problem,
     lesson: &Lesson,
     n: u8,
