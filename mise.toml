@@ -60,6 +60,10 @@ run = "cargo bench -p solver-core"
 description = "Re-run the solver bench and regenerate solver/solver-core/benches/BASELINE.md"
 run         = "./scripts/record_solver_bench.sh"
 
+[tasks."bench:bakeoff"]
+description = "Run the solver feasibility bake-off bench and rewrite BENCH_RESULTS.md"
+run         = "cargo run -p solver-bench --release --"
+
 [tasks."bench:tests"]
 description = "Time the backend pytest suite and compare to .test-duration-budget"
 run         = "./scripts/bench_pytest.sh"
