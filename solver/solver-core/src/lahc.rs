@@ -647,20 +647,26 @@ fn rr_ruin_block(
     BlockSnapshot { rows }
 }
 
-/// Collect the set of placement indices eligible to be ruined by an R&R
-/// attempt. Returns one index per `(lesson, day)` block (the lowest-position
-/// hour) for lessons that are neither pinned nor part of a lesson group. The
-/// single-anchor-per-block contract lets the recreate step call
-/// `try_place_block` once per chosen anchor. Returns indices sorted ascending
-/// for determinism before the R&R RNG shuffles them.
+/// Collect the set of `(lesson, day)` blocks eligible to be ruined by an R&R
+/// attempt. Returns one tuple per block for lessons that are neither pinned
+/// nor part of a lesson group. The single-anchor-per-block contract lets the
+/// recreate step call `try_place_block` once per chosen anchor. Returned in a
+/// deterministic order so the R&R RNG shuffle reproduces under a fixed seed.
+///
+/// Tuples (not placement indices) because a single ruin removes every
+/// placement of a lesson on its day, which can shift indices both above and
+/// below other anchors when a lesson has multiple non-contiguous block
+/// placements on the same day. Callers look up the current placement index at
+/// ruin time from this tuple.
 fn rr_collect_anchors(
     placements: &[Placement],
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     pinned: &HashSet<LessonId>,
-) -> Vec<usize> {
-    let mut by_block: HashMap<(LessonId, u8), (usize, u8)> = HashMap::new();
-    for (i, p) in placements.iter().enumerate() {
+) -> Vec<(LessonId, u8)> {
+    let mut seen: HashSet<(LessonId, u8)> = HashSet::new();
+    let mut anchors: Vec<(LessonId, u8)> = Vec::new();
+    for p in placements.iter() {
         let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
             continue;
         };
@@ -674,13 +680,12 @@ fn rr_collect_anchors(
             continue;
         };
         let key = (p.lesson_id, tb.day_of_week);
-        let entry = by_block.entry(key).or_insert((i, tb.position));
-        if tb.position < entry.1 {
-            *entry = (i, tb.position);
+        if seen.insert(key) {
+            anchors.push(key);
         }
     }
-    let mut anchors: Vec<usize> = by_block.values().map(|(i, _)| *i).collect();
-    anchors.sort_unstable();
+    // Deterministic order before the R&R RNG shuffles.
+    anchors.sort_unstable_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.1.cmp(&b.1)));
     anchors
 }
 
@@ -715,23 +720,31 @@ fn rr_attempt(
     }
     anchors.shuffle(rr_rng);
     let chosen_count = anchors.len().min(RR_K);
-    let chosen: Vec<usize> = anchors.into_iter().take(chosen_count).collect();
-
-    // Sort chosen indices descending so we can ruin without shifting indices
-    // that haven't been processed yet.
-    let mut chosen_desc = chosen.clone();
-    chosen_desc.sort_unstable_by(|a, b| b.cmp(a));
+    let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
     let pre_score = state.soft_score;
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
-    for &idx_anchor in &chosen_desc {
-        let lesson_id = placements[idx_anchor].lesson_id;
-        let lesson = match lesson_lookup.get(&lesson_id) {
+    for (lesson_id, day) in &chosen {
+        let lesson = match lesson_lookup.get(lesson_id) {
             Some(l) => *l,
             None => continue,
         };
+        // Look up the current anchor index at runtime; an earlier ruin in
+        // this iteration may have removed placements above OR below this
+        // block, so any index cached at collect-time is stale. Skip cleanly
+        // if the block is no longer present (would only happen if two
+        // distinct (lesson_id, day) anchors aliased the same set, which the
+        // dedup above prevents, but is safe regardless).
+        let Some(idx_anchor) = placements.iter().position(|p| {
+            p.lesson_id == *lesson_id
+                && tb_lookup
+                    .get(&p.time_block_id)
+                    .is_some_and(|tb| tb.day_of_week == *day)
+        }) else {
+            continue;
+        };
         let snap = rr_ruin_block(idx_anchor, lesson, tb_lookup, placements, state);
-        snapshots.push((lesson_id, snap));
+        snapshots.push((*lesson_id, snap));
     }
 
     // Recreate: walk the ruined lessons in the order they were ruined.
@@ -1133,7 +1146,8 @@ mod tests {
         let anchors = rr_collect_anchors(&placements, &lesson_lookup, &tb_lookup, &pinned);
 
         assert_eq!(anchors.len(), 1);
-        assert_eq!(anchors[0], 0);
+        assert_eq!(anchors[0].0, lesson_free);
+        assert_eq!(anchors[0].1, 0);
     }
 
     #[test]
@@ -1808,6 +1822,112 @@ mod tests {
         assert_eq!(
             pick_room(&problem, &idx, subject, old_room, new_tb, &used, None),
             None
+        );
+    }
+
+    #[test]
+    fn rr_attempt_does_not_panic_when_lesson_has_multiple_blocks_on_same_day() {
+        // Regression: when a lesson has two block placements on the same day
+        // (and possibly non-contiguous indices in the placement vec), ruining
+        // the first anchor removes ALL of that lesson's same-day rows, which
+        // can shift indices of other anchors above OR below it. A descending
+        // sort of cached indices is not enough; the solver must look up each
+        // anchor's current placement index at ruin time.
+        use crate::types::{
+            ConstraintWeights, Lesson, Problem, Room, SchoolClass, Subject, Teacher,
+            TeacherQualification,
+        };
+
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+
+        let tbs: Vec<TimeBlock> = (0..8)
+            .map(|p| TimeBlock {
+                id: TimeBlockId(lahc_uuid(10 + p as u8)),
+                day_of_week: 0,
+                position: p as u8,
+            })
+            .collect();
+
+        let problem = Problem {
+            time_blocks: tbs.clone(),
+            teachers: vec![
+                Teacher {
+                    id: teacher_a,
+                    max_hours_per_week: 10,
+                },
+                Teacher {
+                    id: teacher_b,
+                    max_hours_per_week: 10,
+                },
+            ],
+            rooms: vec![Room { id: room_a }, Room { id: room_b }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
+            lessons: vec![
+                Lesson {
+                    id: lesson_a,
+                    school_class_ids: vec![class],
+                    subject_id: subject,
+                    teacher_id: teacher_a,
+                    hours_per_week: 4,
+                    preferred_block_size: 2,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_b,
+                    school_class_ids: vec![class],
+                    subject_id: subject,
+                    teacher_id: teacher_b,
+                    hours_per_week: 2,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher_a,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_b,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let cfg = SolveConfig {
+            weights: ConstraintWeights::default(),
+            seed: 42,
+            deadline: Some(std::time::Duration::from_millis(50)),
+            max_iterations: Some(2000),
+            lahc_rr_period: Some(1),
+        };
+
+        let result = crate::solve_with_config(&problem, &cfg);
+        assert!(
+            result.is_ok(),
+            "solve panicked or failed: {:?}",
+            result.err()
         );
     }
 }
