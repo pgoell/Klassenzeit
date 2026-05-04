@@ -10,4 +10,4 @@ name = "solver-bench"
 path = "src/main.rs"
 
 [dependencies]
-solver-core = { path = "../solver-core" }
+solver-core = { path = "../solver-core", version = "0.1.0" }
