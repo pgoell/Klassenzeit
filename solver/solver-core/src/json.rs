@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::error::Error;
+use crate::score::score_solution;
 use crate::solve::solve_with_config;
-use crate::types::{ConstraintWeights, Problem, SolveConfig};
+use crate::types::{Placement, Problem, SolveConfig};
 
 /// Solve a timetable problem supplied as a JSON string and return the resulting
 /// `Solution` serialised as JSON. Uses the production-default 200 ms LAHC
@@ -17,7 +18,7 @@ use crate::types::{ConstraintWeights, Problem, SolveConfig};
 /// [`Error::Input`] so callers can distinguish client mistakes from
 /// solver-internal issues.
 pub fn solve_json(json: &str) -> Result<String, Error> {
-    solve_json_with_config(json, Some(200))
+    solve_json_with_config(json, Some(200), None, None)
 }
 
 /// Solve a timetable problem supplied as a JSON string with an explicit LAHC
@@ -28,25 +29,47 @@ pub fn solve_json(json: &str) -> Result<String, Error> {
 ///   = 5`, `prefer_early_period = avoid_first_period = avoid_last_period
 ///   = prefer_late_period = 1`) so that the only knob exposed via the JSON
 /// adapter is the deadline.
-pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<String, Error> {
+///
+/// `lahc_rr_period` and `lahc_kempe_period` enable the corresponding LAHC
+/// moves; both default to `None` (disabled), preserving the pre-Sprint-4
+/// single-Change behaviour. The bake-off backends pass `Some(25)` (R&R only)
+/// or `Some(25)` plus `Some(23)` (R&R plus Kempe).
+pub fn solve_json_with_config(
+    json: &str,
+    deadline_ms: Option<u64>,
+    lahc_rr_period: Option<u32>,
+    lahc_kempe_period: Option<u32>,
+) -> Result<String, Error> {
     let problem: Problem =
         serde_json::from_str(json).map_err(|e| Error::Input(format!("json: {e}")))?;
     let config = SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 10,
-            teacher_gap: 10,
-            prefer_early_period: 1,
-            avoid_first_period: 1,
-            prefer_home_room: 5,
-            avoid_last_period: 1,
-            prefer_late_period: 1,
-            class_day_balance: 5,
-        },
+        weights: crate::PRODUCTION_ACTIVE_WEIGHTS.clone(),
         deadline: deadline_ms.map(Duration::from_millis),
+        lahc_rr_period,
+        lahc_kempe_period,
         ..SolveConfig::default()
     };
     let solution = solve_with_config(&problem, &config)?;
     serde_json::to_string(&solution).map_err(|e| Error::Input(format!("serialize: {e}")))
+}
+
+/// Score a `Placement[]` (encoded as JSON) against a `Problem` (also JSON) using
+/// the production-active `ConstraintWeights`. Returns the same `u32` soft-score
+/// that [`score_solution`] produces internally during a `solve_with_config`
+/// call. Used by the CP-SAT path in `klassenzeit_solver.cpsat` to populate
+/// `Solution.soft_score` post-solve, so all bake-off backends compare on the
+/// same Rust scorer (ADR 0030). Malformed input JSON is mapped to
+/// [`Error::Input`].
+pub fn score_solution_json(problem_json: &str, placements_json: &str) -> Result<u32, Error> {
+    let problem: Problem = serde_json::from_str(problem_json)
+        .map_err(|e| Error::Input(format!("json (problem): {e}")))?;
+    let placements: Vec<Placement> = serde_json::from_str(placements_json)
+        .map_err(|e| Error::Input(format!("json (placements): {e}")))?;
+    Ok(score_solution(
+        &problem,
+        &placements,
+        &crate::PRODUCTION_ACTIVE_WEIGHTS,
+    ))
 }
 
 /// Tagged JSON envelope that step 2's `solver-py` wrapper emits to Python so the
@@ -186,7 +209,7 @@ mod tests {
 
     #[test]
     fn solve_json_with_config_none_skips_lahc_and_returns_greedy() {
-        let out = solve_json_with_config(&trivially_empty_json(), None).unwrap();
+        let out = solve_json_with_config(&trivially_empty_json(), None, None, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["placements"].as_array().unwrap().len(), 0);
         assert_eq!(parsed["violations"].as_array().unwrap().len(), 0);
@@ -195,7 +218,7 @@ mod tests {
     #[test]
     fn solve_json_with_config_some_matches_solve_json_for_default_deadline() {
         let problem = trivially_empty_json();
-        let with_config = solve_json_with_config(&problem, Some(200)).unwrap();
+        let with_config = solve_json_with_config(&problem, Some(200), None, None).unwrap();
         let default = solve_json(&problem).unwrap();
         let with_config_parsed: serde_json::Value = serde_json::from_str(&with_config).unwrap();
         let default_parsed: serde_json::Value = serde_json::from_str(&default).unwrap();

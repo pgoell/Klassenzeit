@@ -53,3 +53,4 @@ sections, and add the new entry to the index below.
 | 0027 | [Pinned placements wire format](0027-pinned-placements-wire-format.md) | Accepted |
 | 0028 | [Manual pin semantics](0028-manual-pin-semantics.md) | Accepted |
 | 0029 | [Solver feasibility bake-off methodology](0029-solver-feasibility-bake-off.md) | Accepted |
+| 0030 | [CP-SAT enters via Python ortools, not Rust FFI](0030-cpsat-dependency-direction.md) | Accepted |

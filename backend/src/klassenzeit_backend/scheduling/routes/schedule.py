@@ -52,8 +52,13 @@ async def generate_schedule_for_class(
         db, class_id, pinned_placements=all_pins
     )
     deadline_ms = request.app.state.settings.solve_deadline_ms
+    solver_backend = request.app.state.settings.solver_backend
     solution = await solver_io.run_solve(
-        problem_json, scope_id=class_id, input_counts=input_counts, deadline_ms=deadline_ms
+        problem_json,
+        scope_id=class_id,
+        input_counts=input_counts,
+        deadline_ms=deadline_ms,
+        solver_backend=solver_backend,
     )
     filtered = solver_io.filter_solution_for_class(solution, class_lesson_ids)
     logger.info(
@@ -107,8 +112,13 @@ async def generate_schedule_for_all_classes(
         db, class_id=None, pinned_placements=pins
     )
     deadline_ms = request.app.state.settings.solve_deadline_ms
+    solver_backend = request.app.state.settings.solver_backend
     solution = await solver_io.run_solve(
-        problem_json, scope_id=None, input_counts=input_counts, deadline_ms=deadline_ms
+        problem_json,
+        scope_id=None,
+        input_counts=input_counts,
+        deadline_ms=deadline_ms,
+        solver_backend=solver_backend,
     )
     pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in pins}
     summaries = await solver_io.persist_solution_for_all_classes(

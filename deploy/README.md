@@ -114,6 +114,19 @@ docker compose up -d
 Replace `abcdef1` with the short SHA of the target commit. Confirm with
 `docker inspect klassenzeit-backend-staging --format '{{.Image}}'`.
 
+## Solver backend operations
+
+`KZ_SOLVER_BACKEND` env var selects which solver runs. Values:
+
+| Value | Description |
+| --- | --- |
+| `lahc` (default) | Pre-Sprint-4 FFD greedy + LAHC Change-only behaviour. |
+| `lahc_rr` | Adds ruin-and-recreate as an LAHC move (period 25). |
+| `lahc_rr_kempe` | Adds ruin-and-recreate + Kempe chain swaps (periods 25 and 23). |
+| `cpsat` | Google OR-Tools CP-SAT seed via Python `ortools` (~50 MB extra in the image). |
+
+Switching backends is an env-var flip plus a Pod restart; no image rebuild required because all four backends ship in the `klassenzeit-solver` Python package. ADR 0030 records the architecture; `BENCH_RESULTS.md` carries the head-to-head Pareto-frontier data that informs the production-default decision.
+
 ## Logs and troubleshooting
 
 ```bash

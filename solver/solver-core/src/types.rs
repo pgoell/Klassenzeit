@@ -88,6 +88,20 @@ pub struct ConstraintWeights {
     pub class_day_balance: u32,
 }
 
+/// Production-active soft-constraint weights. The bake-off bench, the JSON
+/// adapter, and the new `score_solution_json` PyO3 binding all use this exact
+/// weight set so cross-backend bench cells compare on the same scorer.
+pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
+    class_gap: 10,
+    teacher_gap: 10,
+    prefer_early_period: 1,
+    avoid_first_period: 1,
+    prefer_home_room: 5,
+    avoid_last_period: 1,
+    prefer_late_period: 1,
+    class_day_balance: 5,
+};
+
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
 /// join tables so serialisation is a 1:1 shape match with the API payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -380,6 +394,21 @@ mod tests {
     fn solve_config_default_disables_rr() {
         let cfg = SolveConfig::default();
         assert_eq!(cfg.lahc_rr_period, None);
+    }
+
+    #[test]
+    fn production_active_weights_match_legacy_inline_literal() {
+        let inline = ConstraintWeights {
+            class_gap: 10,
+            teacher_gap: 10,
+            prefer_early_period: 1,
+            avoid_first_period: 1,
+            prefer_home_room: 5,
+            avoid_last_period: 1,
+            prefer_late_period: 1,
+            class_day_balance: 5,
+        };
+        assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }
 
     #[test]

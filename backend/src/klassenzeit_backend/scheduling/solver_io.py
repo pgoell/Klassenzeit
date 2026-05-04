@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, get_args
+from typing import TYPE_CHECKING, Literal, get_args
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -37,7 +37,12 @@ from klassenzeit_backend.scheduling.schemas.schedule import (
     PlacementResponse,
     ViolationResponse,
 )
-from klassenzeit_solver import solve_json_with_config as _solve_json_with_config
+from klassenzeit_solver import (
+    solve_cpsat_json as _solve_cpsat_json,
+)
+from klassenzeit_solver import (
+    solve_json_with_config as _solve_json_with_config,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -377,6 +382,7 @@ async def run_solve(
     input_counts: dict[str, int],
     *,
     deadline_ms: int | None,
+    solver_backend: Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] = "lahc",
 ) -> dict:
     """Run the solver off the event loop, emit structured log events, return the Solution dict.
 
@@ -384,21 +390,50 @@ async def run_solve(
     for a whole-school solve. It is logged under ``school_class_id`` for
     continuity with existing log shape; ``None`` is logged verbatim so the
     whole-school path is identifiable in structured-log queries.
+
+    ``solver_backend`` selects which solver runs. The default ``lahc`` matches
+    pre-Sprint-4 behaviour; ``lahc_rr`` and ``lahc_rr_kempe`` thread the
+    corresponding period kwargs into ``solve_json_with_config``; ``cpsat``
+    dispatches to the CP-SAT seed (ADR 0030).
     """
     scope_str = str(scope_id) if scope_id is not None else None
     logger.info(
         "solver.solve.start",
-        extra={"school_class_id": scope_str, **input_counts},
+        extra={"school_class_id": scope_str, "backend": solver_backend, **input_counts},
     )
     started = time.monotonic()
     try:
-        solution_json = await asyncio.to_thread(_solve_json_with_config, problem_json, deadline_ms)
+        match solver_backend:
+            case "lahc":
+                solution_json = await asyncio.to_thread(
+                    _solve_json_with_config, problem_json, deadline_ms
+                )
+            case "lahc_rr":
+                solution_json = await asyncio.to_thread(
+                    _solve_json_with_config,
+                    problem_json,
+                    deadline_ms,
+                    lahc_rr_period=25,
+                )
+            case "lahc_rr_kempe":
+                solution_json = await asyncio.to_thread(
+                    _solve_json_with_config,
+                    problem_json,
+                    deadline_ms,
+                    lahc_rr_period=25,
+                    lahc_kempe_period=23,
+                )
+            case "cpsat":
+                solution_json = await asyncio.to_thread(
+                    _solve_cpsat_json, problem_json, deadline_ms
+                )
     except (ValueError, RuntimeError) as exc:
         duration_ms = (time.monotonic() - started) * 1000.0
         logger.error(
             "solver.solve.error",
             extra={
                 "school_class_id": scope_str,
+                "backend": solver_backend,
                 "duration_ms": duration_ms,
                 "exc_class": type(exc).__name__,
             },
@@ -411,6 +446,7 @@ async def run_solve(
         "solver.solve.done",
         extra={
             "school_class_id": scope_str,
+            "backend": solver_backend,
             "duration_ms": duration_ms,
             "placements_total": len(solution["placements"]),
             "violations_total": len(solution["violations"]),
