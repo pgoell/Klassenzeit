@@ -4,14 +4,18 @@
 
 | Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | lahc | 10 | 10/10 | 0 | 15 | 0.17 | 30000 |
+| grundschule | lahc | 10 | 10/10 | 0 | 15 | 0.16 | 30000 |
 | grundschule | lahc_rr | 10 | 10/10 | 0 | 0 | 0.14 | 30000 |
-| zweizuegig | lahc | 10 | 10/10 | 0 | 50 | 0.66 | 30001 |
-| zweizuegig | lahc_rr | 10 | 10/10 | 0 | 0 | 0.61 | 30001 |
-| dreizuegig | lahc | 10 | 10/10 | 0 | 210 | 1.59 | 30002 |
-| dreizuegig | lahc_rr | 10 | 10/10 | 0 | 0 | 1.60 | 30002 |
+| grundschule | lahc_rr_kempe | 10 | 10/10 | 0 | 0 | 0.13 | 30000 |
+| zweizuegig | lahc | 10 | 10/10 | 0 | 50 | 0.69 | 30001 |
+| zweizuegig | lahc_rr | 10 | 10/10 | 0 | 0 | 0.62 | 30001 |
+| zweizuegig | lahc_rr_kempe | 10 | 10/10 | 0 | 0 | 0.60 | 30001 |
+| dreizuegig | lahc | 10 | 10/10 | 0 | 210 | 1.57 | 30002 |
+| dreizuegig | lahc_rr | 10 | 10/10 | 0 | 0 | 1.57 | 30002 |
+| dreizuegig | lahc_rr_kempe | 10 | 10/10 | 0 | 0 | 1.55 | 30002 |
 | lock_in | lahc | 10 | 10/10 | 0 | 43 | 0.45 | 30000 |
-| lock_in | lahc_rr | 10 | 10/10 | 0 | 0 | 0.45 | 30000 |
+| lock_in | lahc_rr | 10 | 10/10 | 0 | 0 | 0.46 | 30000 |
+| lock_in | lahc_rr_kempe | 10 | 10/10 | 0 | 0 | 0.45 | 30000 |
 
 Refreshed 2026-05-04 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
 

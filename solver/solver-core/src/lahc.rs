@@ -3,7 +3,7 @@
 //! reuse old room or fall back to lowest-id hard-feasible room),
 //! deadline-bound, deterministic under (seed, max_iterations).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use rand::rngs::SmallRng;
@@ -42,11 +42,17 @@ pub(crate) fn run(
     let start = Instant::now();
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
+    let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
     let mut lahc_list = vec![state.soft_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
         problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+        .time_blocks
+        .iter()
+        .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+        .collect();
     let subject_lookup: HashMap<SubjectId, &Subject> =
         problem.subjects.iter().map(|s| (s.id, s)).collect();
     let max_position_per_day: HashMap<u8, u8> =
@@ -81,6 +87,10 @@ pub(crate) fn run(
         let is_rr_iter = config
             .lahc_rr_period
             .is_some_and(|n| n > 0 && (iter as u32) % n == 0);
+        let is_kempe_iter = config
+            .lahc_kempe_period
+            .is_some_and(|n| n > 0 && (iter as u32) % n == 0)
+            && !is_rr_iter;
 
         if is_rr_iter {
             rr_attempt(
@@ -97,6 +107,24 @@ pub(crate) fn run(
                 &room_order,
                 &max_position_per_day,
                 &teacher_max,
+                &lahc_list,
+                iter,
+            );
+        } else if is_kempe_iter {
+            kempe_attempt(
+                problem,
+                idx,
+                &config.weights,
+                &mut kempe_rng,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &tb_by_day_pos,
+                pinned,
+                placements,
+                state,
+                &room_order,
+                &max_position_per_day,
                 &lahc_list,
                 iter,
             );
@@ -881,6 +909,837 @@ fn replay_placement(
     }
 }
 
+/// Maximum chain length per Kempe attempt. Hardcoded today; a follow-up
+/// promotes this to `SolveConfig.lahc_kempe_max_chain` if `BENCH_RESULTS.md`
+/// shows depth-sensitivity. See
+/// `docs/superpowers/specs/2026-05-04-solver-kempe-lahc-move-design.md`.
+const KEMPE_MAX_CHAIN: usize = 8;
+
+/// Outcome of `kempe_build_chain`. `Built(chain)` carries the mapping from
+/// each chain member's lesson-id to its destination day; `Aborted` signals
+/// that the BFS hit a non-eligible placement (pin, group, missing window,
+/// over-bound) and the caller must reject the attempt without ruining
+/// anything.
+enum ChainBuild {
+    Built(HashMap<LessonId, u8>),
+    Aborted,
+}
+
+/// Build the BFS chain starting from `(seed_lesson, source_day, dest_day)`
+/// over the teacher+class conflict graph at the destination window. Pure:
+/// reads `placements`, `lesson_lookup`, `tb_lookup`, `pinned`, `start_pos`;
+/// does not mutate. Returns `ChainBuild::Aborted` on any of: chain hits a
+/// pinned or group-tagged placement, chain length exceeds `KEMPE_MAX_CHAIN`,
+/// or a chain neighbour's destination window has missing positions.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_build_chain(
+    seed_lesson: LessonId,
+    source_day: u8,
+    dest_day: u8,
+    start_pos: u8,
+    placements: &[Placement],
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    pinned: &HashSet<LessonId>,
+) -> ChainBuild {
+    let mut chain: HashMap<LessonId, u8> = HashMap::new();
+    chain.insert(seed_lesson, dest_day);
+    let mut frontier: VecDeque<LessonId> = VecDeque::new();
+    frontier.push_back(seed_lesson);
+    let mut frontier_seen: HashSet<LessonId> = HashSet::new();
+    frontier_seen.insert(seed_lesson);
+
+    while let Some(lesson_id) = frontier.pop_front() {
+        let popped_dest_day = match chain.get(&lesson_id) {
+            Some(d) => *d,
+            None => return ChainBuild::Aborted,
+        };
+        let popped_lesson = match lesson_lookup.get(&lesson_id) {
+            Some(l) => *l,
+            None => return ChainBuild::Aborted,
+        };
+        let n = popped_lesson.preferred_block_size;
+
+        // Window verification for the popped lesson at its destination day.
+        for k in 0..n {
+            if !tb_by_day_pos.contains_key(&(popped_dest_day, start_pos + k)) {
+                return ChainBuild::Aborted;
+            }
+        }
+
+        // Collect every existing placement at the popped lesson's destination
+        // window. A placement whose lesson is already in the chain is leaving
+        // (it has its own chain assignment) so does not contribute to new
+        // neighbours.
+        let mut new_neighbours: Vec<LessonId> = Vec::new();
+        for k in 0..n {
+            let dest_tb_id = tb_by_day_pos[&(popped_dest_day, start_pos + k)];
+            for placement in placements.iter() {
+                if placement.time_block_id != dest_tb_id {
+                    continue;
+                }
+                if chain.contains_key(&placement.lesson_id) {
+                    continue;
+                }
+                let other = match lesson_lookup.get(&placement.lesson_id) {
+                    Some(l) => *l,
+                    None => return ChainBuild::Aborted,
+                };
+                let teacher_conflict = other.teacher_id == popped_lesson.teacher_id;
+                let class_conflict = other
+                    .school_class_ids
+                    .iter()
+                    .any(|c| popped_lesson.school_class_ids.contains(c));
+                if !teacher_conflict && !class_conflict {
+                    continue;
+                }
+                if pinned.contains(&placement.lesson_id) {
+                    return ChainBuild::Aborted;
+                }
+                if other.lesson_group_id.is_some() {
+                    return ChainBuild::Aborted;
+                }
+                // Block-shape guard: ruining a (lesson, day) anchor removes
+                // every hour of `other` on `popped_dest_day`. If FFD packed
+                // more than one N-block of `other` onto that day, the swap
+                // would drop hours. Abort cleanly so the move stays atomic.
+                let hours_on_source = placements
+                    .iter()
+                    .filter(|q| {
+                        q.lesson_id == placement.lesson_id
+                            && tb_lookup
+                                .get(&q.time_block_id)
+                                .is_some_and(|t| t.day_of_week == popped_dest_day)
+                    })
+                    .count();
+                if hours_on_source != usize::from(other.preferred_block_size) {
+                    return ChainBuild::Aborted;
+                }
+                if !frontier_seen.contains(&placement.lesson_id) {
+                    new_neighbours.push(placement.lesson_id);
+                    frontier_seen.insert(placement.lesson_id);
+                }
+            }
+        }
+
+        // Determinism: sort new neighbours before extending the frontier so
+        // HashSet iteration order does not leak into the chain shape.
+        new_neighbours.sort_unstable_by_key(|id| id.0);
+
+        let neighbour_dest = if popped_dest_day == dest_day {
+            source_day
+        } else {
+            dest_day
+        };
+        for neighbour_id in new_neighbours {
+            chain.insert(neighbour_id, neighbour_dest);
+            frontier.push_back(neighbour_id);
+            if chain.len() > KEMPE_MAX_CHAIN {
+                return ChainBuild::Aborted;
+            }
+        }
+    }
+
+    ChainBuild::Built(chain)
+}
+
+/// Pick a destination room for one chain member. Prefer reusing the
+/// snapshot's `original_room_id`; fall back to lowest-id hard-feasible room
+/// per `room_order`. Honours the same-room lock at the destination triple
+/// (only the locked room is feasible if a lock exists for any member class).
+/// Returns `None` if no feasible room exists across the full N-block window.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_pick_room(
+    problem: &Problem,
+    idx: &Indexed,
+    lesson: &Lesson,
+    original_room_id: RoomId,
+    dest_day: u8,
+    start_pos: u8,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    state: &crate::solve::GreedyState,
+    room_order: &[usize],
+) -> Option<RoomId> {
+    let n = lesson.preferred_block_size;
+    let dest_tb_ids: Vec<TimeBlockId> = (0..n)
+        .map(|k| tb_by_day_pos[&(dest_day, start_pos + k)])
+        .collect();
+
+    // Same-room hard constraint: if any member class already has a lock at
+    // (class, dest_day, subject), every member class's lock (if any) must
+    // agree, and the chosen room must equal that lock.
+    let mut shared_lock: Option<RoomId> = None;
+    for class in &lesson.school_class_ids {
+        if let Some(&(locked, _)) = state
+            .locked_room
+            .get(&(*class, dest_day, lesson.subject_id))
+        {
+            match shared_lock {
+                None => shared_lock = Some(locked),
+                Some(prev) if prev != locked => return None,
+                _ => {}
+            }
+        }
+    }
+
+    let feasible = |room_id: RoomId| -> bool {
+        if !idx.room_suits_subject(room_id, lesson.subject_id) {
+            return false;
+        }
+        for tb_id in &dest_tb_ids {
+            if idx.room_blocked(room_id, *tb_id) {
+                return false;
+            }
+            if state.used_room.contains(&(room_id, *tb_id)) {
+                return false;
+            }
+        }
+        true
+    };
+
+    if let Some(locked) = shared_lock {
+        return if feasible(locked) { Some(locked) } else { None };
+    }
+    if feasible(original_room_id) {
+        return Some(original_room_id);
+    }
+    for &i in room_order {
+        let candidate = problem.rooms[i].id;
+        if feasible(candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Compute the soft-score delta from a Kempe swap by snapshotting affected
+/// partitions before the swap and recomputing them after. Returns
+/// `(touched_partitions_snapshot, removed_subject_pref_total)` to be used
+/// post-apply for the delta calculation. Pure: reads `state` and
+/// `placements` through `chain_members`; does not mutate.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_snapshot_pre_score(
+    chain_members: &[(LessonId, u8)],
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    subject_lookup: &HashMap<SubjectId, &Subject>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    placements: &[Placement],
+    state: &crate::solve::GreedyState,
+    weights: &ConstraintWeights,
+    max_position_per_day: &HashMap<u8, u8>,
+) -> (KempePartitionSnapshot, u32) {
+    // Collect every (class, day) and (teacher, day) partition touched by
+    // the chain. The `dest_day` of each member is its outgoing day; the
+    // member's current placements live on the source day. Both must be
+    // tracked.
+    let mut class_keys: HashSet<(SchoolClassId, u8)> = HashSet::new();
+    let mut teacher_keys: HashSet<(TeacherId, u8)> = HashSet::new();
+    for (lesson_id, dest_day) in chain_members {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("chain member lesson resolves");
+        // Source day is the day the member currently occupies; locate it
+        // from its placements.
+        let mut source_days: HashSet<u8> = HashSet::new();
+        for p in placements.iter() {
+            if p.lesson_id != *lesson_id {
+                continue;
+            }
+            if let Some(tb) = tb_lookup.get(&p.time_block_id) {
+                source_days.insert(tb.day_of_week);
+            }
+        }
+        for src in &source_days {
+            for class in &lesson.school_class_ids {
+                class_keys.insert((*class, *src));
+            }
+            teacher_keys.insert((lesson.teacher_id, *src));
+        }
+        for class in &lesson.school_class_ids {
+            class_keys.insert((*class, *dest_day));
+        }
+        teacher_keys.insert((lesson.teacher_id, *dest_day));
+    }
+
+    let mut class_pre: HashMap<(SchoolClassId, u8), u32> = HashMap::new();
+    for key in &class_keys {
+        let g = state
+            .class_positions
+            .get(key)
+            .map(|v| gap_count(v))
+            .unwrap_or(0);
+        class_pre.insert(*key, g);
+    }
+    let mut teacher_pre: HashMap<(TeacherId, u8), u32> = HashMap::new();
+    for key in &teacher_keys {
+        let g = state
+            .teacher_positions
+            .get(key)
+            .map(|v| gap_count(v))
+            .unwrap_or(0);
+        teacher_pre.insert(*key, g);
+    }
+
+    // Sum of subject_pref across every chain member's current placements.
+    let mut removed_subject_pref: u32 = 0;
+    for (lesson_id, _dest_day) in chain_members {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("chain member lesson resolves");
+        let subject = subject_lookup
+            .get(&lesson.subject_id)
+            .expect("chain member subject resolves");
+        for p in placements.iter() {
+            if p.lesson_id != *lesson_id {
+                continue;
+            }
+            if let Some(tb) = tb_lookup.get(&p.time_block_id) {
+                let max_pos = max_position_per_day
+                    .get(&tb.day_of_week)
+                    .copied()
+                    .unwrap_or(tb.position);
+                removed_subject_pref = removed_subject_pref.saturating_add(
+                    crate::score::subject_preference_score(subject, tb, max_pos, weights),
+                );
+            }
+        }
+    }
+
+    (
+        KempePartitionSnapshot {
+            class_pre,
+            teacher_pre,
+        },
+        removed_subject_pref,
+    )
+}
+
+/// Pre-attempt partition gap snapshot. Used by `kempe_attempt` to compute
+/// the post-swap soft-score delta exactly without recomputing the entire
+/// `score_solution`.
+struct KempePartitionSnapshot {
+    class_pre: HashMap<(SchoolClassId, u8), u32>,
+    teacher_pre: HashMap<(TeacherId, u8), u32>,
+}
+
+/// Compute the post-apply gap delta for every snapshotted partition against
+/// the now-mutated `state`. Returns the weighted total class+teacher gap
+/// delta (signed).
+fn kempe_post_score_delta(
+    snapshot: &KempePartitionSnapshot,
+    state: &crate::solve::GreedyState,
+    weights: &ConstraintWeights,
+) -> i64 {
+    let mut class_delta: i64 = 0;
+    for (key, pre) in &snapshot.class_pre {
+        let post = state
+            .class_positions
+            .get(key)
+            .map(|v| gap_count(v))
+            .unwrap_or(0);
+        class_delta += i64::from(post) - i64::from(*pre);
+    }
+    let mut teacher_delta: i64 = 0;
+    for (key, pre) in &snapshot.teacher_pre {
+        let post = state
+            .teacher_positions
+            .get(key)
+            .map(|v| gap_count(v))
+            .unwrap_or(0);
+        teacher_delta += i64::from(post) - i64::from(*pre);
+    }
+    i64::from(weights.class_gap) * class_delta + i64::from(weights.teacher_gap) * teacher_delta
+}
+
+/// Sum of subject_pref over a chain member's *new* placements at the
+/// destination window with the chosen room. Used after apply to add the
+/// post-swap subject_pref contribution to the delta.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_apply_subject_pref(
+    problem: &Problem,
+    lesson: &Lesson,
+    subject: &Subject,
+    dest_day: u8,
+    start_pos: u8,
+    weights: &ConstraintWeights,
+    max_position_per_day: &HashMap<u8, u8>,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+) -> u32 {
+    let n = lesson.preferred_block_size;
+    let max_pos = max_position_per_day
+        .get(&dest_day)
+        .copied()
+        .unwrap_or(start_pos + n - 1);
+    let mut total: u32 = 0;
+    for k in 0..n {
+        let tb_id = tb_by_day_pos[&(dest_day, start_pos + k)];
+        let tb = problem
+            .time_blocks
+            .iter()
+            .find(|t| t.id == tb_id)
+            .expect("tb_by_day_pos points at an existing time-block");
+        total = total.saturating_add(crate::score::subject_preference_score(
+            subject, tb, max_pos, weights,
+        ));
+    }
+    total
+}
+
+/// Apply one chain member's swap: insert N rows at `(dest_day, start_pos..)`
+/// with `room_id`, increment all bookkeeping. Mirrors `replay_placement`
+/// across a window of N consecutive positions.
+fn kempe_apply_block(
+    lesson: &Lesson,
+    dest_day: u8,
+    start_pos: u8,
+    room_id: RoomId,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+) {
+    let n = lesson.preferred_block_size;
+    for k in 0..n {
+        let pos = start_pos + k;
+        let tb_id = tb_by_day_pos[&(dest_day, pos)];
+        placements.push(Placement {
+            lesson_id: lesson.id,
+            time_block_id: tb_id,
+            room_id,
+        });
+        state.used_teacher.insert((lesson.teacher_id, tb_id));
+        for class in &lesson.school_class_ids {
+            state.used_class.insert((*class, tb_id));
+            let part = state.class_positions.entry((*class, dest_day)).or_default();
+            let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
+            if part.get(ins).copied() != Some(pos) {
+                part.insert(ins, pos);
+            }
+        }
+        state.used_room.insert((room_id, tb_id));
+        let part = state
+            .teacher_positions
+            .entry((lesson.teacher_id, dest_day))
+            .or_default();
+        let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
+        if part.get(ins).copied() != Some(pos) {
+            part.insert(ins, pos);
+        }
+        *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+        for class in &lesson.school_class_ids {
+            let key = (*class, dest_day, lesson.subject_id);
+            let entry = state.locked_room.entry(key).or_insert((room_id, 0));
+            entry.1 += 1;
+        }
+    }
+}
+
+/// Run one Kempe-chain attempt: pick a block-anchor seed, pick a target day,
+/// build the BFS chain over the teacher+class conflict graph at the
+/// destination window, swap atomically. Asymmetric acceptance: any chain
+/// abort or apply failure rolls back to the pre-attempt snapshot. Returns
+/// true when the swap was accepted, false when rejected.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_attempt(
+    problem: &Problem,
+    idx: &Indexed,
+    weights: &ConstraintWeights,
+    kempe_rng: &mut SmallRng,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    subject_lookup: &HashMap<SubjectId, &Subject>,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    pinned: &HashSet<LessonId>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+    room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
+    lahc_list: &[u32],
+    iter: u64,
+) -> bool {
+    let pre_score = state.soft_score;
+
+    // Seed pick: collect block-anchors (R&R eligibility rules; identical for
+    // Kempe). Filter out anchors where the lesson has more than one block
+    // on the chosen day; FFD can pack two N=1 blocks of the same lesson
+    // onto one day for compactness, which would make the swap drop hours.
+    // Empty means there is nothing eligible to swap.
+    let raw_anchors = rr_collect_anchors(placements, lesson_lookup, tb_lookup, pinned);
+    let anchors: Vec<(LessonId, u8)> = raw_anchors
+        .into_iter()
+        .filter(|(lesson_id, day)| {
+            let lesson = match lesson_lookup.get(lesson_id) {
+                Some(l) => *l,
+                None => return false,
+            };
+            let hours_on_day = placements
+                .iter()
+                .filter(|p| {
+                    p.lesson_id == *lesson_id
+                        && tb_lookup
+                            .get(&p.time_block_id)
+                            .is_some_and(|tb| tb.day_of_week == *day)
+                })
+                .count();
+            hours_on_day == usize::from(lesson.preferred_block_size)
+        })
+        .collect();
+    if anchors.is_empty() {
+        return false;
+    }
+
+    // Always consume two random draws so the K-RNG sequence is invariant
+    // across early-abort branches; mirrors the Change move's two-draw
+    // invariance for determinism.
+    let anchor_idx = kempe_rng.random_range(0..anchors.len());
+    let day_offset = kempe_rng.random_range(0..7u8);
+
+    let (seed_lesson_id, source_day) = anchors[anchor_idx];
+    // Resample target day from 0..7 excluding source_day. day_offset is in
+    // 0..7; bumping by 1 when >= source_day gives a uniform draw over
+    // 0..7 \ {source_day}. The week-scheme may have fewer than 7 days, in
+    // which case the window-verification step below catches the missing
+    // tb and aborts cleanly.
+    let dest_day: u8 = if day_offset >= source_day {
+        // 0..7 has 7 values; we want to skip source_day, so day_offset in
+        // 0..6 indexes into 0..7 \ {source_day}. Clamp here when day_offset
+        // == 6 by treating 6 as "the last element" (== 7-1).
+        let candidate = day_offset + 1;
+        if candidate >= 7 {
+            // day_offset == 6 and source_day <= 6 means candidate == 7,
+            // which is out of range. Fall back to source_day - 1 if
+            // source_day > 0, else abort.
+            if source_day > 0 {
+                source_day - 1
+            } else {
+                return false;
+            }
+        } else {
+            candidate
+        }
+    } else {
+        day_offset
+    };
+    if dest_day == source_day {
+        return false;
+    }
+
+    let seed_lesson = match lesson_lookup.get(&seed_lesson_id) {
+        Some(l) => *l,
+        None => return false,
+    };
+
+    // Locate the seed block's start position: pick the lowest-position
+    // placement of `seed_lesson_id` on `source_day`. Block-anchor
+    // contiguity is guaranteed by construction.
+    let mut start_pos_opt: Option<u8> = None;
+    for placement in placements.iter() {
+        if placement.lesson_id != seed_lesson_id {
+            continue;
+        }
+        let tb = match tb_lookup.get(&placement.time_block_id) {
+            Some(t) => *t,
+            None => continue,
+        };
+        if tb.day_of_week != source_day {
+            continue;
+        }
+        start_pos_opt = match start_pos_opt {
+            None => Some(tb.position),
+            Some(prev) => Some(prev.min(tb.position)),
+        };
+    }
+    let start_pos = match start_pos_opt {
+        Some(p) => p,
+        None => return false,
+    };
+
+    // Window verification for the seed at its destination.
+    let n_seed = seed_lesson.preferred_block_size;
+    for k in 0..n_seed {
+        if !tb_by_day_pos.contains_key(&(dest_day, start_pos + k)) {
+            return false;
+        }
+    }
+
+    // Build the chain via BFS. Aborts on pin/group/over-bound/missing-window.
+    let chain = match kempe_build_chain(
+        seed_lesson_id,
+        source_day,
+        dest_day,
+        start_pos,
+        placements,
+        lesson_lookup,
+        tb_lookup,
+        tb_by_day_pos,
+        pinned,
+    ) {
+        ChainBuild::Built(c) => c,
+        ChainBuild::Aborted => return false,
+    };
+
+    // Snapshot + remove every chain member, in deterministic order
+    // (LessonId.0 ascending). Snapshots track the source day so rollback
+    // knows where to replay.
+    let mut chain_order: Vec<LessonId> = chain.keys().copied().collect();
+    chain_order.sort_unstable_by_key(|id| id.0);
+
+    // Snapshot pre-attempt partition gap counts and removed subject_pref
+    // for an exact post-swap delta calculation.
+    let chain_with_dest: Vec<(LessonId, u8)> =
+        chain_order.iter().map(|id| (*id, chain[id])).collect();
+    let (partition_snapshot, removed_subject_pref) = kempe_snapshot_pre_score(
+        &chain_with_dest,
+        lesson_lookup,
+        subject_lookup,
+        tb_lookup,
+        placements,
+        state,
+        weights,
+        max_position_per_day,
+    );
+
+    let mut snapshots: Vec<(LessonId, u8, BlockSnapshot)> = Vec::with_capacity(chain_order.len());
+    for &lesson_id in &chain_order {
+        let lesson = match lesson_lookup.get(&lesson_id) {
+            Some(l) => *l,
+            None => {
+                kempe_rollback(
+                    &[],
+                    &snapshots,
+                    lesson_lookup,
+                    tb_lookup,
+                    tb_by_day_pos,
+                    placements,
+                    state,
+                );
+                state.soft_score = pre_score;
+                return false;
+            }
+        };
+        let dest = chain[&lesson_id];
+        let src = if dest == dest_day {
+            source_day
+        } else {
+            dest_day
+        };
+        let anchor_idx_opt = placements.iter().position(|p| {
+            p.lesson_id == lesson_id
+                && tb_lookup
+                    .get(&p.time_block_id)
+                    .is_some_and(|tb| tb.day_of_week == src)
+        });
+        let anchor_idx = match anchor_idx_opt {
+            Some(i) => i,
+            None => {
+                kempe_rollback(
+                    &[],
+                    &snapshots,
+                    lesson_lookup,
+                    tb_lookup,
+                    tb_by_day_pos,
+                    placements,
+                    state,
+                );
+                state.soft_score = pre_score;
+                return false;
+            }
+        };
+        let snap = rr_ruin_block(anchor_idx, lesson, tb_lookup, placements, state);
+        snapshots.push((lesson_id, src, snap));
+    }
+
+    // Apply: re-place each chain member at its destination window. Track
+    // newly-added subject_pref contributions and the (dest_day, start_pos)
+    // of every recreated block so rollback can target only the rows the
+    // apply added (other lessons' same-day placements must survive).
+    let mut recreated_in_order: Vec<(LessonId, u8, u8)> = Vec::with_capacity(chain_order.len());
+    let mut added_subject_pref: u32 = 0;
+    let mut failed = false;
+    for &lesson_id in &chain_order {
+        let lesson = match lesson_lookup.get(&lesson_id) {
+            Some(l) => *l,
+            None => {
+                failed = true;
+                break;
+            }
+        };
+        let dest = chain[&lesson_id];
+        let original_room_id = snapshots
+            .iter()
+            .find(|(id, _, _)| *id == lesson_id)
+            .map(|(_, _, snap)| snap.rows[0].room_id)
+            .expect("snapshot for chain member exists");
+        let room_id = match kempe_pick_room(
+            problem,
+            idx,
+            lesson,
+            original_room_id,
+            dest,
+            start_pos,
+            tb_by_day_pos,
+            state,
+            room_order,
+        ) {
+            Some(r) => r,
+            None => {
+                failed = true;
+                break;
+            }
+        };
+        let subject = subject_lookup
+            .get(&lesson.subject_id)
+            .copied()
+            .expect("lesson subject resolves");
+        added_subject_pref = added_subject_pref.saturating_add(kempe_apply_subject_pref(
+            problem,
+            lesson,
+            subject,
+            dest,
+            start_pos,
+            weights,
+            max_position_per_day,
+            tb_by_day_pos,
+        ));
+        kempe_apply_block(
+            lesson,
+            dest,
+            start_pos,
+            room_id,
+            tb_by_day_pos,
+            placements,
+            state,
+        );
+        recreated_in_order.push((lesson_id, dest, start_pos));
+    }
+
+    if failed {
+        kempe_rollback(
+            &recreated_in_order,
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            tb_by_day_pos,
+            placements,
+            state,
+        );
+        state.soft_score = pre_score;
+        return false;
+    }
+
+    let gap_delta = kempe_post_score_delta(&partition_snapshot, state, weights);
+    let subject_pref_delta = i64::from(added_subject_pref) - i64::from(removed_subject_pref);
+    let total_delta = gap_delta + subject_pref_delta;
+    let new_score_signed = i64::from(pre_score) + total_delta;
+    let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
+    let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
+    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    if !lahc_ok {
+        kempe_rollback(
+            &recreated_in_order,
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            tb_by_day_pos,
+            placements,
+            state,
+        );
+        state.soft_score = pre_score;
+        return false;
+    }
+    state.soft_score = new_score;
+    true
+}
+
+/// Roll back a partial or complete Kempe attempt. For each chain member that
+/// was successfully re-placed, undo only the rows added at the chain
+/// member's destination window (a different lesson's same-day pre-existing
+/// placements must survive rollback). Then for each snapshot, replay the
+/// original placement rows back into `placements` + `state`.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn kempe_rollback(
+    recreated: &[(LessonId, u8, u8)],
+    snapshots: &[(LessonId, u8, BlockSnapshot)],
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+) {
+    for (lesson_id, dest_day, start_pos) in recreated.iter().rev() {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("recreated lesson resolves");
+        let n = lesson.preferred_block_size;
+        // Identify the exact (lesson, time_block_id) rows we added at the
+        // destination window. Remove them in reverse order so vec indices
+        // do not shift while we operate on later rows.
+        let mut rows_to_remove: Vec<usize> = Vec::with_capacity(usize::from(n));
+        for k in 0..n {
+            let pos = start_pos + k;
+            let tb_id = tb_by_day_pos[&(*dest_day, pos)];
+            if let Some(idx) = placements
+                .iter()
+                .position(|p| p.lesson_id == *lesson_id && p.time_block_id == tb_id)
+            {
+                rows_to_remove.push(idx);
+            }
+        }
+        rows_to_remove.sort_unstable();
+        for &idx in rows_to_remove.iter().rev() {
+            let p = placements.remove(idx);
+            let tb = tb_lookup
+                .get(&p.time_block_id)
+                .expect("rollback tb resolves");
+            let day = tb.day_of_week;
+            let position = tb.position;
+            state
+                .used_teacher
+                .remove(&(lesson.teacher_id, p.time_block_id));
+            for class in &lesson.school_class_ids {
+                state.used_class.remove(&(*class, p.time_block_id));
+                if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
+                    if let Ok(j) = part.binary_search(&position) {
+                        part.remove(j);
+                    }
+                    if part.is_empty() {
+                        state.class_positions.remove(&(*class, day));
+                    }
+                }
+            }
+            state.used_room.remove(&(p.room_id, p.time_block_id));
+            if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
+                if let Ok(j) = part.binary_search(&position) {
+                    part.remove(j);
+                }
+                if part.is_empty() {
+                    state.teacher_positions.remove(&(lesson.teacher_id, day));
+                }
+            }
+            if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
+                *h = h.saturating_sub(1);
+            }
+            for class in &lesson.school_class_ids {
+                let key = (*class, day, lesson.subject_id);
+                if let Some(entry) = state.locked_room.get_mut(&key) {
+                    entry.1 = entry.1.saturating_sub(1);
+                    if entry.1 == 0 {
+                        state.locked_room.remove(&key);
+                    }
+                }
+            }
+        }
+    }
+    for (lesson_id, _src_day, snapshot) in snapshots.iter().rev() {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("snapshot lesson resolves");
+        for row in snapshot.rows.iter().rev() {
+            replay_placement(lesson, row, tb_lookup, placements, state);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1383,6 +2242,7 @@ mod tests {
             // optimal score (0) so worsening moves are no longer accepted.
             max_iterations: Some(600),
             lahc_rr_period: None,
+            lahc_kempe_period: None,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 1));
@@ -1513,6 +2373,7 @@ mod tests {
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
             lahc_rr_period: None,
+            lahc_kempe_period: None,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 2));
@@ -1681,6 +2542,7 @@ mod tests {
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
             lahc_rr_period: None,
+            lahc_kempe_period: None,
         };
 
         state.locked_room.insert((class_a, 0, subject), (room_a, 1));
@@ -1921,6 +2783,7 @@ mod tests {
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
             lahc_rr_period: Some(1),
+            lahc_kempe_period: None,
         };
 
         let result = crate::solve_with_config(&problem, &cfg);
@@ -1929,5 +2792,1170 @@ mod tests {
             "solve panicked or failed: {:?}",
             result.err()
         );
+    }
+
+    /// Build a tiny problem-shape used by several Kempe unit tests:
+    /// `n_lessons` block_size=1 lessons all sharing class A, each with a
+    /// distinct teacher and distinct lesson-id. Two days, `slots_per_day`
+    /// positions per day. Single shared room. Returns `(problem, lessons,
+    /// time_blocks, room)`.
+    fn kempe_one_class_fixture(
+        n_lessons: u8,
+        slots_per_day: u8,
+    ) -> (
+        crate::types::Problem,
+        Vec<LessonId>,
+        Vec<TimeBlockId>,
+        RoomId,
+    ) {
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class = SchoolClassId(lahc_uuid(50));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+
+        let teachers_v: Vec<Teacher> = (0..n_lessons)
+            .map(|i| Teacher {
+                id: TeacherId(lahc_uuid(20 + i)),
+                max_hours_per_week: 40,
+            })
+            .collect();
+        let qualifications: Vec<TeacherQualification> = teachers_v
+            .iter()
+            .map(|t| TeacherQualification {
+                teacher_id: t.id,
+                subject_id: subject,
+            })
+            .collect();
+        let lessons_v: Vec<Lesson> = (0..n_lessons)
+            .map(|i| Lesson {
+                id: LessonId(lahc_uuid(60 + i)),
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teachers_v[i as usize].id,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            })
+            .collect();
+        let lesson_ids: Vec<LessonId> = lessons_v.iter().map(|l| l.id).collect();
+        let mut time_blocks_v: Vec<TimeBlock> = Vec::new();
+        let mut tb_ids: Vec<TimeBlockId> = Vec::new();
+        let mut next: u8 = 0;
+        for d in 0..2u8 {
+            for p in 0..slots_per_day {
+                let id = TimeBlockId(lahc_uuid(100 + next));
+                time_blocks_v.push(TimeBlock {
+                    id,
+                    day_of_week: d,
+                    position: p,
+                });
+                tb_ids.push(id);
+                next += 1;
+            }
+        }
+
+        let problem = Problem {
+            time_blocks: time_blocks_v,
+            teachers: teachers_v,
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
+            lessons: lessons_v,
+            teacher_qualifications: qualifications,
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        (problem, lesson_ids, tb_ids, room)
+    }
+
+    /// Index a slot from `kempe_one_class_fixture`'s tb_ids vec by (day, pos).
+    fn kempe_tb_at(tb_ids: &[TimeBlockId], slots_per_day: u8, day: u8, pos: u8) -> TimeBlockId {
+        tb_ids[usize::from(day) * usize::from(slots_per_day) + usize::from(pos)]
+    }
+
+    #[test]
+    fn kempe_chain_swap_moves_single_block_pair_atomically() {
+        // Two lessons share one class. L0 at (D=0, P=0), L1 at (D=1, P=0).
+        // The BFS chain at the destination window pulls in the other lesson
+        // via class conflict and swaps them atomically.
+        let (problem_for_attempt, lessons, tb_ids, room) = kempe_one_class_fixture(2, 2);
+        let tb_d0_p0 = kempe_tb_at(&tb_ids, 2, 0, 0);
+        let tb_d1_p0 = kempe_tb_at(&tb_ids, 2, 1, 0);
+
+        let mut placements = vec![
+            Placement {
+                lesson_id: lessons[0],
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lessons[1],
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+        ];
+        let teacher0 = problem_for_attempt.lessons[0].teacher_id;
+        let teacher1 = problem_for_attempt.lessons[1].teacher_id;
+        let class = problem_for_attempt.lessons[0].school_class_ids[0];
+        let subject = problem_for_attempt.lessons[0].subject_id;
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher0, tb_d0_p0));
+        state.used_teacher.insert((teacher1, tb_d1_p0));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d1_p0));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d1_p0));
+        state.class_positions.insert((class, 0), vec_part(&[0]));
+        state.class_positions.insert((class, 1), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher0, 0), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher1, 1), vec_part(&[0]));
+        *state.hours_by_teacher.entry(teacher0).or_insert(0) = 1;
+        *state.hours_by_teacher.entry(teacher1).or_insert(0) = 1;
+        state.locked_room.insert((class, 0, subject), (room, 1));
+        state.locked_room.insert((class, 1, subject), (room, 1));
+        state.soft_score = 0;
+
+        let idx = crate::index::Indexed::new(&problem_for_attempt);
+        let lesson_lookup: HashMap<LessonId, &Lesson> = problem_for_attempt
+            .lessons
+            .iter()
+            .map(|l| (l.id, l))
+            .collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> = problem_for_attempt
+            .time_blocks
+            .iter()
+            .map(|tb| (tb.id, tb))
+            .collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> = problem_for_attempt
+            .subjects
+            .iter()
+            .map(|s| (s.id, s))
+            .collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem_for_attempt
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let max_position_per_day: HashMap<u8, u8> =
+            problem_for_attempt
+                .time_blocks
+                .iter()
+                .fold(HashMap::new(), |mut acc, tb| {
+                    acc.entry(tb.day_of_week)
+                        .and_modify(|m| *m = (*m).max(tb.position))
+                        .or_insert(tb.position);
+                    acc
+                });
+        let mut room_order: Vec<usize> = (0..problem_for_attempt.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem_for_attempt.rooms[i].id.0);
+        let lahc_list = vec![0u32; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        // Try Kempe attempts under several seeds; some seeds may pick a
+        // dest day with a missing window, others will swap. The test
+        // succeeds if at least one accept produces the swap.
+        let mut accepted = false;
+        for seed in 0u64..32 {
+            let mut snap_placements = placements.clone();
+            let mut snap_state = clone_state(&state);
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let ok = kempe_attempt(
+                &problem_for_attempt,
+                &idx,
+                &ConstraintWeights::default(),
+                &mut rng,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &tb_by_day_pos,
+                &pinned,
+                &mut snap_placements,
+                &mut snap_state,
+                &room_order,
+                &max_position_per_day,
+                &lahc_list,
+                0,
+            );
+            if ok {
+                let p0 = snap_placements
+                    .iter()
+                    .find(|p| p.lesson_id == lessons[0])
+                    .unwrap();
+                let p1 = snap_placements
+                    .iter()
+                    .find(|p| p.lesson_id == lessons[1])
+                    .unwrap();
+                if p0.time_block_id == tb_d1_p0 && p1.time_block_id == tb_d0_p0 {
+                    accepted = true;
+                    placements = snap_placements;
+                    state = snap_state;
+                    break;
+                }
+            }
+        }
+        assert!(accepted, "no seed in 0..32 produced the canonical swap");
+        // Atomicity assertions on the swapped state.
+        assert_eq!(placements.len(), 2);
+        assert!(state.used_teacher.contains(&(teacher0, tb_d1_p0)));
+        assert!(state.used_teacher.contains(&(teacher1, tb_d0_p0)));
+        assert!(!state.used_teacher.contains(&(teacher0, tb_d0_p0)));
+        assert!(!state.used_teacher.contains(&(teacher1, tb_d1_p0)));
+    }
+
+    /// Deep-clone a `GreedyState` for tests that snapshot pre-attempt state.
+    fn clone_state(s: &crate::solve::GreedyState) -> crate::solve::GreedyState {
+        crate::solve::GreedyState {
+            used_teacher: s.used_teacher.clone(),
+            used_class: s.used_class.clone(),
+            used_room: s.used_room.clone(),
+            hours_by_teacher: s.hours_by_teacher.clone(),
+            class_positions: s.class_positions.clone(),
+            teacher_positions: s.teacher_positions.clone(),
+            locked_room: s.locked_room.clone(),
+            soft_score: s.soft_score,
+        }
+    }
+
+    #[test]
+    fn kempe_chain_extends_through_class_conflict() {
+        // Three lessons share class A; each has its own teacher. L0 at
+        // (D=0, P=0), L1 at (D=1, P=0), L2 at (D=0, P=1). The chain seed at
+        // L0 with target D=1 pulls in L1 via the class A conflict at the
+        // destination window. L2 sits on a different position (P=1) and is
+        // never on the BFS path for this seed. Asserts chain composition.
+        let (problem, lessons, tb_ids, room) = kempe_one_class_fixture(3, 3);
+        let tb_d0_p0 = kempe_tb_at(&tb_ids, 3, 0, 0);
+        let tb_d0_p1 = kempe_tb_at(&tb_ids, 3, 0, 1);
+        let tb_d1_p0 = kempe_tb_at(&tb_ids, 3, 1, 0);
+
+        let placements = vec![
+            Placement {
+                lesson_id: lessons[0],
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lessons[1],
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lessons[2],
+                time_block_id: tb_d0_p1,
+                room_id: room,
+            },
+        ];
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        let chain = match kempe_build_chain(
+            lessons[0],
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        ) {
+            ChainBuild::Built(c) => c,
+            ChainBuild::Aborted => panic!("chain build aborted unexpectedly"),
+        };
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[&lessons[0]], 1);
+        assert_eq!(chain[&lessons[1]], 0);
+        assert!(!chain.contains_key(&lessons[2]));
+    }
+
+    #[test]
+    fn kempe_chain_aborts_on_pin() {
+        // L0 at (D=0, P=0), L1 pinned at (D=1, P=0). The BFS at L0's dest
+        // window hits L1, sees it is pinned, and aborts.
+        let (problem, lessons, tb_ids, room) = kempe_one_class_fixture(2, 2);
+        let tb_d0_p0 = kempe_tb_at(&tb_ids, 2, 0, 0);
+        let tb_d1_p0 = kempe_tb_at(&tb_ids, 2, 1, 0);
+
+        let placements = vec![
+            Placement {
+                lesson_id: lessons[0],
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lessons[1],
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+        ];
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let mut pinned: HashSet<LessonId> = HashSet::new();
+        pinned.insert(lessons[1]);
+
+        let outcome = kempe_build_chain(
+            lessons[0],
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        );
+        assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_chain_aborts_on_lesson_group() {
+        use crate::ids::LessonGroupId;
+        // Build a 2-lesson fixture, then mutate L1 to be group-tagged.
+        let (mut problem, lessons, tb_ids, room) = kempe_one_class_fixture(2, 2);
+        problem.lessons[1].lesson_group_id = Some(LessonGroupId(lahc_uuid(80)));
+        let tb_d0_p0 = kempe_tb_at(&tb_ids, 2, 0, 0);
+        let tb_d1_p0 = kempe_tb_at(&tb_ids, 2, 1, 0);
+
+        let placements = vec![
+            Placement {
+                lesson_id: lessons[0],
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lessons[1],
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+        ];
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        let outcome = kempe_build_chain(
+            lessons[0],
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        );
+        assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_chain_aborts_on_max_length_bound() {
+        // 10 lessons each holding a pair of consecutive classes (lesson i
+        // has {C_i, C_(i+1) mod 10}); the daisy-chain via class overlap lets
+        // BFS hop alternately between days. Even-id lessons start at
+        // (D=0, P=0), odd-id at (D=1, P=0); each hop adds the next neighbour
+        // and the chain exceeds KEMPE_MAX_CHAIN = 8.
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        const N: u8 = 10;
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let classes: Vec<SchoolClass> = (0..N)
+            .map(|i| SchoolClass {
+                id: SchoolClassId(lahc_uuid(50 + i)),
+                home_room_id: None,
+            })
+            .collect();
+        let teachers_v: Vec<Teacher> = (0..N)
+            .map(|i| Teacher {
+                id: TeacherId(lahc_uuid(20 + i)),
+                max_hours_per_week: 40,
+            })
+            .collect();
+        let qualifications: Vec<TeacherQualification> = teachers_v
+            .iter()
+            .map(|t| TeacherQualification {
+                teacher_id: t.id,
+                subject_id: subject,
+            })
+            .collect();
+        // Lesson i has classes {i, i+1 mod N} so each consecutive lesson
+        // overlaps via one class. Lesson i has teacher i.
+        let lessons_v: Vec<Lesson> = (0..N)
+            .map(|i| Lesson {
+                id: LessonId(lahc_uuid(60 + i)),
+                school_class_ids: vec![classes[i as usize].id, classes[((i + 1) % N) as usize].id],
+                subject_id: subject,
+                teacher_id: teachers_v[i as usize].id,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            })
+            .collect();
+        let lesson_ids: Vec<LessonId> = lessons_v.iter().map(|l| l.id).collect();
+        let tb_d0 = TimeBlockId(lahc_uuid(100));
+        let tb_d1 = TimeBlockId(lahc_uuid(101));
+        let time_blocks_v = vec![
+            TimeBlock {
+                id: tb_d0,
+                day_of_week: 0,
+                position: 0,
+            },
+            TimeBlock {
+                id: tb_d1,
+                day_of_week: 1,
+                position: 0,
+            },
+        ];
+
+        // Place even lessons at (D=0, P=0), odd at (D=1, P=0). With class
+        // overlap between consecutive lessons, BFS hops chain alternately
+        // between days, length will exceed KEMPE_MAX_CHAIN=8.
+        let placements: Vec<Placement> = (0..N)
+            .map(|i| Placement {
+                lesson_id: lesson_ids[i as usize],
+                time_block_id: if i % 2 == 0 { tb_d0 } else { tb_d1 },
+                room_id: room,
+            })
+            .collect();
+
+        let problem = Problem {
+            time_blocks: time_blocks_v,
+            teachers: teachers_v,
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: classes,
+            lessons: lessons_v,
+            teacher_qualifications: qualifications,
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        let outcome = kempe_build_chain(
+            lesson_ids[0],
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        );
+        assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_chain_swap_doppelstunde_atomically() {
+        // Two N=2 lessons sharing one class. L0 at (D=0, P=0..1), L1 at
+        // (D=1, P=0..1). Each is one Doppelstunde. Kempe's atomic chain
+        // swap moves both blocks together so both hours of each block end
+        // up on the swapped day with the same room.
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class = SchoolClassId(lahc_uuid(50));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let teacher0 = TeacherId(lahc_uuid(20));
+        let teacher1 = TeacherId(lahc_uuid(21));
+        let lesson0 = LessonId(lahc_uuid(60));
+        let lesson1 = LessonId(lahc_uuid(61));
+        let tb_d0_p0 = TimeBlockId(lahc_uuid(100));
+        let tb_d0_p1 = TimeBlockId(lahc_uuid(101));
+        let tb_d1_p0 = TimeBlockId(lahc_uuid(102));
+        let tb_d1_p1 = TimeBlockId(lahc_uuid(103));
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_d0_p0,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d0_p1,
+                    day_of_week: 0,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_d1_p0,
+                    day_of_week: 1,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d1_p1,
+                    day_of_week: 1,
+                    position: 1,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: teacher0,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: teacher1,
+                    max_hours_per_week: 40,
+                },
+            ],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
+            lessons: vec![
+                Lesson {
+                    id: lesson0,
+                    school_class_ids: vec![class],
+                    subject_id: subject,
+                    teacher_id: teacher0,
+                    hours_per_week: 2,
+                    preferred_block_size: 2,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson1,
+                    school_class_ids: vec![class],
+                    subject_id: subject,
+                    teacher_id: teacher1,
+                    hours_per_week: 2,
+                    preferred_block_size: 2,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher0,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher1,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson0,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson0,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson1,
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson1,
+                time_block_id: tb_d1_p1,
+                room_id: room,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher0, tb_d0_p0));
+        state.used_teacher.insert((teacher0, tb_d0_p1));
+        state.used_teacher.insert((teacher1, tb_d1_p0));
+        state.used_teacher.insert((teacher1, tb_d1_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_class.insert((class, tb_d1_p0));
+        state.used_class.insert((class, tb_d1_p1));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p1));
+        state.used_room.insert((room, tb_d1_p0));
+        state.used_room.insert((room, tb_d1_p1));
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state.class_positions.insert((class, 1), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher0, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher1, 1), vec_part(&[0, 1]));
+        *state.hours_by_teacher.entry(teacher0).or_insert(0) = 2;
+        *state.hours_by_teacher.entry(teacher1).or_insert(0) = 2;
+        state.locked_room.insert((class, 0, subject), (room, 2));
+        state.locked_room.insert((class, 1, subject), (room, 2));
+        state.soft_score = 0;
+
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let max_position_per_day: HashMap<u8, u8> =
+            problem
+                .time_blocks
+                .iter()
+                .fold(HashMap::new(), |mut acc, tb| {
+                    acc.entry(tb.day_of_week)
+                        .and_modify(|m| *m = (*m).max(tb.position))
+                        .or_insert(tb.position);
+                    acc
+                });
+        let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+        let lahc_list = vec![0u32; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        let mut accepted = false;
+        for seed in 0u64..32 {
+            let mut snap_p = placements.clone();
+            let mut snap_s = clone_state(&state);
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let ok = kempe_attempt(
+                &problem,
+                &idx,
+                &ConstraintWeights::default(),
+                &mut rng,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &tb_by_day_pos,
+                &pinned,
+                &mut snap_p,
+                &mut snap_s,
+                &room_order,
+                &max_position_per_day,
+                &lahc_list,
+                0,
+            );
+            if ok {
+                let l0_tbs: HashSet<TimeBlockId> = snap_p
+                    .iter()
+                    .filter(|p| p.lesson_id == lesson0)
+                    .map(|p| p.time_block_id)
+                    .collect();
+                let l1_tbs: HashSet<TimeBlockId> = snap_p
+                    .iter()
+                    .filter(|p| p.lesson_id == lesson1)
+                    .map(|p| p.time_block_id)
+                    .collect();
+                let l0_swapped: HashSet<TimeBlockId> = [tb_d1_p0, tb_d1_p1].into_iter().collect();
+                let l1_swapped: HashSet<TimeBlockId> = [tb_d0_p0, tb_d0_p1].into_iter().collect();
+                if l0_tbs == l0_swapped && l1_tbs == l1_swapped {
+                    accepted = true;
+                    placements = snap_p;
+                    break;
+                }
+            }
+        }
+        assert!(accepted, "no seed produced the Doppelstunde swap");
+        // Both blocks land on swapped day with the same room.
+        let l0_rooms: HashSet<RoomId> = placements
+            .iter()
+            .filter(|p| p.lesson_id == lesson0)
+            .map(|p| p.room_id)
+            .collect();
+        let l1_rooms: HashSet<RoomId> = placements
+            .iter()
+            .filter(|p| p.lesson_id == lesson1)
+            .map(|p| p.room_id)
+            .collect();
+        assert_eq!(l0_rooms.len(), 1);
+        assert_eq!(l1_rooms.len(), 1);
+    }
+
+    #[test]
+    fn kempe_chain_rollback_restores_state_on_room_failure() {
+        // L0 at (D=0, P=0). L1 at (D=1, P=0). Shared class. The same-room
+        // hard constraint locks (class, 0, subject) -> room_a and
+        // (class, 1, subject) -> room_b. After ruining the chain the locks
+        // are cleared (count drops to 0 on the last placement), but on
+        // apply, kempe_pick_room reads the *current* lock map: if the locks
+        // still hold (e.g. seeded by a bystander pinned placement), the swap
+        // is forced to land each chain member on the locked room of its
+        // destination day. Use room_blocked_times to make the locked rooms
+        // hard-infeasible at the destination slot so apply returns None and
+        // rollback restores state.
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class_chain = SchoolClassId(lahc_uuid(50));
+        let class_lock = SchoolClassId(lahc_uuid(51));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let teacher0 = TeacherId(lahc_uuid(20));
+        let teacher1 = TeacherId(lahc_uuid(21));
+        let teacher_lock = TeacherId(lahc_uuid(22));
+        let lesson0 = LessonId(lahc_uuid(60));
+        let lesson1 = LessonId(lahc_uuid(61));
+        let lesson_lock_d1 = LessonId(lahc_uuid(70));
+        let lesson_lock_d0 = LessonId(lahc_uuid(71));
+        let tb_d0_p0 = TimeBlockId(lahc_uuid(100));
+        let tb_d0_p1 = TimeBlockId(lahc_uuid(101));
+        let tb_d1_p0 = TimeBlockId(lahc_uuid(102));
+        let tb_d1_p1 = TimeBlockId(lahc_uuid(103));
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_d0_p0,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d0_p1,
+                    day_of_week: 0,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_d1_p0,
+                    day_of_week: 1,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d1_p1,
+                    day_of_week: 1,
+                    position: 1,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: teacher0,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: teacher1,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: teacher_lock,
+                    max_hours_per_week: 40,
+                },
+            ],
+            rooms: vec![Room { id: room_a }, Room { id: room_b }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_chain,
+                    home_room_id: None,
+                },
+                SchoolClass {
+                    id: class_lock,
+                    home_room_id: None,
+                },
+            ],
+            lessons: vec![
+                Lesson {
+                    id: lesson0,
+                    school_class_ids: vec![class_chain],
+                    subject_id: subject,
+                    teacher_id: teacher0,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson1,
+                    school_class_ids: vec![class_chain],
+                    subject_id: subject,
+                    teacher_id: teacher1,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_lock_d1,
+                    school_class_ids: vec![class_lock],
+                    subject_id: subject,
+                    teacher_id: teacher_lock,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_lock_d0,
+                    school_class_ids: vec![class_lock],
+                    subject_id: subject,
+                    teacher_id: teacher_lock,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher0,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher1,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_lock,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        // L0 at (D=0, P=0, room_a) and L1 at (D=1, P=0, room_b) form the
+        // chain. lesson_lock_d1 at (D=1, P=0, room_a) and lesson_lock_d0 at
+        // (D=0, P=0, room_b) sit on a separate class so they never enter
+        // the chain via class/teacher overlap. room_blocked_times block
+        // room_b at tb_d1_p0 and room_a at tb_d0_p0; after the chain ruin
+        // the only remaining suitable rooms at the swap destinations are
+        // held by the lock-bystanders, so apply's room scan returns None
+        // and the rollback path fires.
+        let problem = Problem {
+            room_blocked_times: vec![
+                crate::types::RoomBlockedTime {
+                    room_id: room_b,
+                    time_block_id: tb_d1_p0,
+                },
+                crate::types::RoomBlockedTime {
+                    room_id: room_a,
+                    time_block_id: tb_d0_p0,
+                },
+            ],
+            ..problem
+        };
+        let placements_pre = vec![
+            Placement {
+                lesson_id: lesson0,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+            },
+            Placement {
+                lesson_id: lesson1,
+                time_block_id: tb_d1_p0,
+                room_id: room_b,
+            },
+            Placement {
+                lesson_id: lesson_lock_d1,
+                time_block_id: tb_d1_p0,
+                room_id: room_a,
+            },
+            Placement {
+                lesson_id: lesson_lock_d0,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+            },
+        ];
+        let mut state_pre = crate::solve::GreedyState::new();
+        state_pre.used_teacher.insert((teacher0, tb_d0_p0));
+        state_pre.used_teacher.insert((teacher1, tb_d1_p0));
+        state_pre.used_teacher.insert((teacher_lock, tb_d1_p0));
+        state_pre.used_teacher.insert((teacher_lock, tb_d0_p0));
+        state_pre.used_class.insert((class_chain, tb_d0_p0));
+        state_pre.used_class.insert((class_chain, tb_d1_p0));
+        state_pre.used_class.insert((class_lock, tb_d1_p0));
+        state_pre.used_class.insert((class_lock, tb_d0_p0));
+        state_pre.used_room.insert((room_a, tb_d0_p0));
+        state_pre.used_room.insert((room_b, tb_d1_p0));
+        state_pre.used_room.insert((room_a, tb_d1_p0));
+        state_pre.used_room.insert((room_b, tb_d0_p0));
+        state_pre
+            .class_positions
+            .insert((class_chain, 0), vec_part(&[0]));
+        state_pre
+            .class_positions
+            .insert((class_chain, 1), vec_part(&[0]));
+        state_pre
+            .class_positions
+            .insert((class_lock, 0), vec_part(&[0]));
+        state_pre
+            .class_positions
+            .insert((class_lock, 1), vec_part(&[0]));
+        state_pre
+            .teacher_positions
+            .insert((teacher0, 0), vec_part(&[0]));
+        state_pre
+            .teacher_positions
+            .insert((teacher1, 1), vec_part(&[0]));
+        state_pre
+            .teacher_positions
+            .insert((teacher_lock, 0), vec_part(&[0]));
+        state_pre
+            .teacher_positions
+            .insert((teacher_lock, 1), vec_part(&[0]));
+        *state_pre.hours_by_teacher.entry(teacher0).or_insert(0) = 1;
+        *state_pre.hours_by_teacher.entry(teacher1).or_insert(0) = 1;
+        *state_pre.hours_by_teacher.entry(teacher_lock).or_insert(0) = 2;
+        state_pre
+            .locked_room
+            .insert((class_chain, 0, subject), (room_a, 1));
+        state_pre
+            .locked_room
+            .insert((class_chain, 1, subject), (room_b, 1));
+        state_pre
+            .locked_room
+            .insert((class_lock, 0, subject), (room_b, 1));
+        state_pre
+            .locked_room
+            .insert((class_lock, 1, subject), (room_a, 1));
+        state_pre.soft_score = 0;
+
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let max_position_per_day: HashMap<u8, u8> =
+            problem
+                .time_blocks
+                .iter()
+                .fold(HashMap::new(), |mut acc, tb| {
+                    acc.entry(tb.day_of_week)
+                        .and_modify(|m| *m = (*m).max(tb.position))
+                        .or_insert(tb.position);
+                    acc
+                });
+        let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+        let lahc_list = vec![0u32; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        // Try seeds; whenever the attempt rejects, state must be byte-equal
+        // to the pre-attempt snapshot. Verify at least one seed in the
+        // sample triggers a rejection so the rollback path is actually
+        // exercised.
+        let mut saw_reject = false;
+        for seed in 0u64..32 {
+            let mut p = placements_pre.clone();
+            let mut s = clone_state(&state_pre);
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let accepted = kempe_attempt(
+                &problem,
+                &idx,
+                &ConstraintWeights::default(),
+                &mut rng,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &tb_by_day_pos,
+                &pinned,
+                &mut p,
+                &mut s,
+                &room_order,
+                &max_position_per_day,
+                &lahc_list,
+                0,
+            );
+            if accepted {
+                continue;
+            }
+            saw_reject = true;
+            // Placement vec ordering may differ after a rollback that
+            // pushes snapshot rows back at the end; assert as multiset.
+            let p_set: HashSet<(LessonId, TimeBlockId, RoomId)> = p
+                .iter()
+                .map(|x| (x.lesson_id, x.time_block_id, x.room_id))
+                .collect();
+            let pre_set: HashSet<(LessonId, TimeBlockId, RoomId)> = placements_pre
+                .iter()
+                .map(|x| (x.lesson_id, x.time_block_id, x.room_id))
+                .collect();
+            assert_eq!(p_set, pre_set, "seed {seed}: placements drifted");
+            assert_eq!(s.used_teacher, state_pre.used_teacher);
+            assert_eq!(s.used_class, state_pre.used_class);
+            assert_eq!(s.used_room, state_pre.used_room);
+            assert_eq!(s.class_positions, state_pre.class_positions);
+            assert_eq!(s.teacher_positions, state_pre.teacher_positions);
+            assert_eq!(s.hours_by_teacher, state_pre.hours_by_teacher);
+            assert_eq!(s.locked_room, state_pre.locked_room);
+            assert_eq!(s.soft_score, state_pre.soft_score);
+        }
+        assert!(
+            saw_reject,
+            "no seed exercised the rollback path; tighten the fixture",
+        );
+    }
+
+    #[test]
+    fn kempe_chain_aborts_on_window_position_missing_on_target_day() {
+        // D=0 has positions 0..6 (slots_per_day=6 unused positions); D=1
+        // has positions 0..1 only (single slot at position 0). B1 with N=1
+        // anchored at (D=0, P=4). dest_day = 1 means we need (1, 4) which
+        // does not exist. Chain build aborts at window verification.
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class = SchoolClassId(lahc_uuid(50));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let teacher = TeacherId(lahc_uuid(20));
+        let lesson = LessonId(lahc_uuid(60));
+
+        let mut time_blocks_v: Vec<TimeBlock> = (0..6u8)
+            .map(|p| TimeBlock {
+                id: TimeBlockId(lahc_uuid(100 + p)),
+                day_of_week: 0,
+                position: p,
+            })
+            .collect();
+        time_blocks_v.push(TimeBlock {
+            id: TimeBlockId(lahc_uuid(200)),
+            day_of_week: 1,
+            position: 0,
+        });
+        let tb_d0_p4 = TimeBlockId(lahc_uuid(104));
+        let problem = Problem {
+            time_blocks: time_blocks_v,
+            teachers: vec![Teacher {
+                id: teacher,
+                max_hours_per_week: 40,
+            }],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+            }],
+            lessons: vec![Lesson {
+                id: lesson,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id: teacher,
+                subject_id: subject,
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        let placements = vec![Placement {
+            lesson_id: lesson,
+            time_block_id: tb_d0_p4,
+            room_id: room,
+        }];
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        // Build chain directly: seed at D=0 P=4, target D=1, the window
+        // verification at (D=1, P=4) fails because that TB is missing.
+        let outcome = kempe_build_chain(
+            lesson,
+            0,
+            1,
+            4,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        );
+        assert!(matches!(outcome, ChainBuild::Aborted));
     }
 }
