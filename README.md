@@ -36,7 +36,8 @@ A school timetabling system with a FastAPI backend, a Rust solver exposed to Pyt
 | `mise run fe:cov:update-baseline` | Rebaseline `.coverage-baseline-frontend` after intentional coverage drops. |
 | `mise run audit`    | Supply-chain audit (`cargo deny`, `pip-audit`). |
 | `mise run repo:apply-settings` | Apply GitHub repo + branch-protection settings (use `-- --dry-run` first). |
-| `mise run bench`    | Run solver-core benches. |
+| `mise run bench`    | Run solver-core benches (criterion; perf-regression budget). |
+| `mise run bench:bakeoff` | Run the solver feasibility bake-off and rewrite `solver/solver-core/benches/BENCH_RESULTS.md`. |
 | `mise run bench:tests` | Time the backend pytest suite and compare to `.test-duration-budget`. |
 | `mise run fe:build` | Production build of the frontend into `frontend/dist/`. |
 | `mise run fe:types` | Regenerate `frontend/src/lib/api-types.ts` from the backend's OpenAPI schema. |
