@@ -29,7 +29,7 @@ pub(crate) fn run(
     problem: &Problem,
     idx: &Indexed,
     config: &SolveConfig,
-    placements: &mut [Placement],
+    placements: &mut Vec<Placement>,
     state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
 ) {
@@ -40,7 +40,8 @@ pub(crate) fn run(
         return;
     }
     let start = Instant::now();
-    let mut rng = SmallRng::seed_from_u64(config.seed);
+    let mut change_rng = SmallRng::seed_from_u64(config.seed);
+    let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut lahc_list = vec![state.soft_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
@@ -60,31 +61,68 @@ pub(crate) fn run(
             });
     let max_iter = config.max_iterations.unwrap_or(u64::MAX);
 
+    // R&R needs the same precomputed orderings the greedy uses. Recompute
+    // them here so lahc::run does not depend on solve.rs's local state.
+    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len()).collect();
+    tb_order.sort_unstable_by_key(|&i| {
+        let tb = &problem.time_blocks[i];
+        (tb.day_of_week, tb.position, tb.id.0)
+    });
+    let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+    room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+    let teacher_max: HashMap<TeacherId, u8> = problem
+        .teachers
+        .iter()
+        .map(|t| (t.id, t.max_hours_per_week))
+        .collect();
+
     let mut iter: u64 = 0;
     while iter < max_iter && start.elapsed() < deadline {
-        // Always consume two random draws per iteration so the RNG sequence
-        // is invariant across feasibility branches; this is what the
-        // determinism property test relies on.
-        let placement_idx = rng.random_range(0..placements.len());
-        let new_tb_idx = rng.random_range(0..problem.time_blocks.len());
+        let is_rr_iter = config
+            .lahc_rr_period
+            .is_some_and(|n| n > 0 && (iter as u32) % n == 0);
 
-        if try_change_move(
-            problem,
-            idx,
-            placement_idx,
-            new_tb_idx,
-            &lesson_lookup,
-            &tb_lookup,
-            &subject_lookup,
-            &max_position_per_day,
-            &config.weights,
-            placements,
-            state,
-            pinned,
-            &lahc_list,
-            iter,
-        ) {
-            // accepted; state.soft_score already updated by try_change_move
+        if is_rr_iter {
+            rr_attempt(
+                problem,
+                idx,
+                &config.weights,
+                &mut rr_rng,
+                &lesson_lookup,
+                &tb_lookup,
+                pinned,
+                placements,
+                state,
+                &tb_order,
+                &room_order,
+                &max_position_per_day,
+                &teacher_max,
+                &lahc_list,
+                iter,
+            );
+        } else {
+            // Always consume two random draws per Change iteration so the RNG
+            // sequence is invariant across feasibility branches; this is what
+            // the determinism property test relies on.
+            let placement_idx = change_rng.random_range(0..placements.len());
+            let new_tb_idx = change_rng.random_range(0..problem.time_blocks.len());
+
+            try_change_move(
+                problem,
+                idx,
+                placement_idx,
+                new_tb_idx,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &max_position_per_day,
+                &config.weights,
+                placements,
+                state,
+                pinned,
+                &lahc_list,
+                iter,
+            );
         }
 
         iter += 1;
@@ -511,6 +549,325 @@ fn apply_change_move(
     }
 }
 
+/// Number of block-anchors per R&R attempt. Hardcoded today; a follow-up
+/// promotes this to `SolveConfig.lahc_rr_k` if `BENCH_RESULTS.md` shows
+/// K-sensitivity. See
+/// `docs/superpowers/specs/2026-05-04-solver-rr-lahc-move-design.md`.
+const RR_K: usize = 5;
+
+/// Snapshot of one block's removed placements, sufficient to replay the
+/// removal back into the state. R&R holds a vector of these to roll back if
+/// the recreated solution is rejected by the acceptance gate.
+struct BlockSnapshot {
+    rows: Vec<Placement>,
+}
+
+/// Remove the (lesson, day) block anchored at `placement_idx` from
+/// `placements` + `state`. Returns the snapshot of removed rows. The anchor's
+/// day is read from `tb_lookup`; every placement on that day for this lesson
+/// is treated as part of the same block. Caller guarantees the anchor is not
+/// pinned and the lesson is not group-tagged (per `rr_collect_anchors`).
+fn rr_ruin_block(
+    anchor_idx: usize,
+    lesson: &Lesson,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+) -> BlockSnapshot {
+    let anchor_tb_id = placements[anchor_idx].time_block_id;
+    let anchor_day = tb_lookup
+        .get(&anchor_tb_id)
+        .expect("anchor's time-block must exist in lookup")
+        .day_of_week;
+
+    // Collect indices of every placement of this lesson on this day. Sort
+    // ascending; iterate in reverse below so removals don't shift unprocessed
+    // indices.
+    let mut indices: Vec<usize> = placements
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.lesson_id == lesson.id
+                && tb_lookup
+                    .get(&p.time_block_id)
+                    .map(|tb| tb.day_of_week == anchor_day)
+                    .unwrap_or(false)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    indices.sort_unstable();
+
+    let mut rows: Vec<Placement> = Vec::with_capacity(indices.len());
+    for &i in indices.iter().rev() {
+        let p = placements.remove(i);
+        let tb = tb_lookup
+            .get(&p.time_block_id)
+            .expect("ruin: placement tb must resolve");
+        let day = tb.day_of_week;
+        let position = tb.position;
+
+        state
+            .used_teacher
+            .remove(&(lesson.teacher_id, p.time_block_id));
+        for class in &lesson.school_class_ids {
+            state.used_class.remove(&(*class, p.time_block_id));
+            if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
+                if let Ok(j) = part.binary_search(&position) {
+                    part.remove(j);
+                }
+                if part.is_empty() {
+                    state.class_positions.remove(&(*class, day));
+                }
+            }
+        }
+        state.used_room.remove(&(p.room_id, p.time_block_id));
+        if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
+            if let Ok(j) = part.binary_search(&position) {
+                part.remove(j);
+            }
+            if part.is_empty() {
+                state.teacher_positions.remove(&(lesson.teacher_id, day));
+            }
+        }
+        if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
+            *h = h.saturating_sub(1);
+        }
+        for class in &lesson.school_class_ids {
+            let key = (*class, day, lesson.subject_id);
+            if let Some(entry) = state.locked_room.get_mut(&key) {
+                entry.1 = entry.1.saturating_sub(1);
+                if entry.1 == 0 {
+                    state.locked_room.remove(&key);
+                }
+            }
+        }
+        rows.push(p);
+    }
+
+    BlockSnapshot { rows }
+}
+
+/// Collect the set of placement indices eligible to be ruined by an R&R
+/// attempt. Returns one index per `(lesson, day)` block (the lowest-position
+/// hour) for lessons that are neither pinned nor part of a lesson group. The
+/// single-anchor-per-block contract lets the recreate step call
+/// `try_place_block` once per chosen anchor. Returns indices sorted ascending
+/// for determinism before the R&R RNG shuffles them.
+fn rr_collect_anchors(
+    placements: &[Placement],
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    pinned: &HashSet<LessonId>,
+) -> Vec<usize> {
+    let mut by_block: HashMap<(LessonId, u8), (usize, u8)> = HashMap::new();
+    for (i, p) in placements.iter().enumerate() {
+        let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
+            continue;
+        };
+        if pinned.contains(&p.lesson_id) {
+            continue;
+        }
+        if lesson.lesson_group_id.is_some() {
+            continue;
+        }
+        let Some(tb) = tb_lookup.get(&p.time_block_id) else {
+            continue;
+        };
+        let key = (p.lesson_id, tb.day_of_week);
+        let entry = by_block.entry(key).or_insert((i, tb.position));
+        if tb.position < entry.1 {
+            *entry = (i, tb.position);
+        }
+    }
+    let mut anchors: Vec<usize> = by_block.values().map(|(i, _)| *i).collect();
+    anchors.sort_unstable();
+    anchors
+}
+
+/// Run one R&R move: pick up to `RR_K` block anchors at random, ruin them,
+/// recreate them, accept under the asymmetric LAHC gate. Returns true if the
+/// move was accepted (state mutated to keep the new arrangement); returns
+/// false if the move was rejected (state restored to the pre-attempt
+/// snapshot).
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn rr_attempt(
+    problem: &Problem,
+    idx: &Indexed,
+    weights: &ConstraintWeights,
+    rr_rng: &mut SmallRng,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    pinned: &HashSet<LessonId>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+    tb_order: &[usize],
+    room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
+    teacher_max: &HashMap<TeacherId, u8>,
+    lahc_list: &[u32],
+    iter: u64,
+) -> bool {
+    use rand::seq::SliceRandom;
+
+    let mut anchors = rr_collect_anchors(placements, lesson_lookup, tb_lookup, pinned);
+    if anchors.is_empty() {
+        return false;
+    }
+    anchors.shuffle(rr_rng);
+    let chosen_count = anchors.len().min(RR_K);
+    let chosen: Vec<usize> = anchors.into_iter().take(chosen_count).collect();
+
+    // Sort chosen indices descending so we can ruin without shifting indices
+    // that haven't been processed yet.
+    let mut chosen_desc = chosen.clone();
+    chosen_desc.sort_unstable_by(|a, b| b.cmp(a));
+
+    let pre_score = state.soft_score;
+    let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
+    for &idx_anchor in &chosen_desc {
+        let lesson_id = placements[idx_anchor].lesson_id;
+        let lesson = match lesson_lookup.get(&lesson_id) {
+            Some(l) => *l,
+            None => continue,
+        };
+        let snap = rr_ruin_block(idx_anchor, lesson, tb_lookup, placements, state);
+        snapshots.push((lesson_id, snap));
+    }
+
+    // Recreate: walk the ruined lessons in the order they were ruined.
+    let mut failed_recreates: usize = 0;
+    let mut recreated_in_order: Vec<LessonId> = Vec::with_capacity(snapshots.len());
+    for (lesson_id, _snap) in snapshots.iter() {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("ruined lesson must resolve");
+        let n = lesson.preferred_block_size;
+        let placed = crate::solve::try_place_block(
+            problem,
+            lesson,
+            n,
+            idx,
+            teacher_max,
+            weights,
+            state,
+            placements,
+            tb_order,
+            room_order,
+            max_position_per_day,
+        );
+        if !placed {
+            failed_recreates += 1;
+        } else {
+            recreated_in_order.push(*lesson_id);
+        }
+    }
+
+    if failed_recreates > 0 {
+        rr_rollback(
+            &recreated_in_order,
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            placements,
+            state,
+        );
+        state.soft_score = pre_score;
+        return false;
+    }
+
+    let new_score = state.soft_score;
+    let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
+    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    if !lahc_ok {
+        rr_rollback(
+            &recreated_in_order,
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            placements,
+            state,
+        );
+        state.soft_score = pre_score;
+        return false;
+    }
+
+    true
+}
+
+/// Roll back a partial or complete R&R recreate. For each successfully
+/// recreated lesson, ruin it again to undo the recreate's bookkeeping. Then
+/// for each snapshot's rows, replay the original placement back into
+/// `placements` + `state`.
+fn rr_rollback(
+    recreated: &[LessonId],
+    snapshots: &[(LessonId, BlockSnapshot)],
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+) {
+    for lesson_id in recreated.iter().rev() {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("recreated lesson resolves");
+        if let Some(idx) = placements.iter().position(|p| p.lesson_id == *lesson_id) {
+            rr_ruin_block(idx, lesson, tb_lookup, placements, state);
+        }
+    }
+    for (lesson_id, snapshot) in snapshots.iter().rev() {
+        let lesson = lesson_lookup
+            .get(lesson_id)
+            .expect("snapshot lesson resolves");
+        for row in snapshot.rows.iter().rev() {
+            replay_placement(lesson, row, tb_lookup, placements, state);
+        }
+    }
+}
+
+/// Re-add a single previously-removed placement row to `placements` +
+/// `state`. The mirror of one row's removal in `rr_ruin_block`.
+fn replay_placement(
+    lesson: &Lesson,
+    row: &Placement,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+) {
+    let tb = tb_lookup
+        .get(&row.time_block_id)
+        .expect("replay tb resolves");
+    let day = tb.day_of_week;
+    let position = tb.position;
+
+    placements.push(row.clone());
+    state
+        .used_teacher
+        .insert((lesson.teacher_id, row.time_block_id));
+    for class in &lesson.school_class_ids {
+        state.used_class.insert((*class, row.time_block_id));
+        let part = state.class_positions.entry((*class, day)).or_default();
+        let ins = part.binary_search(&position).unwrap_or_else(|i| i);
+        if part.get(ins).copied() != Some(position) {
+            part.insert(ins, position);
+        }
+    }
+    state.used_room.insert((row.room_id, row.time_block_id));
+    let part = state
+        .teacher_positions
+        .entry((lesson.teacher_id, day))
+        .or_default();
+    let ins = part.binary_search(&position).unwrap_or_else(|i| i);
+    if part.get(ins).copied() != Some(position) {
+        part.insert(ins, position);
+    }
+    *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+    for class in &lesson.school_class_ids {
+        let key = (*class, day, lesson.subject_id);
+        let entry = state.locked_room.entry(key).or_insert((row.room_id, 0));
+        entry.1 += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,6 +880,260 @@ mod tests {
 
     fn vec_part(xs: &[u8]) -> Vec<u8> {
         xs.to_vec()
+    }
+
+    #[test]
+    fn rr_ruin_block_removes_single_hour_lesson_from_state() {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let tb = TimeBlock {
+            id: TimeBlockId(lahc_uuid(10)),
+            day_of_week: 0,
+            position: 0,
+        };
+
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_id: teacher,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+
+        let mut placements = vec![Placement {
+            lesson_id,
+            time_block_id: tb.id,
+            room_id: room,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher, tb.id));
+        state.used_class.insert((class, tb.id));
+        state.used_room.insert((room, tb.id));
+        state.class_positions.insert((class, 0), vec_part(&[0]));
+        state.teacher_positions.insert((teacher, 0), vec_part(&[0]));
+        *state.hours_by_teacher.entry(teacher).or_insert(0) = 1;
+        state.locked_room.insert((class, 0, subject), (room, 1));
+
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> = std::iter::once((tb.id, &tb)).collect();
+        let snapshot = rr_ruin_block(0, &lesson, &tb_lookup, &mut placements, &mut state);
+
+        assert_eq!(placements.len(), 0);
+        assert!(!state.used_teacher.contains(&(teacher, tb.id)));
+        assert!(!state.used_class.contains(&(class, tb.id)));
+        assert!(!state.used_room.contains(&(room, tb.id)));
+        assert!(!state.class_positions.contains_key(&(class, 0)));
+        assert!(!state.teacher_positions.contains_key(&(teacher, 0)));
+        assert_eq!(state.hours_by_teacher.get(&teacher).copied(), Some(0));
+        assert!(!state.locked_room.contains_key(&(class, 0, subject)));
+        assert_eq!(snapshot.rows.len(), 1);
+        assert_eq!(snapshot.rows[0].lesson_id, lesson_id);
+    }
+
+    #[test]
+    fn rr_ruin_block_keeps_locked_room_when_partial() {
+        // Two lessons share (class, day=0, subject); the lock count is 2 before
+        // ruin and 1 after.
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let tb_a = TimeBlock {
+            id: TimeBlockId(lahc_uuid(10)),
+            day_of_week: 0,
+            position: 0,
+        };
+        let tb_b = TimeBlock {
+            id: TimeBlockId(lahc_uuid(11)),
+            day_of_week: 0,
+            position: 1,
+        };
+
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_id: teacher,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_a.id,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_b.id,
+                room_id: room,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.locked_room.insert((class, 0, subject), (room, 2));
+
+        let mut tb_lookup: HashMap<TimeBlockId, &TimeBlock> = HashMap::new();
+        tb_lookup.insert(tb_a.id, &tb_a);
+        tb_lookup.insert(tb_b.id, &tb_b);
+        rr_ruin_block(0, &lesson_a_obj, &tb_lookup, &mut placements, &mut state);
+
+        assert_eq!(
+            state.locked_room.get(&(class, 0, subject)),
+            Some(&(room, 1))
+        );
+    }
+
+    #[test]
+    fn rr_ruin_block_removes_doppelstunde_atomically() {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let tb_a = TimeBlock {
+            id: TimeBlockId(lahc_uuid(10)),
+            day_of_week: 0,
+            position: 0,
+        };
+        let tb_b = TimeBlock {
+            id: TimeBlockId(lahc_uuid(11)),
+            day_of_week: 0,
+            position: 1,
+        };
+
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_id: teacher,
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+
+        let mut placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_a.id,
+                room_id: room,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_b.id,
+                room_id: room,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher, tb_a.id));
+        state.used_teacher.insert((teacher, tb_b.id));
+        state.used_class.insert((class, tb_a.id));
+        state.used_class.insert((class, tb_b.id));
+        state.used_room.insert((room, tb_a.id));
+        state.used_room.insert((room, tb_b.id));
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        *state.hours_by_teacher.entry(teacher).or_insert(0) = 2;
+        state.locked_room.insert((class, 0, subject), (room, 2));
+
+        let mut tb_lookup: HashMap<TimeBlockId, &TimeBlock> = HashMap::new();
+        tb_lookup.insert(tb_a.id, &tb_a);
+        tb_lookup.insert(tb_b.id, &tb_b);
+        let snapshot = rr_ruin_block(0, &lesson, &tb_lookup, &mut placements, &mut state);
+
+        assert_eq!(placements.len(), 0);
+        assert_eq!(snapshot.rows.len(), 2);
+        assert_eq!(state.hours_by_teacher.get(&teacher).copied(), Some(0));
+        assert!(!state.locked_room.contains_key(&(class, 0, subject)));
+    }
+
+    #[test]
+    fn rr_collect_anchors_skips_pinned_and_grouped_lessons() {
+        use crate::ids::LessonGroupId;
+
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_free = LessonId(lahc_uuid(60));
+        let lesson_pinned = LessonId(lahc_uuid(61));
+        let lesson_grouped = LessonId(lahc_uuid(62));
+        let group_id = LessonGroupId(lahc_uuid(70));
+
+        let lessons = [
+            Lesson {
+                id: lesson_free,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            },
+            Lesson {
+                id: lesson_pinned,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            },
+            Lesson {
+                id: lesson_grouped,
+                school_class_ids: vec![class],
+                subject_id: subject,
+                teacher_id: teacher,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: Some(group_id),
+            },
+        ];
+
+        let tbs: Vec<TimeBlock> = (0..3)
+            .map(|i| TimeBlock {
+                id: TimeBlockId(lahc_uuid(10 + i)),
+                day_of_week: 0,
+                position: i,
+            })
+            .collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            tbs.iter().map(|tb| (tb.id, tb)).collect();
+
+        let placements = vec![
+            Placement {
+                lesson_id: lesson_free,
+                time_block_id: tbs[0].id,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson_pinned,
+                time_block_id: tbs[1].id,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: lesson_grouped,
+                time_block_id: tbs[2].id,
+                room_id: room,
+            },
+        ];
+
+        let pinned: HashSet<LessonId> = [lesson_pinned].into_iter().collect();
+        let lesson_lookup: HashMap<LessonId, &Lesson> = lessons.iter().map(|l| (l.id, l)).collect();
+
+        let anchors = rr_collect_anchors(&placements, &lesson_lookup, &tb_lookup, &pinned);
+
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0], 0);
     }
 
     #[test]
@@ -757,6 +1368,7 @@ mod tests {
             // 600 iterations fill the entire 500-slot LAHC list with the
             // optimal score (0) so worsening moves are no longer accepted.
             max_iterations: Some(600),
+            lahc_rr_period: None,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 1));
@@ -886,6 +1498,7 @@ mod tests {
             seed: 0,
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
+            lahc_rr_period: None,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 2));
@@ -1053,6 +1666,7 @@ mod tests {
             seed: 0,
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
+            lahc_rr_period: None,
         };
 
         state.locked_room.insert((class_a, 0, subject), (room_a, 1));
