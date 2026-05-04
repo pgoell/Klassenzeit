@@ -1,0 +1,13 @@
+[package]
+name         = "solver-bench"
+version      = "0.1.0"
+publish      = false
+edition.workspace      = true
+rust-version.workspace = true
+
+[[bin]]
+name = "solver-bench"
+path = "src/main.rs"
+
+[dependencies]
+solver-core = { path = "../solver-core" }
