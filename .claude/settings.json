@@ -26,6 +26,8 @@
       "Bash(mise run e2e)",
       "Bash(mise run bench)",
       "Bash(mise run bench:record)",
+      "Bash(mise run bench:bakeoff)",
+      "Bash(mise run bench:bakeoff *)",
       "Bash(mise run bench:tests)",
       "Bash(mise run bench:tests *)",
       "Bash(uv run ruff check)",

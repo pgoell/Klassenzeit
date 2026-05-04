@@ -10,6 +10,8 @@ mod lahc;
 mod ordering;
 pub mod score;
 pub mod solve;
+#[cfg(feature = "fixtures")]
+pub mod test_fixtures;
 #[cfg(feature = "solver-trace")]
 mod trace;
 pub mod types;

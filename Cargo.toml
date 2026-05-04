@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["solver/solver-core", "solver/solver-py"]
+members = ["solver/solver-core", "solver/solver-py", "solver/solver-bench"]
 
 [workspace.package]
 edition      = "2021"

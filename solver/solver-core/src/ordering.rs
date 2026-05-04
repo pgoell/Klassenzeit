@@ -1,31 +1,72 @@
 //! First Fit Decreasing lesson ordering.
 //!
 //! Returns a permutation of `problem.lessons` indices in placement order.
-//! Lessons are sorted by an eligibility metric (lower = more constrained =
-//! placed first) computed once before placement begins; the metric is the
-//! product of two counts:
-//!
-//! 1. Time blocks where the lesson's teacher is not blocked.
-//! 2. Rooms suitable for the lesson's subject.
+//! Lessons are sorted by a same-room-aware eligibility metric (lower = more
+//! constrained = placed first) computed once before placement begins. The
+//! metric counts `(day, room)` pairs where at least
+//! `lesson.preferred_block_size` consecutive teacher-unblocked,
+//! room-unblocked time blocks exist on `day` for the lesson's subject.
 //!
 //! Tiebreak is the lesson's `LessonId` byte order so two lessons with equal
 //! eligibility keep a deterministic ordering across runs.
 //!
-//! Lessons whose teacher lacks the qualification for the subject fall to
-//! eligibility `0` and sort first; the placement loop in `solve_with_config`
-//! skips them and `pre_solve_violations` records each affected hour as a
-//! `NoQualifiedTeacher` violation.
+//! Lessons whose teacher lacks the qualification for the subject still get a
+//! computed metric (the metric does not gate on qualification); the placement
+//! loop in `solve_with_config` skips them and `pre_solve_violations` records
+//! each affected hour as a `NoQualifiedTeacher` violation.
 
+use crate::ids::{RoomId, SchoolClassId};
 use crate::index::Indexed;
-use crate::types::{Lesson, Problem};
+use crate::types::{Lesson, Problem, TimeBlock};
 
 /// Compute placement order under First Fit Decreasing. See module docs.
 pub(crate) fn ffd_order(problem: &Problem, idx: &Indexed) -> Vec<usize> {
-    let scores: Vec<u32> = problem
-        .lessons
+    // Precompute per-day TB lists (sorted by position) and the
+    // class -> home_room map once for the whole call so the per-lesson
+    // metric does not re-allocate or re-scan `time_blocks` and
+    // `school_classes` for every lesson.
+    let mut tbs_by_day: Vec<(u8, Vec<&TimeBlock>)> = Vec::new();
+    for tb in &problem.time_blocks {
+        match tbs_by_day.iter_mut().find(|(d, _)| *d == tb.day_of_week) {
+            Some((_, vec)) => vec.push(tb),
+            None => tbs_by_day.push((tb.day_of_week, vec![tb])),
+        }
+    }
+    for (_, tbs) in &mut tbs_by_day {
+        tbs.sort_unstable_by_key(|tb| tb.position);
+    }
+
+    // Per-lesson home_rooms lookup uses a flat (class_id, home_room) Vec
+    // (typically <= 16 entries; HashMap overhead dominates at this size).
+    let home_room_pairs: Vec<(SchoolClassId, RoomId)> = problem
+        .school_classes
         .iter()
-        .map(|l| eligibility(l, problem, idx))
+        .filter_map(|c| c.home_room_id.map(|r| (c.id, r)))
         .collect();
+
+    // Fast path: when the problem has neither teacher- nor room-blocked
+    // times, viable_pairs reduces to (days where day_tbs.len() >= n) ×
+    // (rooms suitable for the lesson's subject). The contiguity check
+    // becomes trivial because every position is unblocked. Most production
+    // and bench fixtures hit this path.
+    let no_blocks =
+        problem.teacher_blocked_times.is_empty() && problem.room_blocked_times.is_empty();
+
+    let scores: Vec<(u32, u32)> = if no_blocks {
+        problem
+            .lessons
+            .iter()
+            .map(|l| {
+                same_room_eligibility_no_blocks(l, problem, idx, &tbs_by_day, &home_room_pairs)
+            })
+            .collect()
+    } else {
+        problem
+            .lessons
+            .iter()
+            .map(|l| same_room_eligibility(l, problem, idx, &tbs_by_day, &home_room_pairs))
+            .collect()
+    };
     let mut order: Vec<usize> = (0..problem.lessons.len()).collect();
     order.sort_by(|&a, &b| {
         scores[a]
@@ -35,18 +76,134 @@ pub(crate) fn ffd_order(problem: &Problem, idx: &Indexed) -> Vec<usize> {
     order
 }
 
-fn eligibility(lesson: &Lesson, problem: &Problem, idx: &Indexed) -> u32 {
-    let free_blocks = problem
-        .time_blocks
+fn lesson_home_rooms(
+    lesson: &Lesson,
+    home_room_pairs: &[(SchoolClassId, RoomId)],
+) -> ([Option<RoomId>; 4], usize) {
+    let mut home_rooms: [Option<RoomId>; 4] = [None; 4];
+    let mut home_count = 0usize;
+    for cid in &lesson.school_class_ids {
+        for (kid, room) in home_room_pairs {
+            if kid == cid {
+                if home_count < home_rooms.len() {
+                    home_rooms[home_count] = Some(*room);
+                    home_count += 1;
+                }
+                break;
+            }
+        }
+    }
+    (home_rooms, home_count)
+}
+
+fn home_rooms_contains(home_rooms: &[Option<RoomId>; 4], count: usize, room: RoomId) -> bool {
+    home_rooms[..count]
         .iter()
-        .filter(|tb| !idx.teacher_blocked(lesson.teacher_id, tb.id))
-        .count();
-    let suitable_rooms = problem
-        .rooms
-        .iter()
-        .filter(|r| idx.room_suits_subject(r.id, lesson.subject_id))
-        .count();
-    u32::try_from(free_blocks.saturating_mul(suitable_rooms)).unwrap_or(u32::MAX)
+        .any(|hr| matches!(hr, Some(r) if *r == room))
+}
+
+/// Fast path for problems with no teacher/room blocked times: viable pairs
+/// reduce to `(days where day_tbs.len() >= n) × (rooms suitable for subject)`,
+/// and home_pairs reduce to `viable_days × home_room_count_suitable`.
+fn same_room_eligibility_no_blocks(
+    lesson: &Lesson,
+    problem: &Problem,
+    idx: &Indexed,
+    tbs_by_day: &[(u8, Vec<&TimeBlock>)],
+    home_room_pairs: &[(SchoolClassId, RoomId)],
+) -> (u32, u32) {
+    let n = lesson.preferred_block_size as usize;
+    if n == 0 {
+        return (0, 0);
+    }
+    let viable_days = tbs_by_day.iter().filter(|(_, tbs)| tbs.len() >= n).count() as u32;
+    let (home_rooms, home_count) = lesson_home_rooms(lesson, home_room_pairs);
+    let mut suitable_rooms: u32 = 0;
+    let mut suitable_home_rooms: u32 = 0;
+    for room in &problem.rooms {
+        if !idx.room_suits_subject(room.id, lesson.subject_id) {
+            continue;
+        }
+        suitable_rooms = suitable_rooms.saturating_add(1);
+        if home_rooms_contains(&home_rooms, home_count, room.id) {
+            suitable_home_rooms = suitable_home_rooms.saturating_add(1);
+        }
+    }
+    (
+        viable_days.saturating_mul(suitable_rooms),
+        viable_days.saturating_mul(suitable_home_rooms),
+    )
+}
+
+/// Count `(day, room)` pairs where at least `lesson.preferred_block_size`
+/// consecutive teacher-unblocked, room-unblocked time blocks exist on `day`
+/// for `lesson.subject_id`. Returns `(viable_pairs, home_pairs)` where
+/// `home_pairs` counts the subset of viable pairs whose room is the home
+/// room of one of the lesson's classes. FFD sorts `(viable_pairs, home_pairs)`
+/// lexicographically ascending so:
+///
+/// - The primary signal (`viable_pairs`) preserves the same-room-aware
+///   contiguity check that distinguishes a doppelstunde with one viable
+///   window from one with several: a lesson's score reflects whether at
+///   least `preferred_block_size` consecutive teacher-unblocked,
+///   room-unblocked time blocks exist per `(day, room)` pair.
+/// - The secondary signal (`home_pairs`) breaks ties by class home-room
+///   availability: when a class's home room is unavailable for a subject
+///   (e.g., renovation-week perturbation), `home_pairs = 0` and the lesson
+///   sorts before sibling lessons whose class has working home-room access
+///   on at least one day. This addresses the demo Grundschule lock-in
+///   surfaced in PR #173 without perturbing the relative order of lessons
+///   on fixtures where every class has the same home-room availability.
+fn same_room_eligibility(
+    lesson: &Lesson,
+    problem: &Problem,
+    idx: &Indexed,
+    tbs_by_day: &[(u8, Vec<&TimeBlock>)],
+    home_room_pairs: &[(SchoolClassId, RoomId)],
+) -> (u32, u32) {
+    let n = lesson.preferred_block_size as usize;
+    if n == 0 {
+        return (0, 0);
+    }
+    let (home_rooms, home_count) = lesson_home_rooms(lesson, home_room_pairs);
+
+    let mut viable_pairs: u32 = 0;
+    let mut home_pairs: u32 = 0;
+    for (_, day_tbs) in tbs_by_day {
+        if day_tbs.len() < n {
+            continue;
+        }
+        for room in &problem.rooms {
+            if !idx.room_suits_subject(room.id, lesson.subject_id) {
+                continue;
+            }
+            // Walk positions; track the run length of contiguous TBs where
+            // both teacher and room are unblocked. As soon as run >= n, the
+            // (day, room) pair is viable.
+            let mut run: usize = 0;
+            let mut fits = false;
+            for tb in day_tbs.iter() {
+                if !idx.teacher_blocked(lesson.teacher_id, tb.id)
+                    && !idx.room_blocked(room.id, tb.id)
+                {
+                    run += 1;
+                    if run >= n {
+                        fits = true;
+                        break;
+                    }
+                } else {
+                    run = 0;
+                }
+            }
+            if fits {
+                viable_pairs = viable_pairs.saturating_add(1);
+                if home_rooms_contains(&home_rooms, home_count, room.id) {
+                    home_pairs = home_pairs.saturating_add(1);
+                }
+            }
+        }
+    }
+    (viable_pairs, home_pairs)
 }
 
 #[cfg(test)]
@@ -253,5 +410,84 @@ mod tests {
         let idx = Indexed::new(&problem);
         let order = ffd_order(&problem, &idx);
         assert_eq!(order, vec![0]);
+    }
+
+    #[test]
+    fn ffd_order_doppelstunde_with_one_viable_window_sorts_first() {
+        // Two doppelstunden lessons with identical free_blocks * suitable_rooms
+        // (the old metric ties them) but different (day, room) viable-window
+        // counts under the new same-room-aware metric. The constructed fixture
+        // gives lesson A (idx 0, id 71) zero viable (day, room) pairs because
+        // its teacher is blocked mid-day on both days, splitting contiguity;
+        // lesson B (idx 1, id 70) has all four pairs viable because its teacher
+        // is blocked at TB position 0 only, leaving positions 1-2 contiguous.
+        // Under the old metric both score `4 free blocks * 2 suitable rooms = 8`
+        // and the tiebreak picks lesson B (lower lesson_id) first, yielding
+        // order [1, 0]; the new metric ranks A as more constrained (0 viable
+        // pairs vs 4) and yields [0, 1]. The assertion below picks up the
+        // metric flip: it FAILS under the old metric and PASSES under the new.
+        let mut problem = two_blocks_two_rooms();
+        // Add four extra TBs: one more TB on day 0 (position 2) and three TBs
+        // on day 1 (positions 0, 1, 2). Total grid: 2 days x 3 positions = 6 TBs.
+        problem.time_blocks.push(TimeBlock {
+            id: TimeBlockId(ord_uuid(12)),
+            day_of_week: 0,
+            position: 2,
+        });
+        problem.time_blocks.push(TimeBlock {
+            id: TimeBlockId(ord_uuid(13)),
+            day_of_week: 1,
+            position: 0,
+        });
+        problem.time_blocks.push(TimeBlock {
+            id: TimeBlockId(ord_uuid(14)),
+            day_of_week: 1,
+            position: 1,
+        });
+        problem.time_blocks.push(TimeBlock {
+            id: TimeBlockId(ord_uuid(15)),
+            day_of_week: 1,
+            position: 2,
+        });
+        // Teacher 20 (lesson A): blocked mid-day on both days -> contiguity
+        // busted, no viable doppelstunde window.
+        problem.teacher_blocked_times.push(TeacherBlockedTime {
+            teacher_id: TeacherId(ord_uuid(20)),
+            time_block_id: TimeBlockId(ord_uuid(11)),
+        });
+        problem.teacher_blocked_times.push(TeacherBlockedTime {
+            teacher_id: TeacherId(ord_uuid(20)),
+            time_block_id: TimeBlockId(ord_uuid(14)),
+        });
+        // Teacher 21 (lesson B): blocked at the first TB on each day -> the
+        // last two positions remain contiguous, so the doppelstunde fits.
+        problem.teacher_blocked_times.push(TeacherBlockedTime {
+            teacher_id: TeacherId(ord_uuid(21)),
+            time_block_id: TimeBlockId(ord_uuid(10)),
+        });
+        problem.teacher_blocked_times.push(TeacherBlockedTime {
+            teacher_id: TeacherId(ord_uuid(21)),
+            time_block_id: TimeBlockId(ord_uuid(13)),
+        });
+        problem.lessons.push(Lesson {
+            id: LessonId(ord_uuid(71)),
+            school_class_ids: vec![SchoolClassId(ord_uuid(50))],
+            subject_id: SubjectId(ord_uuid(40)),
+            teacher_id: TeacherId(ord_uuid(20)),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        });
+        problem.lessons.push(Lesson {
+            id: LessonId(ord_uuid(70)),
+            school_class_ids: vec![SchoolClassId(ord_uuid(51))],
+            subject_id: SubjectId(ord_uuid(41)),
+            teacher_id: TeacherId(ord_uuid(21)),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        });
+        let idx = Indexed::new(&problem);
+        assert_eq!(ffd_order(&problem, &idx), vec![0, 1]);
     }
 }
