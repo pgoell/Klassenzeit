@@ -30,6 +30,16 @@ fn lahc_rr_cfg(seed: u64) -> SolveConfig {
     }
 }
 
+fn lahc_kempe_cfg(seed: u64) -> SolveConfig {
+    SolveConfig {
+        weights: lahc_weights(),
+        seed,
+        deadline: Some(Duration::from_millis(20)),
+        lahc_kempe_period: Some(5),
+        ..SolveConfig::default()
+    }
+}
+
 fn lahc_id_from(n: u32) -> Uuid {
     let mut bytes = [0u8; 16];
     bytes[12..16].copy_from_slice(&n.to_be_bytes());
@@ -146,6 +156,7 @@ proptest! {
             deadline: Some(Duration::from_secs(60)),
             max_iterations: Some(200),
             lahc_rr_period: None,
+            lahc_kempe_period: None,
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();
@@ -221,6 +232,7 @@ proptest! {
             deadline: Some(Duration::from_secs(60)),
             max_iterations: Some(200),
             lahc_rr_period: Some(5),
+            lahc_kempe_period: None,
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();
@@ -248,6 +260,64 @@ proptest! {
             seed,
             deadline: Some(Duration::from_millis(20)),
             lahc_rr_period: Some(5),
+            ..SolveConfig::default()
+        }).unwrap();
+
+        let pinned_in_solution = solution
+            .placements
+            .iter()
+            .find(|p| p.lesson_id == pin.lesson_id)
+            .expect("pinned lesson missing from solution");
+        prop_assert_eq!(pinned_in_solution.time_block_id, pin.time_block_id);
+        prop_assert_eq!(pinned_in_solution.room_id, pin.room_id);
+    }
+
+    #[test]
+    fn lahc_kempe_never_increases_hard_violations(p in lahc_small_problem()) {
+        let greedy = solve_with_config(&p, &SolveConfig {
+            weights: lahc_weights(),
+            ..SolveConfig::default()
+        }).unwrap();
+        let lahc_kempe = solve_with_config(&p, &lahc_kempe_cfg(7)).unwrap();
+        prop_assert!(lahc_kempe.violations.len() <= greedy.violations.len());
+    }
+
+    #[test]
+    fn lahc_kempe_deterministic_under_seed_and_iter_cap(p in lahc_small_problem()) {
+        let cfg = SolveConfig {
+            weights: lahc_weights(),
+            seed: 42,
+            deadline: Some(Duration::from_secs(60)),
+            max_iterations: Some(200),
+            lahc_kempe_period: Some(5),
+            ..SolveConfig::default()
+        };
+        let a = solve_with_config(&p, &cfg).unwrap();
+        let b = solve_with_config(&p, &cfg).unwrap();
+        prop_assert_eq!(a, b);
+    }
+
+    #[test]
+    fn lahc_kempe_running_score_matches_recompute_when_feasible(p in lahc_small_problem()) {
+        let lahc = solve_with_config(&p, &lahc_kempe_cfg(11)).unwrap();
+        if lahc.violations.is_empty() {
+            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+            prop_assert_eq!(lahc.soft_score, recomputed);
+        }
+    }
+
+    #[test]
+    fn lahc_kempe_pinned_placements_preserved(seed in any::<u64>()) {
+        let problem = build_lahc_pinned_problem();
+        let pin = problem.pinned_placements[0].clone();
+        let solution = solve_with_config(&problem, &SolveConfig {
+            weights: ConstraintWeights {
+                avoid_first_period: 1,
+                ..ConstraintWeights::default()
+            },
+            seed,
+            deadline: Some(Duration::from_millis(20)),
+            lahc_kempe_period: Some(5),
             ..SolveConfig::default()
         }).unwrap();
 

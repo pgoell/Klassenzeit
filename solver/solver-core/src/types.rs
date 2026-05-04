@@ -33,6 +33,13 @@ pub struct SolveConfig {
     /// callers leave this `None`; the active default in `solve()` is
     /// unchanged.
     pub lahc_rr_period: Option<u32>,
+    /// Period for the Kempe-chain LAHC move. `None` (default) disables Kempe;
+    /// the LAHC loop runs without chain swaps. `Some(n)` triggers a Kempe
+    /// attempt every nth iteration, with R&R taking precedence on iterations
+    /// where both periods divide. The bake-off bench's `lahc_rr_kempe` backend
+    /// sets this to `Some(23)`. Production callers leave this `None`; the
+    /// active default in `solve()` is unchanged.
+    pub lahc_kempe_period: Option<u32>,
 }
 
 /// Soft-constraint weights consumed by `score_solution` and the lowest-delta
