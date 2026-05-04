@@ -3,6 +3,8 @@
     "allow": [
       "Bash(mise run lint)",
       "Bash(mise run lint *)",
+      "Bash(mise run lint:rust)",
+      "Bash(mise run lint:py)",
       "Bash(mise run test)",
       "Bash(mise run test *)",
       "Bash(mise run fe:test)",
