@@ -481,25 +481,25 @@ The "Highlights" sentence is filled in at commit-time based on the actual diff (
 
 **Spec coverage.** Walk through the spec's Scope → In scope bullets:
 
-- [x] `SolveConfig.lahc_kempe_period` field — Task 1 step 1.3
-- [x] `KEMPE_MAX_CHAIN = 8` — Task 1 step 1.4
-- [x] Block-level swap granularity (atomicity) — Task 1 step 1.5 (algorithm) + step 1.9 test 6
-- [x] Pin skip — Task 1 step 1.5 + test 3
-- [x] Lesson-group skip — Task 1 step 1.5 + test 4
-- [x] Separate `SmallRng seed.wrapping_add(2)` — Task 1 step 1.7
-- [x] Asymmetric acceptance gate — Task 1 step 1.5 item 7
-- [x] Two-day same-position swap shape — Task 1 step 1.5 items 2-6
-- [x] BFS over teacher+class conflict graph — Task 1 step 1.5 item 4
-- [x] Reuse-old-room preference at apply — Task 1 step 1.5 item 6
-- [x] `BenchBackend::LahcRrKempe` variant — Task 2 step 2.1
-- [x] BACKENDS array update — Task 2 step 2.2
-- [x] `run_cell` config dispatch — Task 2 step 2.3
-- [x] Property tests (4) — Task 1 step 1.11
-- [x] Unit tests (8) — Task 1 step 1.9
-- [x] Bench row-render unit test — Task 2 step 2.4
-- [x] BENCH_RESULTS.md refresh — Task 3 step 3.1
-- [x] `solver/CLAUDE.md` update — Task 1 step 1.13
-- [x] OPEN_THINGS.md surgery — handled in autopilot Step 6 (docs pass), not a code task
+- [x] `SolveConfig.lahc_kempe_period` field via Task 1 step 1.3
+- [x] `KEMPE_MAX_CHAIN = 8` via Task 1 step 1.4
+- [x] Block-level swap granularity (atomicity) via Task 1 step 1.5 (algorithm) + step 1.9 test 6
+- [x] Pin skip via Task 1 step 1.5 + test 3
+- [x] Lesson-group skip via Task 1 step 1.5 + test 4
+- [x] Separate `SmallRng seed.wrapping_add(2)` via Task 1 step 1.7
+- [x] Asymmetric acceptance gate via Task 1 step 1.5 item 7
+- [x] Two-day same-position swap shape via Task 1 step 1.5 items 2-6
+- [x] BFS over teacher+class conflict graph via Task 1 step 1.5 item 4
+- [x] Reuse-old-room preference at apply via Task 1 step 1.5 item 6
+- [x] `BenchBackend::LahcRrKempe` variant via Task 2 step 2.1
+- [x] BACKENDS array update via Task 2 step 2.2
+- [x] `run_cell` config dispatch via Task 2 step 2.3
+- [x] Property tests (4) via Task 1 step 1.11
+- [x] Unit tests (8) via Task 1 step 1.9
+- [x] Bench row-render unit test via Task 2 step 2.4
+- [x] BENCH_RESULTS.md refresh via Task 3 step 3.1
+- [x] `solver/CLAUDE.md` update via Task 1 step 1.13
+- [x] OPEN_THINGS.md surgery via handled in autopilot Step 6 (docs pass), not a code task
 
 **Placeholder scan.** Searched for "TBD", "TODO", "fill in", "etc.": only one intentional `<fill in...>` in Task 3 step 3.3's commit body, which is documented as "filled at commit-time based on the actual diff". OK.
 
