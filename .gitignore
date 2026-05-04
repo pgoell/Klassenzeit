@@ -33,6 +33,7 @@ dev-login.local.md
 frontend/e2e/.auth/
 frontend/playwright-report/
 frontend/test-results/
+.playwright-mcp
 
 # Editors / OS
 .DS_Store
