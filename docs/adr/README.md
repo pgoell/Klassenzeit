@@ -52,3 +52,4 @@ sections, and add the new entry to the index below.
 | 0026 | [Stundentafel school-type enum and grade-range expansion](0026-stundentafel-school-type-and-grade-range.md) | Accepted |
 | 0027 | [Pinned placements wire format](0027-pinned-placements-wire-format.md) | Accepted |
 | 0028 | [Manual pin semantics](0028-manual-pin-semantics.md) | Accepted |
+| 0029 | [Solver feasibility bake-off methodology](0029-solver-feasibility-bake-off.md) | Accepted |
