@@ -25,6 +25,7 @@ enum BenchBackend {
     Lahc,
     LahcRr,
     LahcRrKempe,
+    CpSat,
 }
 
 impl BenchBackend {
@@ -33,6 +34,7 @@ impl BenchBackend {
             BenchBackend::Lahc => "lahc",
             BenchBackend::LahcRr => "lahc_rr",
             BenchBackend::LahcRrKempe => "lahc_rr_kempe",
+            BenchBackend::CpSat => "cpsat",
         }
     }
 }
@@ -119,6 +121,7 @@ fn main() -> ExitCode {
         BenchBackend::Lahc,
         BenchBackend::LahcRr,
         BenchBackend::LahcRrKempe,
+        BenchBackend::CpSat,
     ];
     let mut markdown = String::new();
     write_header(&mut markdown);
@@ -154,6 +157,10 @@ struct CellResult {
 }
 
 fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u64) -> CellResult {
+    if let BenchBackend::CpSat = backend {
+        return run_cpsat_cell(problem, budget, seeds);
+    }
+
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
         weights: weights.clone(),
@@ -174,6 +181,7 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
         BenchBackend::Lahc => (None, None),
         BenchBackend::LahcRr => (Some(25u32), None),
         BenchBackend::LahcRrKempe => (Some(25u32), Some(23u32)),
+        BenchBackend::CpSat => unreachable!("cpsat dispatched above"),
     };
 
     for seed in 1..=seeds {
@@ -208,6 +216,105 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
             Some(median_u32(&mut soft_score_feasible))
         },
         ffd_ms_median: ffd_ms,
+        total_ms_median: median_f64(&mut total_ms_samples),
+    }
+}
+
+fn build_cpsat_command(
+    problem_path: &std::path::Path,
+    budget: std::time::Duration,
+    seed: u64,
+) -> std::process::Command {
+    let mut cmd = std::process::Command::new("python3");
+    cmd.arg("-m")
+        .arg("klassenzeit_solver.cpsat")
+        .arg("--problem-file")
+        .arg(problem_path)
+        .arg("--deadline-ms")
+        .arg(budget.as_millis().to_string())
+        .arg("--seed")
+        .arg(seed.to_string());
+    cmd
+}
+
+fn tempfile_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("{prefix}{nanos}{suffix}"))
+}
+
+fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult {
+    let problem_json =
+        serde_json::to_string(problem).expect("serialise problem for cpsat subprocess");
+    let tmpfile = tempfile_path("kz-bench-problem-", ".json");
+    std::fs::write(&tmpfile, problem_json.as_bytes()).expect("write problem tempfile");
+
+    let mut total_ms_samples: Vec<f64> = Vec::with_capacity(seeds as usize);
+    let mut hard_violations_samples: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut feasibility_count: u64 = 0;
+
+    for seed in 1..=seeds {
+        let start = Instant::now();
+        let result = build_cpsat_command(&tmpfile, budget, seed).output();
+        let total_ms = start.elapsed().as_secs_f64() * 1_000.0;
+        let solution_json = match result {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            Ok(o) => {
+                eprintln!(
+                    "cpsat subprocess non-zero exit (seed={seed}): {}",
+                    String::from_utf8_lossy(&o.stderr)
+                );
+                hard_violations_samples.push(u32::MAX);
+                total_ms_samples.push(total_ms);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("cpsat subprocess error (seed={seed}): {e}");
+                hard_violations_samples.push(u32::MAX);
+                total_ms_samples.push(total_ms);
+                continue;
+            }
+        };
+        let solution: solver_core::Solution = match serde_json::from_str(&solution_json) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("cpsat parse error (seed={seed}): {e}");
+                hard_violations_samples.push(u32::MAX);
+                total_ms_samples.push(total_ms);
+                continue;
+            }
+        };
+        let hard = solution.violations.len() as u32;
+        let feasible = hard == 0;
+        if feasible {
+            feasibility_count += 1;
+            let soft = solver_core::score_solution(
+                problem,
+                &solution.placements,
+                &solver_core::PRODUCTION_ACTIVE_WEIGHTS,
+            );
+            soft_score_feasible.push(soft);
+        }
+        hard_violations_samples.push(hard);
+        total_ms_samples.push(total_ms);
+    }
+
+    let _ = std::fs::remove_file(&tmpfile);
+
+    CellResult {
+        seeds,
+        feasibility_count,
+        hard_violations_median: median_u32(&mut hard_violations_samples),
+        soft_score_median: if soft_score_feasible.is_empty() {
+            None
+        } else {
+            Some(median_u32(&mut soft_score_feasible))
+        },
+        ffd_ms_median: 0.0,
         total_ms_median: median_f64(&mut total_ms_samples),
     }
 }
@@ -414,5 +521,47 @@ mod tests {
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
         assert!(out.contains("| lahc_rr_kempe |"));
+    }
+
+    #[test]
+    fn write_row_renders_cpsat_backend_label() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 18,
+            hard_violations_median: 0,
+            soft_score_median: Some(15),
+            ffd_ms_median: 0.0,
+            total_ms_median: 60050.0,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::CpSat, &cell);
+        assert!(out.contains("| cpsat |"));
+    }
+
+    #[test]
+    fn cpsat_subprocess_command_args_match_module_invocation() {
+        let cmd = build_cpsat_command(
+            std::path::Path::new("/tmp/p.json"),
+            std::time::Duration::from_secs(60),
+            7,
+        );
+        let argv: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            argv,
+            vec![
+                "-m".to_string(),
+                "klassenzeit_solver.cpsat".to_string(),
+                "--problem-file".to_string(),
+                "/tmp/p.json".to_string(),
+                "--deadline-ms".to_string(),
+                "60000".to_string(),
+                "--seed".to_string(),
+                "7".to_string(),
+            ]
+        );
+        assert_eq!(cmd.get_program(), "python3");
     }
 }

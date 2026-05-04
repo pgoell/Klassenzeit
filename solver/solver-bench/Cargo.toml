@@ -11,3 +11,4 @@ path = "src/main.rs"
 
 [dependencies]
 solver-core = { path = "../solver-core", version = "0.1.0" }
+serde_json  = { workspace = true }
