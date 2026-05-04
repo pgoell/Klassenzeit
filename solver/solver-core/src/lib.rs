@@ -25,5 +25,5 @@ pub use solve::{solve, solve_with_config};
 pub use types::{
     ConstraintWeights, Lesson, Placement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
     SchoolClass, Solution, SolveConfig, Subject, Teacher, TeacherBlockedTime, TeacherQualification,
-    TimeBlock, Violation, ViolationKind,
+    TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
 };

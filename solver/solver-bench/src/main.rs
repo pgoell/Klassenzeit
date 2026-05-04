@@ -17,7 +17,8 @@ use solver_core::solve_with_config;
 use solver_core::test_fixtures::{
     dreizuegig_fixture, ffd_lock_in_grundschule, grundschule_fixture, zweizuegig_fixture,
 };
-use solver_core::types::{ConstraintWeights, Problem, SolveConfig};
+use solver_core::types::{Problem, SolveConfig};
+use solver_core::PRODUCTION_ACTIVE_WEIGHTS;
 
 #[derive(Clone, Copy)]
 enum BenchBackend {
@@ -44,19 +45,6 @@ const FIXTURES: &[FixtureEntry] = &[
     ("dreizuegig", dreizuegig_fixture),
     ("lock_in", ffd_lock_in_grundschule),
 ];
-
-fn production_active_weights() -> ConstraintWeights {
-    ConstraintWeights {
-        class_gap: 10,
-        teacher_gap: 10,
-        prefer_early_period: 1,
-        avoid_first_period: 1,
-        prefer_home_room: 5,
-        avoid_last_period: 1,
-        prefer_late_period: 1,
-        class_day_balance: 5,
-    }
-}
 
 struct CliArgs {
     budget: Duration,
@@ -166,7 +154,7 @@ struct CellResult {
 }
 
 fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u64) -> CellResult {
-    let weights = production_active_weights();
+    let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
         weights: weights.clone(),
         deadline: None,

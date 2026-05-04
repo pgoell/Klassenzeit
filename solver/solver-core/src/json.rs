@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::error::Error;
 use crate::solve::solve_with_config;
-use crate::types::{ConstraintWeights, Problem, SolveConfig};
+use crate::types::{Problem, SolveConfig};
 
 /// Solve a timetable problem supplied as a JSON string and return the resulting
 /// `Solution` serialised as JSON. Uses the production-default 200 ms LAHC
@@ -32,16 +32,7 @@ pub fn solve_json_with_config(json: &str, deadline_ms: Option<u64>) -> Result<St
     let problem: Problem =
         serde_json::from_str(json).map_err(|e| Error::Input(format!("json: {e}")))?;
     let config = SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 10,
-            teacher_gap: 10,
-            prefer_early_period: 1,
-            avoid_first_period: 1,
-            prefer_home_room: 5,
-            avoid_last_period: 1,
-            prefer_late_period: 1,
-            class_day_balance: 5,
-        },
+        weights: crate::PRODUCTION_ACTIVE_WEIGHTS.clone(),
         deadline: deadline_ms.map(Duration::from_millis),
         ..SolveConfig::default()
     };
