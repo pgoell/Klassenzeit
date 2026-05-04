@@ -62,7 +62,7 @@ run         = "./scripts/record_solver_bench.sh"
 
 [tasks."bench:bakeoff"]
 description = "Run the solver feasibility bake-off bench and rewrite BENCH_RESULTS.md"
-run         = "cargo run -p solver-bench --release --"
+run         = "uv run cargo run -p solver-bench --release --"
 
 [tasks."bench:tests"]
 description = "Time the backend pytest suite and compare to .test-duration-budget"
