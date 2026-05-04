@@ -10,6 +10,8 @@ mod lahc;
 mod ordering;
 pub mod score;
 pub mod solve;
+#[cfg(feature = "solver-trace")]
+mod trace;
 pub mod types;
 pub mod validate;
 
