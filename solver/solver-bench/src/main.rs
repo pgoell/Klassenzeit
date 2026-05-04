@@ -23,6 +23,7 @@ use solver_core::types::{ConstraintWeights, Problem, SolveConfig};
 enum BenchBackend {
     Lahc,
     LahcRr,
+    LahcRrKempe,
 }
 
 impl BenchBackend {
@@ -30,6 +31,7 @@ impl BenchBackend {
         match self {
             BenchBackend::Lahc => "lahc",
             BenchBackend::LahcRr => "lahc_rr",
+            BenchBackend::LahcRrKempe => "lahc_rr_kempe",
         }
     }
 }
@@ -125,7 +127,11 @@ fn main() -> ExitCode {
         }
     };
 
-    let backends = [BenchBackend::Lahc, BenchBackend::LahcRr];
+    let backends = [
+        BenchBackend::Lahc,
+        BenchBackend::LahcRr,
+        BenchBackend::LahcRrKempe,
+    ];
     let mut markdown = String::new();
     write_header(&mut markdown);
 
@@ -176,9 +182,10 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
-    let lahc_rr_period = match backend {
-        BenchBackend::Lahc => None,
-        BenchBackend::LahcRr => Some(25u32),
+    let (lahc_rr_period, lahc_kempe_period) = match backend {
+        BenchBackend::Lahc => (None, None),
+        BenchBackend::LahcRr => (Some(25u32), None),
+        BenchBackend::LahcRrKempe => (Some(25u32), Some(23u32)),
     };
 
     for seed in 1..=seeds {
@@ -187,6 +194,7 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
             deadline: Some(budget),
             seed,
             lahc_rr_period,
+            lahc_kempe_period,
             ..SolveConfig::default()
         };
         let start = Instant::now();
@@ -403,5 +411,20 @@ mod tests {
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRr, &cell);
         assert!(out.contains("| lahc_rr |"));
+    }
+
+    #[test]
+    fn write_row_renders_lahc_rr_kempe_backend_label() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 20,
+            hard_violations_median: 0,
+            soft_score_median: Some(10),
+            ffd_ms_median: 1.0,
+            total_ms_median: 60100.0,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
+        assert!(out.contains("| lahc_rr_kempe |"));
     }
 }
