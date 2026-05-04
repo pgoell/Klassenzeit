@@ -1,3 +1,17 @@
+def solve_cpsat_json(
+    problem_json: str,
+    deadline_ms: int | None,
+    seed: int = 1,
+) -> str:
+    """Solve a Klassenzeit timetable via CP-SAT (Google OR-Tools).
+
+    Returns a Solution JSON in the same wire format as ``solve_json``. On
+    INFEASIBLE / UNKNOWN, returns a Solution with no placements and one
+    NoFreeTimeBlock violation per (lesson, hour_index) with
+    reason='cpsat: <status>'. On MODEL_INVALID, raises RuntimeError.
+    ADR 0030.
+    """
+
 def score_solution_json(problem_json: str, placements_json: str) -> int:
     """Score a Placement[] against a Problem using production-active weights.
 
