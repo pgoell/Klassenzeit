@@ -238,17 +238,36 @@ def _emit_cardinality(
         model.add(sum(anchor_vars[key] for key in keys) == k)
 
 
-def _emit_non_overlap(
+def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup adds bookkeeping branches; splitting hurts readability)
     model: cp_model.CpModel,
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
 ) -> None:
-    """Class, teacher, and room non-overlap at every (day, position) slot."""
+    """Class, teacher, and room non-overlap at every (day, position) slot.
+
+    Lesson-group members co-placed at the same (day, pos) (per
+    ``_emit_lesson_group_co_placement``) are treated as a single booking for
+    each class they share: per ``(class, lesson_group_id)``, only the first
+    member's per-room vars at this slot contribute to the class's per-slot
+    sum. Without this dedup, multi-class lesson groups (e.g., the dreizuegige
+    Religion trio: 3 lessons each spanning the same 3 classes, all forced to
+    co-place) make every shared class see ``sum = 3`` against ``sum <= 1``,
+    rendering the model infeasible.
+
+    Teacher and room non-overlap do NOT dedup today: the existing fixtures
+    have distinct teachers and rooms across group members. If a future fixture
+    introduces same-teacher or same-room within a group (e.g., Doppelbesetzung
+    or Foerderstunden), extend the dedup to those terms.
+    """
     lesson_lookup = lookups["lesson_lookup"]
     positions_per_day = lookups["positions_per_day"]
     for day, positions in positions_per_day.items():
         for pos in positions:
-            class_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
+            # Per (class, group_key): list of vars-at-this-slot from the FIRST
+            # member of the group seen (sorted by lesson_id for determinism).
+            # We sum those vars (== sum-over-rooms-for-that-member at this slot)
+            # to get the indicator "is this group's class booked here".
+            class_group_first: dict[tuple[str, str], tuple[str, list[cp_model.IntVar]]] = {}
             teacher_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
             room_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
             for (l_id, d, start_pos, r_id), var in anchor_vars.items():
@@ -258,10 +277,19 @@ def _emit_non_overlap(
                 n = lesson["preferred_block_size"]
                 if not (start_pos <= pos < start_pos + n):
                     continue
+                group_key = lesson.get("lesson_group_id") or l_id
                 for c_id in lesson["school_class_ids"]:
-                    class_terms[c_id].append(var)
+                    cur = class_group_first.get((c_id, group_key))
+                    if cur is None or l_id < cur[0]:
+                        class_group_first[(c_id, group_key)] = (l_id, [var])
+                    elif l_id == cur[0]:
+                        cur[1].append(var)
+                    # else: a later (higher) l_id; ignore so only the first member contributes
                 teacher_terms[lesson["teacher_id"]].append(var)
                 room_terms[r_id].append(var)
+            class_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
+            for (c_id, _g), (_l, vars_list) in class_group_first.items():
+                class_terms[c_id].extend(vars_list)
             for terms in class_terms.values():
                 if len(terms) > 1:
                     model.add(sum(terms) <= 1)

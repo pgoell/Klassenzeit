@@ -166,3 +166,59 @@ def test_solve_cpsat_json_pinned_placement_round_trip() -> None:
 def test_solve_cpsat_json_invalid_json_raises_value_error() -> None:
     with pytest.raises(ValueError):
         solve_cpsat_json("not json", deadline_ms=1_000)
+
+
+def _cpsat_lesson_group_multi_class_problem() -> str:
+    """Religion-trio shape: 3 lessons sharing one lesson_group_id, each spanning
+    the same 3 classes (multi-class), each with its own teacher and qualifying
+    on its own subject. Mirrors the dreizuegige Religion trio that broke the
+    smoke bake-off bench: lesson-group co-placement forces all 3 to land at
+    the same (day, pos), so class non-overlap must dedup by group or the
+    model is INFEASIBLE.
+    """
+    classes = [_cpsat_uuid(50 + i) for i in range(3)]
+    subjects = [_cpsat_uuid(40 + i) for i in range(3)]
+    teachers = [_cpsat_uuid(20 + i) for i in range(3)]
+    rooms = [_cpsat_uuid(30 + i) for i in range(3)]
+    group_id = _cpsat_uuid(99)
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10 + p), "day_of_week": 0, "position": p} for p in range(5)
+            ],
+            "teachers": [{"id": tid, "max_hours_per_week": 5} for tid in teachers],
+            "rooms": [{"id": rid} for rid in rooms],
+            "subjects": [{"id": sid} for sid in subjects],
+            "school_classes": [{"id": cid} for cid in classes],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60 + i),
+                    "school_class_ids": classes,
+                    "subject_id": subjects[i],
+                    "teacher_id": teachers[i],
+                    "hours_per_week": 1,
+                    "preferred_block_size": 1,
+                    "lesson_group_id": group_id,
+                }
+                for i in range(3)
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": teachers[i], "subject_id": subjects[i]} for i in range(3)
+            ],
+            "teacher_blocked_times": [],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_solve_cpsat_json_multi_class_lesson_group_co_places_at_same_slot() -> None:
+    out = solve_cpsat_json(_cpsat_lesson_group_multi_class_problem(), deadline_ms=5_000)
+    sol = json.loads(out)
+    assert sol["violations"] == [], f"expected feasible: {sol['violations'][:3]}"
+    assert len(sol["placements"]) == 3
+    times = {p["time_block_id"] for p in sol["placements"]}
+    assert len(times) == 1, f"placements not co-placed: {times}"
+    rooms = {p["room_id"] for p in sol["placements"]}
+    assert len(rooms) == 3, f"placements share rooms: {rooms}"
