@@ -17,6 +17,9 @@ use crate::types::{
 };
 use crate::validate::{pre_solve_violations, validate_no_room_hopping, validate_structural};
 
+#[cfg(feature = "solver-trace")]
+use crate::trace;
+
 /// Solve the timetable problem using lowest-delta greedy placement followed
 /// by a 200ms LAHC local-search pass. Active default soft-constraint weights
 /// are `class_gap = teacher_gap = 10`, `prefer_home_room = class_day_balance
@@ -339,6 +342,14 @@ fn try_place_block(
             if nb.day_of_week != first_tb.day_of_week
                 || nb.position != first_tb.position + (k as u8)
             {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "non_contiguous_window",
+                );
                 continue 'outer;
             }
         }
@@ -347,12 +358,38 @@ fn try_place_block(
         // lesson must be free in every member class's slot.
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-            if state.used_teacher.contains(&(teacher, tb.id)) || idx.teacher_blocked(teacher, tb.id)
-            {
+            if state.used_teacher.contains(&(teacher, tb.id)) {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "teacher_busy",
+                );
+                continue 'outer;
+            }
+            if idx.teacher_blocked(teacher, tb.id) {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "teacher_blocked",
+                );
                 continue 'outer;
             }
             for class in class_ids {
                 if state.used_class.contains(&(*class, tb.id)) {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        None,
+                        "class_busy",
+                    );
                     continue 'outer;
                 }
             }
@@ -360,6 +397,14 @@ fn try_place_block(
         let current = state.hours_by_teacher.get(&teacher).copied().unwrap_or(0);
         let max = teacher_max.get(&teacher).copied().unwrap_or(0);
         if current.saturating_add(n) > max {
+            #[cfg(feature = "solver-trace")]
+            trace::ffd_trace(
+                lesson.id,
+                first_tb.day_of_week,
+                first_tb.position,
+                None,
+                "teacher_over_capacity",
+            );
             continue;
         }
 
@@ -412,6 +457,14 @@ fn try_place_block(
         // a tied later window above an earlier one already chosen.
         if let Some(b) = &best {
             if score >= b.score {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "score_pruned",
+                );
                 continue;
             }
         }
@@ -436,6 +489,14 @@ fn try_place_block(
             }
         }
         if lock_conflict {
+            #[cfg(feature = "solver-trace")]
+            trace::ffd_trace(
+                lesson.id,
+                first_tb.day_of_week,
+                first_tb.position,
+                None,
+                "locked_room_conflict",
+            );
             continue;
         }
 
@@ -446,15 +507,50 @@ fn try_place_block(
             let room = &problem.rooms[room_idx];
             if let Some(locked) = shared_lock {
                 if room.id != locked {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        Some(room.id),
+                        "locked_room_mismatch",
+                    );
                     continue;
                 }
             }
             if !idx.room_suits_subject(room.id, lesson.subject_id) {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    Some(room.id),
+                    "room_unsuitable",
+                );
                 continue;
             }
             for k in 0..n_usize {
                 let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-                if state.used_room.contains(&(room.id, tb.id)) || idx.room_blocked(room.id, tb.id) {
+                if state.used_room.contains(&(room.id, tb.id)) {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        Some(room.id),
+                        "room_busy",
+                    );
+                    continue 'rooms;
+                }
+                if idx.room_blocked(room.id, tb.id) {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        Some(room.id),
+                        "room_blocked",
+                    );
                     continue 'rooms;
                 }
             }
@@ -465,6 +561,14 @@ fn try_place_block(
             continue;
         };
 
+        #[cfg(feature = "solver-trace")]
+        trace::ffd_trace(
+            lesson.id,
+            first_tb.day_of_week,
+            first_tb.position,
+            Some(room_id),
+            "window_candidate",
+        );
         best = Some(BlockCandidate {
             outer_pos,
             day: first_tb.day_of_week,
@@ -482,6 +586,25 @@ fn try_place_block(
     }
 
     let Some(c) = best else {
+        #[cfg(feature = "solver-trace")]
+        {
+            let kind = unplaced_kind(
+                problem,
+                lesson,
+                idx,
+                teacher_max,
+                &state.used_teacher,
+                &state.used_class,
+                &state.hours_by_teacher,
+            );
+            let reason = match kind {
+                ViolationKind::NoSuitableRoom => "unplaced_no_suitable_room",
+                ViolationKind::NoFreeTimeBlock => "unplaced_no_free_time_block",
+                ViolationKind::TeacherOverCapacity => "unplaced_teacher_over_capacity",
+                _ => "unplaced",
+            };
+            trace::ffd_trace(lesson.id, 0, 0, None, reason);
+        }
         return false;
     };
 
@@ -521,6 +644,8 @@ fn try_place_block(
         teacher_part.insert(ins, pos);
     }
     state.soft_score = c.score;
+    #[cfg(feature = "solver-trace")]
+    trace::ffd_trace(lesson.id, c.day, c.start_pos, Some(c.room_id), "placed");
     true
 }
 

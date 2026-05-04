@@ -8,6 +8,13 @@ rust-version.workspace = true
 [lib]
 # default rlib
 
+[features]
+# Enable diagnostic stderr trace lines from `try_place_block`. Off by default;
+# the trace is a one-shot diagnostic for the FFD lock-in described in the
+# active sprint of `docs/superpowers/OPEN_THINGS.md`. Production callers
+# (solver-py, the bench) never enable it.
+solver-trace = []
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
