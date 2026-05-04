@@ -19,7 +19,6 @@ use solver_core::{
     types::{
         ConstraintWeights, Lesson, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
         SchoolClass, Solution, SolveConfig, Subject, Teacher, TeacherQualification, TimeBlock,
-        ViolationKind,
     },
 };
 use uuid::Uuid;
@@ -270,27 +269,21 @@ fn no_room_hopping_within_day_for_one_subject_demo_grundschule() {
 }
 
 /// Asserts the FFD lock-in failure mode the active sprint's diagnostic phase
-/// is built around: a Grundschule-shaped Problem produces at least one
-/// `ViolationKind::NoSuitableRoom` under greedy-only solving with the
-/// production active-default weights. The fixture pins teachers per the
-/// builder's docstring and removes Klassenraum 4a from the academic pool
-/// (`room_blocked_times`) for every slot to simulate the real-world
-/// "renovation week" scenario; this is the smallest perturbation that
-/// reliably trips the lock-in given that `prefer_home_room=5` in the active
-/// defaults dominates greedy scoring otherwise.
+/// surfaced is now closed: a Grundschule-shaped Problem produces zero hard
+/// violations under greedy-only solving with the production active-default
+/// weights. The fixture pins teachers per the builder's docstring and removes
+/// Klassenraum 4a from the academic pool (`room_blocked_times`) for every slot
+/// to simulate the real-world "renovation week" scenario.
 ///
-/// Locked triple observed at this commit: `(class 4a, day 0, FÖ) -> klassenraum 1a`.
-/// FFD locks 4a's first FÖ hour into a sibling Klassenraum because 4a's home
-/// room is unavailable, then 4a's second FÖ hour cannot place because every
-/// academically-suitable room across day 0 is either locked to 4a-FÖ at the
-/// wrong position (klassenraum 1a) or busy with a sibling class's lesson.
+/// Path A (same-room-aware FFD eligibility) replaced the per-lesson
+/// `free_blocks * suitable_rooms` metric with a `(day, room)` slot-pair
+/// counter. The new metric correctly identifies 4a-FÖ as more constrained
+/// than the old metric did and FFD now places it before sibling lessons can
+/// claim the academic-suitable Klassenräume that 4a-FÖ needs.
 ///
-/// When the active sprint's item 4 lands (Path A / B / C from item 3), that
-/// PR renames this test to `ffd_does_not_lock_in_on_demo_grundschule` and
-/// flips the assertion to `assert!(solution.violations.is_empty())`. The
-/// rename is the visible signal that the regression became a guarantee.
+/// Spec: `docs/superpowers/specs/2026-05-04-solver-ffd-ordering-and-bench-design.md`.
 #[test]
-fn ffd_locks_in_on_demo_grundschule_and_returns_no_suitable_room() {
+fn ffd_does_not_lock_in_on_demo_grundschule() {
     let problem = ffd_lock_in_grundschule();
     let config = SolveConfig {
         weights: ConstraintWeights {
@@ -303,30 +296,25 @@ fn ffd_locks_in_on_demo_grundschule_and_returns_no_suitable_room() {
             prefer_late_period: 1,
             class_day_balance: 5,
         },
-        deadline: None, // greedy only; LAHC cannot escape the lock-in
+        deadline: None, // greedy only; Path A's contribution is at the FFD layer.
         ..SolveConfig::default()
     };
     let solution = solve_with_config(&problem, &config).expect("solve");
-    let no_suitable: Vec<_> = solution
-        .violations
-        .iter()
-        .filter(|v| matches!(v.kind, ViolationKind::NoSuitableRoom))
-        .collect();
     assert!(
-        !no_suitable.is_empty(),
-        "expected at least one NoSuitableRoom violation; got {:?}",
+        solution.violations.is_empty(),
+        "expected zero violations after Path A; got {:?}",
         solution.violations
     );
-    let first = no_suitable.first().expect("non-empty by previous assert");
-    let lesson = problem
+    let total_hours: u32 = problem
         .lessons
         .iter()
-        .find(|l| l.id == first.lesson_id)
-        .expect("violation lesson exists in fixture");
-    let foe_subject = SubjectId(same_room_uuid(88));
+        .map(|l| u32::from(l.hours_per_week))
+        .sum();
     assert_eq!(
-        lesson.subject_id, foe_subject,
-        "expected first NoSuitableRoom to be on subject FÖ; got {:?}; lock-in pattern may have shifted, update the test docstring",
-        lesson.subject_id,
+        solution.placements.len() as u32,
+        total_hours,
+        "expected every hour placed; got {} of {}",
+        solution.placements.len(),
+        total_hours
     );
 }

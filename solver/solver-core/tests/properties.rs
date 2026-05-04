@@ -60,6 +60,33 @@ proptest! {
         let b = serde_json::to_string(&solve_with_config(&p, &greedy_cfg()).unwrap()).unwrap();
         assert_eq!(a, b, "same input must produce byte-identical output");
     }
+
+    #[test]
+    fn ffd_order_invariant_to_lesson_input_permutation(
+        classes in 1u8..=3,
+        teachers in 2u8..=4,
+        rooms in 2u8..=3,
+        blocks in 10u8..=20,
+        subjects in 2u8..=3,
+        hours in 1u8..=2,
+    ) {
+        let problem_a = feasible_problem(classes, teachers, rooms, blocks, subjects, hours);
+        // Permute lessons deterministically (reverse) and confirm the FFD
+        // order produces the same lesson-id sequence (greedy is deterministic
+        // so the placements themselves should also match).
+        let mut problem_b = problem_a.clone();
+        problem_b.lessons.reverse();
+        let cfg = greedy_cfg();
+        let solution_a = solve_with_config(&problem_a, &cfg).expect("solve a");
+        let solution_b = solve_with_config(&problem_b, &cfg).expect("solve b");
+        let placed_lesson_ids = |s: &Solution| -> Vec<_> {
+            let mut ids: Vec<_> = s.placements.iter().map(|p| p.lesson_id).collect();
+            ids.sort_by_key(|id| id.0);
+            ids
+        };
+        prop_assert_eq!(placed_lesson_ids(&solution_a), placed_lesson_ids(&solution_b));
+        prop_assert_eq!(solution_a.placements.len(), solution_b.placements.len());
+    }
 }
 
 fn assert_every_placement_is_feasible_and_no_double_booking(p: &Problem, s: &Solution) {
