@@ -20,9 +20,61 @@ Shipped read-only views of "where is Frau Müller all week" and "what happens in
 
 Shipped drag-and-drop to move a placement, click-to-pin, and a re-solve that respects pinned placements as hard constraints. Schema: new `ScheduledLesson.pinned: bool DEFAULT FALSE NOT NULL` column plus alembic migration. Backend: three placement-mutation endpoints (`PATCH /api/placements/{id}` to move time_block + room, `PATCH /api/placements/{id}/pin` to toggle pin, `POST /api/placements/swap` for atomic swap of two placements); each commits and refreshes within the same transaction. Move and swap auto-set `pinned=true` on every affected row. `POST /api/schedule/all` gained a `respect_pins: bool = True` flag; `solver_io.collect_own_class_pins` and `collect_all_pins` thread persisted pin sets through the wire-format primitive introduced in Sprint A. The persist helpers (`persist_solution_for_class`, `persist_solution_for_all_classes`) union the input pin set with the existing DB pin set before delete-and-reinsert so pin state survives every re-solve regardless of `respect_pins`. Frontend: `@dnd-kit/core` drag layer on the class view (`useScheduleDragAndDrop` hook), pin badge on each cell, `usePinPlacement` / `useMovePlacement` / `useSwapPlacements` hooks, two-button toolbar split ("Re-solve respecting my pins" + "Generate all from scratch"). One Playwright happy-path covers the drag-and-drop flow. Critical commit-on-write bug fix during Task 8 of the sprint (commit 7542d6f) added `await db.commit()` + `await db.refresh(...)` to the placement endpoints and retroactively to `POST /api/classes/{id}/schedule` and `POST /api/schedule/all` (the bug was masked by `expire_on_commit=False` until the e2e test surfaced it). ADR [0028](../adr/0028-manual-pin-semantics.md) records the pin semantics.
 
-## Active sprint: Schwimmen + Sek-I foundations
+## Active sprint: Solver same-room reliability + Grundschule quality bar
 
-Resumed 2026-05-03 after the Scheduling UX program closed. P0 item 1 (`Stundentafel.school_type` enum + grade-range expansion) shipped 2026-05-03 in PR #165; P0 item 2 (`Room.is_external` + travel buffers) is the next pickup. Original goal preserved below.
+Started 2026-05-04 after PR #171 (`feat/solver-grundschule-constraints`) shipped the same-room hard constraint, weight bumps, the `class_day_balance` soft cost, and the `quality_checks` predicate module, but left two integration tests `xfail`-ed because FFD greedy on the demo Grundschule occasionally locks itself into infeasibility. Goal: get both tests off `xfail`, drop the demo Wochenschema to 6 periods, activate `Subject.prefer_late_period` for FÖ, and refresh the bench. Decision-driven: the first two phases diagnose the FFD flake; the third decides whether FFD can be salvaged (same-room-aware ordering or limited backtracking) or whether it has to be replaced with a constraint-solver seed phase. Tiers reflect drop-order if the sprint runs long.
+
+### Diagnostic phase
+
+1. **Reproduce the FFD lock-in deterministically.** `[P0]` Build a minimal failing fixture that reliably triggers `no_suitable_room` on `demo_grundschule` (the flake is currently non-deterministic per UUID-tiebreak in `auto_assign_teachers_for_lessons`). Record the exact `(class, day, subject)` triple FFD locks first, the room it picks, and the placement that subsequently fails. Land it as a Rust unit test in `solver/solver-core/tests/same_room_property.rs` so the regression has a name and a reproducer.
+
+2. **Instrument FFD's room-selection inner loop.** `[P0]` Add a feature-gated trace (`cfg(feature = "solver-trace")`, off by default) that emits one line per `(lesson, time_block, room) -> reject_reason` decision. Run it on the fixture from item 1; the diagnostic note for the PR body should answer: which room FFD picks first, what cost it sees, why no later room can satisfy the locked triple. Cite line numbers from `solve.rs::try_place_block`.
+
+### Decision phase
+
+3. **FFD salvage vs replace decision gate.** `[P0]` After diagnosis, pick one of three paths and justify it in the PR body:
+
+   - **Path A: same-room-aware FFD ordering.** Sort lessons so a class's same-subject placements on the same day are placed contiguously, in the same FFD step, before any other class's same-subject lesson gets a chance to claim the home room. Lowest blast radius; one change in `ordering.rs::ffd_order` plus a property test. Cheapest if diagnosis shows the lock-in is purely an ordering artefact.
+   - **Path B: limited backtracking on dead-ends.** When `try_place_block`'s room loop empties, undo the most recent `N` FFD choices and retry with each one's next-best candidate. Bounded by a small constant (3-5) so worst-case complexity stays linear. Medium change in `solve.rs`; LAHC stays untouched. Right pick if the lock-in is structural rather than ordering-driven.
+   - **Path C: replace FFD with a CP-SAT seed phase.** Drop the greedy entirely. Use a constraint-programming engine to find an initial feasible assignment, then run LAHC for optimisation. Options surveyed in the PR body: Google OR-Tools CP-SAT (Python `ortools` package via `solver-py`, well-supported on Linux + macOS; Rust binding `or-tools-rs` exists but maturity is unclear); MiniZinc + Gecode (CLI marshalling, heavier ops surface); Choco-solver (JVM-only, hard pass). Path C demands a `BASELINE.md` re-baseline and an ADR on the dependency direction. Right pick if Paths A and B both demonstrably fail in implementation.
+
+   The pick is evidence-driven; do not pre-commit to a path before items 1 and 2 land.
+
+### Implementation phase
+
+4. **Implement the chosen path.** `[P0]` Acceptance: `backend/tests/seed/test_demo_grundschule_solvability.py` passes 20 of 20 consecutive runs (`for i in $(seq 1 20); do mise run test:py -- backend/tests/seed/test_demo_grundschule_solvability.py -q; done`) without `pytest.mark.xfail` and without `monkeypatch.setattr(...solve_deadline_ms, 200)` if Path A is taken. Path B keeps LAHC available but should still satisfy greedy-only. Path C re-baselines the bench in the same commit it lands.
+
+5. **Remove the `xfail` from `test_seeded_grundschule_solves_with_zero_violations`.** `[P0]` Once item 4 lands. The matching OPEN_THINGS deferrals come off the list at the end of the sprint.
+
+### Quality-bar phase
+
+6. **Activate `Subject.prefer_late_period=5` for FÖ in the demo Grundschule seed.** `[P0]` Reverts the no-op left in PR #171 (Subject.prefer_late_period field is plumbed but FÖ ships at 0). After item 4 the FFD path is robust enough for FÖ to land late. Acceptance: solvability test still passes 20 of 20 runs; the quality predicate test reads FÖ's positions and confirms the median FÖ position is in the latter half of the day.
+
+7. **Reduce demo Grundschule Wochenschema from 7 periods to 6.** `[P0]` Drop the 13:20-14:05 row from `_PERIODS` in `demo_grundschule.py`. Update assertions in `test_demo_grundschule_shape.py` (35→30) and `test_demo_grundschule_zweizuegig_shape.py` (5×7→5×6). Keep `_PERIODS_DREIZUEGIG` at 8 periods (Ganztagsschule pattern). Acceptance: solvability + quality tests still pass 20 of 20 runs.
+
+8. **Tighten the Grundschule schedule quality bar (remove the second `xfail`).** `[P0]` Drop `pytest.mark.xfail` from `test_grundschule_schedule_quality_meets_quality_bar`. The chosen thresholds (`max_spread=2`, `min_ratio=0.6`, `max_gaps_per_class=2`, `max_position=6`) should be achievable once items 4-7 land. If a single threshold remains stubbornly red after the sprint's solver work, surface it as a sprint follow-up rather than weakening the threshold; the test exists exactly to keep that pressure visible.
+
+### Bench phase
+
+9. **Repair the zweizuegig bench fixture and refresh `BASELINE.md`.** `[P0]` The new same-room hard constraint causes the zweizuegig bench fixture's `assert!(solution.violations.is_empty())` to panic mid-bench. Two fixes possible: (a) tune the fixture's room-subject suitabilities so FFD has unambiguous candidates, or (b) loosen the bench's invariant assertion to allow `N` violations and instead assert monotonic improvement across iterations. Path (a) is cleaner and recommended. Run `mise run bench:record` after the fix and commit the new `BASELINE.md`.
+
+### UI phase
+
+10. **Wochenschema editor: replace the dialog-driven table with a grid editor.** `[P1]` Designed in PR #171's brainstorm Q9 but deferred to keep that PR reviewable. Replace `frontend/src/features/week-schemes/time-blocks-table.tsx` with a Tailwind grid mirroring `schedule-page-class-view.tsx`: columns = days, rows = period numbers, bulk "Add row" / "Remove row" + per-cell add/edit/delete. Outer/inner draft-from-fetch state per `frontend/CLAUDE.md`. Two new hooks (`useAddTimeBlockRow`, `useRemoveTimeBlockRow`) wrap existing per-block mutations. Drop tier: ships as a follow-up if items 1-9 fill the sprint, otherwise lands in the same PR.
+
+### Tidy phase
+
+11. **ADR for the chosen solver path.** `[P0]` ADR `NNNN-grundschule-solver-strategy.md` records the Path A / B / C decision, the diagnostic evidence, and the migration shape. Mandatory because the choice is load-bearing for Sprint 2 onwards (Sek-I and beyond inherit whichever search engine wins). `ls docs/adr/*.md | sort | tail -1` to assign the next number; do not assume the count.
+
+### Drop tier (P2)
+
+12. **Quality-issue endpoint.** `GET /api/schedule/quality-issues` returns `quality_checks.QualityIssue[]` for the current school's persisted schedule. Surfaces the gates the integration test asserts directly to admins; reuses `quality_checks.py` so behaviour and predicate logic don't drift. Out of scope unless an admin actually demos the need; defer to a Sprint 3+ tidy slot otherwise.
+
+13. **Multi-Wochenschema schools.** Existing Sprint B deferral, only revisit if a fixture this sprint creates two Wochenschemata.
+
+## Queued sprint: Schwimmen + Sek-I foundations
+
+Originally resumed 2026-05-03 after the Scheduling UX program closed; paused 2026-05-04 to make room for the solver-reliability sprint above. P0 item 1 (`Stundentafel.school_type` enum + grade-range expansion) shipped 2026-05-03 in PR #165; P0 item 2 (`Room.is_external` + travel buffers) is the next pickup once the active sprint closes. Original goal preserved below.
 
 Goal: ship two foundations that unlock the Beyond-Grundschule sprint sequence: (1) Schwimmunterricht modelling (`Room.is_external` flag plus per-Lesson travel buffers, with a Klasse 3 Schwimmen Doppelstunde landing in the dreizügige Grundschule fixture) and (2) a `Stundentafel.school_type` enum (`Grundschule` / `Hauptschule` / `Realschule` / `Gymnasium` / `Gesamtschule`) plus a grade-range expansion to 13 so future Sek I and Sek II fixtures have a home. Tiers reflect drop-order if the sprint runs long. Phase ordering: schema prereqs first, then solver, then the seed and tidy mix.
 
