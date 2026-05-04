@@ -1,12 +1,13 @@
 # Klassenzeit: Solver Rules
 
-Applies to the `solver/` Cargo workspace (`solver-core` + `solver-py`). Assumes the cross-cutting rules in the root `/.claude/CLAUDE.md` (no bare catchalls, unique function names, no dynamic imports, Dockerfile context rules, SHA-pinned third-party actions, Conventional Commits).
+Applies to the `solver/` Cargo workspace (`solver-core` + `solver-py` + `solver-bench`). Assumes the cross-cutting rules in the root `/.claude/CLAUDE.md` (no bare catchalls, unique function names, no dynamic imports, Dockerfile context rules, SHA-pinned third-party actions, Conventional Commits).
 
 ## Workspace layout
 
 - **`solver-core`**: pure Rust library. The scheduling algorithm, constraint model, and typed errors live here. No PyO3, no Python, no I/O beyond what callers pass in.
 - **`solver-py`**: `cdylib` crate that wraps `solver-core` via PyO3 (`0.28`) and is built by maturin into the `klassenzeit_solver` Python package. Thin wrappers only; no algorithm logic.
-- **Root `Cargo.toml`**: workspace root. Declares `edition = "2021"`, `rust-version = "1.85"`, `resolver = "2"`. Shared dev-dependency: `proptest = "1"`. Both crates inherit via `[workspace.package]` / `[workspace.dependencies]`.
+- **`solver-bench`**: Rust binary crate that runs the solver feasibility bake-off. Imports `solver_core::test_fixtures` (gated behind default-on `fixtures` Cargo feature; solver-py opts out via `default-features = false`). Single `src/main.rs`, manual CLI parsing, no external runtime deps. ADR 0029.
+- **Root `Cargo.toml`**: workspace root. Declares `edition = "2021"`, `rust-version = "1.85"`, `resolver = "2"`. Shared dev-dependency: `proptest = "1"`. All three crates inherit via `[workspace.package]` / `[workspace.dependencies]`.
 - **Root `pyproject.toml`**: uv workspace. `solver/solver-py` is a member; backend pulls it in via `klassenzeit-solver = { workspace = true }`.
 - **Hand-maintained `.pyi` stubs**: `solver/solver-py/python/klassenzeit_solver/*.pyi`. Updated in the same commit as a Rust binding change.
 
@@ -73,6 +74,7 @@ Applies to the `solver/` Cargo workspace (`solver-core` + `solver-py`). Assumes 
     1. A specific lint the contributor judges wrong in this block, with a sibling `// Reason: ...` comment naming why.
     2. PyO3 macro expansion noise (e.g., `clippy::needless_pass_by_value` from `&Bound<'_, PyModule>` in `#[pymodule]` signatures). Allow locally on the wrapper.
 - No `#[allow(dead_code)]` outside `#[cfg(test)]`. If you think you need it, run `cargo machete` (already in `mise run lint:rust`); it often surfaces the dependency you actually want to remove.
+- **`clippy::type_complexity` on `const` declarations resolves via a type alias, not `#[allow]`.** Hot pattern: `const FIXTURES: &[(&str, fn() -> Problem)]` trips the lint; replace with `type FixtureEntry = (&'static str, fn() -> Problem); const FIXTURES: &[FixtureEntry] = &[...];`. The alias is `'static` either way (string literals plus fn pointers) and it documents the intent better than the inline tuple shape. Surfaced when adding `solver-bench`.
 
 ## Commit scopes
 
@@ -100,8 +102,10 @@ Bare `solver` scope only when a paired change genuinely spans both crates (e.g.,
 - **`mise run bench:record`** re-runs the bench and overwrites `solver/solver-core/benches/BASELINE.md`. Run this if and only if the PR intentionally changes solver performance. The 20% regression budget from `docs/superpowers/OPEN_THINGS.md` (active sprint) applies against the committed file, not a personal baseline.
 - **The bench does not run in CI** (shared runners are too noisy for a 20% budget). Algorithm-phase PRs cite the `BASELINE.md` diff in the PR body.
 - **Host sensitivity.** The committed numbers anchor to the recording host; when a maintainer refreshes them they should do so on comparable hardware. The footer in `BASELINE.md` records CPU, kernel, and rustc version so reviewers can judge whether a drift is plausible.
-- **Fixtures:** three sizes inside one criterion group: `grundschule` (2 classes, 15 lessons, 45 placements), `zweizuegig` (8 classes, 68 lessons, 196 placements), and `dreizuegig` (12 classes, 102 lessons, 294 placements; exercises lesson-group co-placement via the per-Jahrgang Religion trios). Each is hand-coded in `solver-core/benches/solver_fixtures.rs` and mirrors a Python seed in `backend/.../seed/demo_*.py`; drift is caught by `assert_eq!(lessons.len(), N)` against literals shared with the matching Python solvability test. A fourth size (`gesamtschule`) is tracked under `OPEN_THINGS.md` "Acknowledged deferrals".
+- **Fixtures:** three sizes inside one criterion group: `grundschule` (2 classes, 15 lessons, 45 placements), `zweizuegig` (8 classes, 68 lessons, 196 placements), and `dreizuegig` (12 classes, 102 lessons, 294 placements; exercises lesson-group co-placement via the per-Jahrgang Religion trios). Builders live in `solver-core/src/test_fixtures.rs` (default-on `fixtures` feature; solver-py opts out) and are imported by both the criterion bench and the bake-off bench, so drift between the two is structurally impossible. A fourth size (`gesamtschule`) is tracked under `OPEN_THINGS.md` "Acknowledged deferrals".
 - **FFD is invariant to lesson input order.** Both bench fixtures iterate subjects in the natural authoring order; `ordering::ffd_order` inside `solve_with_config` sorts lessons by eligibility before placement so the global solve succeeds regardless of input permutation.
+- **`mise run bench:bakeoff`** runs the bake-off bench (`cargo run -p solver-bench --release`) per `(fixture, backend, seed)` cell against the production active-default `ConstraintWeights` and rewrites `solver/solver-core/benches/BENCH_RESULTS.md`. Output is host-stable on feasibility / hard-violations columns and host-sensitive on wall-clock columns. Default cell shape is 60s × 20 seeds × 4 fixtures × 1 backend (~80 min wall-clock); downscale during dev with `mise run bench:bakeoff -- --budget 5s --seeds 4 --fixtures grundschule --out /tmp/...`. Methodology: ADR 0029.
+- **Two artifacts, two purposes.** `BASELINE.md` (host-sensitive, criterion, 20% regression budget) gates perf regressions on algorithm PRs. `BENCH_RESULTS.md` (host-stable on feasibility, bake-off bench) gates feasibility regressions when a backend changes or a fixture is added. Neither runs in CI; algorithm-phase PRs cite the relevant diff in the PR body.
 
 ## Pointers
 
