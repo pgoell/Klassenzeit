@@ -10,5 +10,5 @@ name       = "_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
-solver-core = { path = "../solver-core", version = "0.1.0" }
+solver-core = { path = "../solver-core", version = "0.1.0", default-features = false }
 pyo3        = { version = "0.28", features = ["extension-module"] }
