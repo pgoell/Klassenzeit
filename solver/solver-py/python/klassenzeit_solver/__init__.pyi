@@ -1,3 +1,15 @@
+def score_solution_json(problem_json: str, placements_json: str) -> int:
+    """Score a Placement[] against a Problem using production-active weights.
+
+    Returns the integer soft-score that ``solve_json`` would produce on the
+    same problem given those placements. Used by the CP-SAT seed path
+    (``klassenzeit_solver.cpsat``) to populate ``Solution.soft_score``
+    post-solve so all bake-off backends compare on the same Rust scorer
+    (ADR 0030).
+
+    Raises ``ValueError`` on malformed JSON in either argument.
+    """
+
 def solve_json(problem_json: str) -> str:
     """Solve a Problem encoded as JSON, returning a Solution as JSON.
 

@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::error::Error;
+use crate::score::score_solution;
 use crate::solve::solve_with_config;
-use crate::types::{Problem, SolveConfig};
+use crate::types::{Placement, Problem, SolveConfig};
 
 /// Solve a timetable problem supplied as a JSON string and return the resulting
 /// `Solution` serialised as JSON. Uses the production-default 200 ms LAHC
@@ -50,6 +51,25 @@ pub fn solve_json_with_config(
     };
     let solution = solve_with_config(&problem, &config)?;
     serde_json::to_string(&solution).map_err(|e| Error::Input(format!("serialize: {e}")))
+}
+
+/// Score a `Placement[]` (encoded as JSON) against a `Problem` (also JSON) using
+/// the production-active `ConstraintWeights`. Returns the same `u32` soft-score
+/// that [`score_solution`] produces internally during a `solve_with_config`
+/// call. Used by the CP-SAT path in `klassenzeit_solver.cpsat` to populate
+/// `Solution.soft_score` post-solve, so all bake-off backends compare on the
+/// same Rust scorer (ADR 0030). Malformed input JSON is mapped to
+/// [`Error::Input`].
+pub fn score_solution_json(problem_json: &str, placements_json: &str) -> Result<u32, Error> {
+    let problem: Problem = serde_json::from_str(problem_json)
+        .map_err(|e| Error::Input(format!("json (problem): {e}")))?;
+    let placements: Vec<Placement> = serde_json::from_str(placements_json)
+        .map_err(|e| Error::Input(format!("json (placements): {e}")))?;
+    Ok(score_solution(
+        &problem,
+        &placements,
+        &crate::PRODUCTION_ACTIVE_WEIGHTS,
+    ))
 }
 
 /// Tagged JSON envelope that step 2's `solver-py` wrapper emits to Python so the
