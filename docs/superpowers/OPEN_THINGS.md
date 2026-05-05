@@ -6,13 +6,9 @@ Items trace back to the specs that introduced them: the [project scaffolding des
 
 ## Active sprint program: Solver feasibility correctness + observability
 
-Next pickup: P0 item 29 (`BENCH_RESULTS.md` refresh + ADR 0032 against corrected bench data). Items 26 + 27 (R&R anchor filter + property tests), item 28 (bench placement-count gate), and item 37 (R&R row-keyed rollback) shipped in PRs #183, #184, and the item-37 PR. The dev-loop bake-off receipt at `--budget 5s --seeds 4 --fixtures grundschule` post-item-37 shows `lahc_rr` and `lahc_rr_kempe` at `placements_med=45/45` with `feasibility 4/4` (matching `lahc`); zweizügig sanity at the same budget shows `lahc_rr_kempe` at `196/196 soft_med=0`. Item 29 reads off the corrected numbers.
+Next pickup: P0 item 30 (peak RAM, time-to-first-feasible, time-to-optimal columns in `BENCH_RESULTS.md`). The bench prevention phase closed with item 29 (PR for this run): canonical bake-off refreshed against the post-item-37 solver state, ADR 0032 reaffirms `lahc_rr_kempe` as production default with the corrected data. Items 26 + 27 + 28 + 37 unmasked the real `lahc_rr` numbers; the corrected verdict is stronger than ADR 0031's because the `lahc_rr` / `lahc_rr_kempe` tie is gone.
 
-Goal: (a) eliminate silent placement drops in `lahc_rr` and `lahc_rr_kempe`, (b) add prevention guards so the same class of silent regression cannot pass the bake-off again, (c) capture peak RAM, time-to-first-feasible, and time-to-optimal per backend so production-default decisions account for real cost, (d) judge produced plans on schedule quality (gaps, spread, home-room ratio) not just hard-violation counts, and (e) revisit ADR 0031 against the corrected bench data. Phase ordering: solver fix first, then prevention guards, then observability, then test realism, then backend tidy.
-
-### Bench prevention phase
-
-29. **Revisit ADR 0031 against corrected bench data.** `[P0]` ADR 0031 picked `lahc_rr_kempe` as production default off the broken bake-off output (soft=0, feasibility 20/20). Once items 26 and 28 land, refresh `mise run bench:bakeoff` and write ADR 0032 with the corrected verdict. Two likely outcomes: (a) item 26 restores `lahc_rr_kempe`'s honest numbers and the default holds, or (b) `lahc` (no R&R) becomes the new default and `cpsat` becomes the configurable fallback for harder fixtures. Update `backend/tests/core/test_settings.py::test_solver_backend_default_is_production_choice` in lockstep with the new default.
+Goal: (a) capture peak RAM, time-to-first-feasible, and time-to-optimal per backend so production-default decisions account for real cost, (b) judge produced plans on schedule quality (gaps, spread, home-room ratio) not just hard-violation counts, (c) close the test realism gap so the production-route flow is exercised on the demo seeds. Phase ordering: observability first, then test realism, then backend tidy.
 
 ### Observability phase
 
