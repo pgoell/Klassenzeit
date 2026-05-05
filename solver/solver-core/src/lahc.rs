@@ -942,10 +942,13 @@ fn rr_attempt(
     // drifts; subsequent Change moves operate on a stale score and the
     // non-negative-delta invariant inside `try_change_move` can fail. Recompute
     // exactly here so the LAHC gate decides on correct numbers and downstream
-    // moves see a consistent score. Kempe handles this via its snapshot-based
-    // delta in `kempe_post_score_delta`; R&R takes the recompute path because
-    // it doesn't pre-snapshot per-partition gap counts.
-    let new_score = crate::score::score_solution(problem, placements, weights);
+    // moves see a consistent score. Use the slice-only helper rather than
+    // `score::score_solution` because greedy / Change / Kempe maintain the
+    // class_gap + teacher_gap + subj_pref slice; including class_day_balance or
+    // home_room here contaminates `state.soft_score` and downstream Change-move
+    // deltas (slice-only) drive it negative over time.
+    let new_score =
+        running_slice_from_placements(problem, placements, weights, max_position_per_day);
     state.soft_score = new_score;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     let lahc_ok = new_score <= pre_score || new_score <= prior;
@@ -1366,22 +1369,19 @@ fn kempe_pick_room(
     None
 }
 
-/// Compute the soft-score delta from a Kempe swap by snapshotting affected
-/// partitions before the swap and recomputing them after. Returns
-/// `(touched_partitions_snapshot, removed_subject_pref_total)` to be used
-/// post-apply for the delta calculation. Pure: reads `state` and
-/// `placements` through `chain_members`; does not mutate.
-#[allow(clippy::too_many_arguments)] // Reason: internal helper
+/// Snapshot the gap counts of every (class, day) and (teacher, day) partition
+/// touched by the chain. Pure: reads `state` and `placements` through
+/// `chain_members`; does not mutate. The caller computes
+/// `removed_subject_pref` from the actual ruined rows so multi-block-on-other-
+/// day placements aren't wrongly double-counted (a chain member with another
+/// untouched block on a different day must contribute zero to the delta).
 fn kempe_snapshot_pre_score(
     chain_members: &[(LessonId, u8)],
     lesson_lookup: &HashMap<LessonId, &Lesson>,
-    subject_lookup: &HashMap<SubjectId, &Subject>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     placements: &[Placement],
     state: &crate::solve::GreedyState,
-    weights: &ConstraintWeights,
-    max_position_per_day: &HashMap<u8, u8>,
-) -> (KempePartitionSnapshot, u32) {
+) -> KempePartitionSnapshot {
     // Collect every (class, day) and (teacher, day) partition touched by
     // the chain. The `dest_day` of each member is its outgoing day; the
     // member's current placements live on the source day. Both must be
@@ -1434,38 +1434,10 @@ fn kempe_snapshot_pre_score(
         teacher_pre.insert(*key, g);
     }
 
-    // Sum of subject_pref across every chain member's current placements.
-    let mut removed_subject_pref: u32 = 0;
-    for (lesson_id, _dest_day) in chain_members {
-        let lesson = lesson_lookup
-            .get(lesson_id)
-            .expect("chain member lesson resolves");
-        let subject = subject_lookup
-            .get(&lesson.subject_id)
-            .expect("chain member subject resolves");
-        for p in placements.iter() {
-            if p.lesson_id != *lesson_id {
-                continue;
-            }
-            if let Some(tb) = tb_lookup.get(&p.time_block_id) {
-                let max_pos = max_position_per_day
-                    .get(&tb.day_of_week)
-                    .copied()
-                    .unwrap_or(tb.position);
-                removed_subject_pref = removed_subject_pref.saturating_add(
-                    crate::score::subject_preference_score(subject, tb, max_pos, weights),
-                );
-            }
-        }
+    KempePartitionSnapshot {
+        class_pre,
+        teacher_pre,
     }
-
-    (
-        KempePartitionSnapshot {
-            class_pre,
-            teacher_pre,
-        },
-        removed_subject_pref,
-    )
 }
 
 /// Pre-attempt partition gap snapshot. Used by `kempe_attempt` to compute
@@ -1616,7 +1588,7 @@ fn kempe_attempt(
     state: &mut crate::solve::GreedyState,
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
-    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
@@ -1726,21 +1698,21 @@ fn kempe_attempt(
     let mut chain_order: Vec<LessonId> = chain.keys().copied().collect();
     chain_order.sort_unstable_by_key(|id| id.0);
 
-    // Snapshot pre-attempt partition gap counts and removed subject_pref
-    // for an exact post-swap delta calculation.
+    // Snapshot pre-attempt partition gap counts. `removed_subject_pref` is
+    // accumulated below from the rr_ruin_block snapshots (the actual rows
+    // moved), since a chain member with another untouched block on a
+    // different day must not contribute to the delta.
     let chain_with_dest: Vec<(LessonId, u8)> =
         chain_order.iter().map(|id| (*id, chain[id])).collect();
-    let (partition_snapshot, removed_subject_pref) = kempe_snapshot_pre_score(
+    let partition_snapshot = kempe_snapshot_pre_score(
         &chain_with_dest,
         lesson_lookup,
-        subject_lookup,
         tb_lookup,
         placements,
         state,
-        weights,
-        max_position_per_day,
     );
 
+    let mut removed_subject_pref: u32 = 0;
     let mut snapshots: Vec<(LessonId, u8, BlockSnapshot)> = Vec::with_capacity(chain_order.len());
     for &lesson_id in &chain_order {
         let lesson = match lesson_lookup.get(&lesson_id) {
@@ -1788,6 +1760,21 @@ fn kempe_attempt(
             }
         };
         let snap = rr_ruin_block(anchor_idx, lesson, tb_lookup, placements, state);
+        let subject = subject_lookup
+            .get(&lesson.subject_id)
+            .expect("chain member subject resolves");
+        for row in &snap.rows {
+            let Some(tb) = tb_lookup.get(&row.time_block_id) else {
+                continue;
+            };
+            let max_pos = max_position_per_day
+                .get(&tb.day_of_week)
+                .copied()
+                .unwrap_or(tb.position);
+            removed_subject_pref = removed_subject_pref.saturating_add(
+                crate::score::subject_preference_score(subject, tb, max_pos, weights),
+            );
+        }
         snapshots.push((lesson_id, src, snap));
     }
 
@@ -1833,6 +1820,41 @@ fn kempe_attempt(
             .get(&lesson.subject_id)
             .copied()
             .expect("lesson subject resolves");
+        // Cap legality (ADR 0033). A chain member adds n = preferred_block_size
+        // hours of subject and 1 lesson at dest for every member class. Mirror
+        // the check in try_change_move so Kempe cannot swap a block onto a
+        // destination day where the same class would exceed
+        // Subject.max_hours_per_day or SchoolClass.max_lessons_per_day.
+        // GreedyState bookkeeping already reflects the ruined chain members
+        // plus any earlier successfully-recreated members, so a per-member
+        // check against the live counts captures the cumulative chain effect.
+        let n = lesson.preferred_block_size;
+        let cap_violated = lesson.school_class_ids.iter().any(|class| {
+            let key = (*class, dest, lesson.subject_id);
+            let current_hours = state
+                .subject_hours_by_class_day
+                .get(&key)
+                .copied()
+                .unwrap_or(0);
+            if current_hours.saturating_add(n) > subject.max_hours_per_day {
+                return true;
+            }
+            if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                let lessons_today = state
+                    .lessons_by_class_day
+                    .get(&(*class, dest))
+                    .copied()
+                    .unwrap_or(0);
+                if lessons_today.saturating_add(1) > cap {
+                    return true;
+                }
+            }
+            false
+        });
+        if cap_violated {
+            failed = true;
+            break;
+        }
         added_subject_pref = added_subject_pref.saturating_add(kempe_apply_subject_pref(
             problem,
             lesson,
@@ -2010,6 +2032,77 @@ fn kempe_rollback(
             }
         }
     }
+}
+
+/// Recompute the running-score slice (`class_gap + teacher_gap + subject_pref`)
+/// from `placements`. Matches the slice greedy / Change / Kempe maintain on
+/// `state.soft_score`. R&R uses this after a successful recreate because
+/// `rr_ruin_block` does not decrement the removed contribution and a fresh
+/// `score::score_solution` would over-count by `class_day_balance + home_room`.
+fn running_slice_from_placements(
+    problem: &Problem,
+    placements: &[Placement],
+    weights: &ConstraintWeights,
+    max_position_per_day: &HashMap<u8, u8>,
+) -> u32 {
+    let lesson_lookup: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+        problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    let subject_lookup: HashMap<SubjectId, &Subject> =
+        problem.subjects.iter().map(|s| (s.id, s)).collect();
+    let mut by_class_day: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+    let mut by_teacher_day: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
+    let mut subject_pref_total: u32 = 0;
+    for p in placements {
+        let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
+            continue;
+        };
+        let Some(tb) = tb_lookup.get(&p.time_block_id) else {
+            continue;
+        };
+        let Some(subject) = subject_lookup.get(&lesson.subject_id) else {
+            continue;
+        };
+        for class_id in &lesson.school_class_ids {
+            by_class_day
+                .entry((*class_id, tb.day_of_week))
+                .or_default()
+                .push(tb.position);
+        }
+        by_teacher_day
+            .entry((lesson.teacher_id, tb.day_of_week))
+            .or_default()
+            .push(tb.position);
+        let max_pos = max_position_per_day
+            .get(&tb.day_of_week)
+            .copied()
+            .unwrap_or(tb.position);
+        subject_pref_total = subject_pref_total.saturating_add(
+            crate::score::subject_preference_score(subject, tb, max_pos, weights),
+        );
+    }
+    let class_gap_total: u32 = by_class_day
+        .into_values()
+        .map(|mut v| {
+            v.sort_unstable();
+            v.dedup();
+            gap_count(&v)
+        })
+        .sum();
+    let teacher_gap_total: u32 = by_teacher_day
+        .into_values()
+        .map(|mut v| {
+            v.sort_unstable();
+            v.dedup();
+            gap_count(&v)
+        })
+        .sum();
+    weights
+        .class_gap
+        .saturating_mul(class_gap_total)
+        .saturating_add(weights.teacher_gap.saturating_mul(teacher_gap_total))
+        .saturating_add(subject_pref_total)
 }
 
 #[cfg(test)]
