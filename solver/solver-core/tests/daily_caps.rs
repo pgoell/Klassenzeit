@@ -188,3 +188,31 @@ fn caps_total_lessons_per_class_per_day_when_set() {
         assert!(*count <= 4, "day {day} has {count} lessons; cap is 4");
     }
 }
+
+#[test]
+fn caps_kempe_solve_under_production_caps_smoke() {
+    // Smoke test: the dreizuegig fixture reshaped to match production-school
+    // caps (`Subject.max_hours_per_day = 2` everywhere) and run with the
+    // production move config (R&R + Kempe) plus production weights. The
+    // post-condition `validate_daily_caps` inside `solve_with_config`
+    // panics on any (class, day, subject) cap violation. This exists as a
+    // forward regression guard for the move-path cap pruning; the existing
+    // fixtures hide such bugs because cap = 8 is rarely binding, but new
+    // LAHC moves added to the loop must keep this green.
+    let mut problem = solver_core::test_fixtures::dreizuegig_fixture();
+    for subject in &mut problem.subjects {
+        subject.max_hours_per_day = 2;
+    }
+
+    for seed in 0..10u64 {
+        let cfg = SolveConfig {
+            seed,
+            deadline: None,
+            max_iterations: Some(5_000),
+            weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS,
+            lahc_rr_period: Some(25),
+            lahc_kempe_period: Some(23),
+        };
+        solve_with_config(&problem, &cfg).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+    }
+}

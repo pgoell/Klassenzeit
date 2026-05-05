@@ -15,7 +15,10 @@ use crate::types::{
     ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, TimeBlock, Violation,
     ViolationKind,
 };
-use crate::validate::{pre_solve_violations, validate_no_room_hopping, validate_structural};
+use crate::validate::{
+    pre_solve_violations, validate_daily_caps, validate_no_double_booking,
+    validate_no_room_hopping, validate_structural,
+};
 
 #[cfg(feature = "solver-trace")]
 use crate::trace;
@@ -229,6 +232,19 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
 
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
     validate_no_room_hopping(problem, &solution.placements)?;
+    validate_no_double_booking(problem, &solution.placements)?;
+
+    // Debug-only post-condition: daily caps (ADR 0033) are enforced as
+    // legality pruning, so a violation here means the pruning has a hole.
+    // Loud in dev/tests, free in release.
+    #[cfg(debug_assertions)]
+    if let Err(e) = validate_daily_caps(problem, &solution.placements) {
+        panic!("daily-cap post-condition violated: {e}");
+    }
+    #[cfg(debug_assertions)]
+    if let Err(e) = validate_no_double_booking(problem, &solution.placements) {
+        panic!("no-double-booking post-condition violated: {e}");
+    }
 
     solution.soft_score = state.soft_score;
     Ok(solution)
@@ -1253,7 +1269,13 @@ fn seed_greedy_state_from_pins(
                 .entry((*class, tb.day_of_week))
                 .or_default();
             let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
-            part.insert(ins, tb.position);
+            // Lesson-group co-placement (e.g. the per-Jahrgang Religion
+            // RK/RE/ETH trio) seeds the same (class, day, position) once per
+            // member lesson. Dedup the insert so the partition stays unique
+            // and `gap_count` (which assumes a sorted dedup'd slice) holds.
+            if part.get(ins).copied() != Some(tb.position) {
+                part.insert(ins, tb.position);
+            }
             // Seed the same-room lock from authoritative pins so FFD's room
             // picker sees an existing room for this triple. One placement per
             // pinned hour increments the count by 1.
@@ -1278,7 +1300,9 @@ fn seed_greedy_state_from_pins(
             .entry((lesson.teacher_id, tb.day_of_week))
             .or_default();
         let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
-        part.insert(ins, tb.position);
+        if part.get(ins).copied() != Some(tb.position) {
+            part.insert(ins, tb.position);
+        }
     }
 }
 
