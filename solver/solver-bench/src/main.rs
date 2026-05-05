@@ -132,7 +132,20 @@ fn main() -> ExitCode {
         }
         let problem = build();
         for backend in &backends {
+            eprintln!("cell start: {} / {}", name, backend.label());
             let cell = run_cell(*backend, &problem, args.budget, args.seeds);
+            eprintln!(
+                "cell done: {} / {} feasibility {}/{} hard_med={} soft_med={} total_ms_med={:.0}",
+                name,
+                backend.label(),
+                cell.feasibility_count,
+                cell.seeds,
+                cell.hard_violations_median,
+                cell.soft_score_median
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.total_ms_median,
+            );
             write_row(&mut markdown, name, *backend, &cell);
         }
     }
