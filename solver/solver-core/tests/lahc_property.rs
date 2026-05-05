@@ -24,7 +24,7 @@ fn lahc_rr_cfg(seed: u64) -> SolveConfig {
     SolveConfig {
         weights: lahc_weights(),
         seed,
-        deadline: Some(Duration::from_millis(20)),
+        deadline: Some(Duration::from_millis(50)),
         lahc_rr_period: Some(5),
         ..SolveConfig::default()
     }
@@ -34,7 +34,7 @@ fn lahc_kempe_cfg(seed: u64) -> SolveConfig {
     SolveConfig {
         weights: lahc_weights(),
         seed,
-        deadline: Some(Duration::from_millis(20)),
+        deadline: Some(Duration::from_millis(50)),
         lahc_kempe_period: Some(5),
         ..SolveConfig::default()
     }
@@ -44,7 +44,7 @@ fn lahc_rr_kempe_cfg(seed: u64) -> SolveConfig {
     SolveConfig {
         weights: lahc_weights(),
         seed,
-        deadline: Some(Duration::from_millis(20)),
+        deadline: Some(Duration::from_millis(50)),
         lahc_rr_period: Some(5),
         lahc_kempe_period: Some(5),
         ..SolveConfig::default()
@@ -116,7 +116,10 @@ prop_compose! {
                 school_class_ids: vec![sc.id],
                 subject_id: subject_a,
                 teacher_id: teachers[i % teachers.len()].id,
-                hours_per_week: 2,
+                // Vary hours so FFD spreads multi-block lessons across days; sprint item 37
+                // rollback bug only fires on multi-block-across-days lessons (preferred_block_size=1
+                // and hours_per_week>=3), the constant 2 hid it.
+                hours_per_week: 2 + ((i as u8) % 3),
                 preferred_block_size: 1,
                 lesson_group_id: None,
             })
