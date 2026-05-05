@@ -50,6 +50,7 @@ export function SubjectFormDialog({
       prefer_late_period: subject?.prefer_late_period ?? 0,
       avoid_first_period: subject?.avoid_first_period ?? 0,
       avoid_last_period: subject?.avoid_last_period ?? 0,
+      max_hours_per_day: subject?.max_hours_per_day ?? 2,
     },
   });
   const createMutation = useCreateSubject();
@@ -213,6 +214,29 @@ export function SubjectFormDialog({
                     />
                   </FormControl>
                   <FormDescription>{t("subjects.fields.avoidLastPeriod.help")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="max_hours_per_day"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("subjects.fields.maxHoursPerDay.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      className="w-24"
+                    />
+                  </FormControl>
+                  <FormDescription>{t("subjects.fields.maxHoursPerDay.help")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

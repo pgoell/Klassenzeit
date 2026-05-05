@@ -156,6 +156,10 @@
       "avoidLastPeriod": {
         "label": "Avoid last period (weight)",
         "help": "Higher values penalise placement in the last period more strongly. 0 disables this axis."
+      },
+      "maxHoursPerDay": {
+        "label": "Hours per day (max)",
+        "help": "Maximum hours of this subject in a single day per class."
       }
     },
     "dialog": {
@@ -380,7 +384,9 @@
       "noFreeTimeBlock": "{{subject}} (hour {{hour}}): no free slot for {{teacher}} and {{class}}.",
       "noSuitableRoom": "{{subject}} (hour {{hour}}): no suitable room is available.",
       "lessonGroupSplit": "Lesson group could not be placed in a single time block.",
-      "pinnedConflict": "A pinned placement was malformed and dropped: {{reason}}."
+      "pinnedConflict": "A pinned placement was malformed and dropped: {{reason}}.",
+      "subjectDailyHourCapExceeded": "{{subject}} (hour {{hour}}): exceeds the per-day cap for this subject.",
+      "classDailyLessonCapExceeded": "{{subject}} (hour {{hour}}): exceeds the per-day cap for this class."
     },
     "cellDeletedLesson": "(deleted lesson)"
   },
@@ -409,7 +415,11 @@
       "weekSchemeLabel": "Week scheme",
       "weekSchemePlaceholder": "Select a week scheme",
       "homeRoomLabel": "Home room",
-      "homeRoomPlaceholder": "No home room"
+      "homeRoomPlaceholder": "No home room",
+      "maxLessonsPerDay": {
+        "label": "Lessons per day (max)",
+        "help": "Leave empty for no cap."
+      }
     },
     "dialog": {
       "createTitle": "New school class",

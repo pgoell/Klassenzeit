@@ -1979,6 +1979,8 @@ export interface components {
             week_scheme_id: string;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Max Lessons Per Day */
+            max_lessons_per_day?: number | null;
         };
         /**
          * SchoolClassResponse
@@ -2006,6 +2008,8 @@ export interface components {
             week_scheme_id: string;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Max Lessons Per Day */
+            max_lessons_per_day?: number | null;
             /**
              * Created At
              * Format: date-time
@@ -2032,6 +2036,8 @@ export interface components {
             week_scheme_id?: string | null;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Max Lessons Per Day */
+            max_lessons_per_day?: number | null;
         };
         /**
          * SchoolType
@@ -2163,6 +2169,11 @@ export interface components {
              * @default 0
              */
             avoid_last_period: number;
+            /**
+             * Max Hours Per Day
+             * @default 2
+             */
+            max_hours_per_day: number;
         };
         /**
          * SubjectResponse
@@ -2188,6 +2199,8 @@ export interface components {
             avoid_first_period: number;
             /** Avoid Last Period */
             avoid_last_period: number;
+            /** Max Hours Per Day */
+            max_hours_per_day: number;
             /**
              * Created At
              * Format: date-time
@@ -2218,6 +2231,8 @@ export interface components {
             avoid_first_period?: number | null;
             /** Avoid Last Period */
             avoid_last_period?: number | null;
+            /** Max Hours Per Day */
+            max_hours_per_day?: number | null;
         };
         /**
          * SuitabilityReplaceRequest
@@ -2484,7 +2499,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict";
+            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict" | "subject_daily_hour_cap_exceeded" | "class_daily_lesson_cap_exceeded";
             /**
              * Lesson Id
              * Format: uuid
