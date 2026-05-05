@@ -628,47 +628,7 @@ fn rr_ruin_block(
     let mut rows: Vec<Placement> = Vec::with_capacity(indices.len());
     for &i in indices.iter().rev() {
         let p = placements.remove(i);
-        let tb = tb_lookup
-            .get(&p.time_block_id)
-            .expect("ruin: placement tb must resolve");
-        let day = tb.day_of_week;
-        let position = tb.position;
-
-        state
-            .used_teacher
-            .remove(&(lesson.teacher_id, p.time_block_id));
-        for class in &lesson.school_class_ids {
-            state.used_class.remove(&(*class, p.time_block_id));
-            if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
-                if let Ok(j) = part.binary_search(&position) {
-                    part.remove(j);
-                }
-                if part.is_empty() {
-                    state.class_positions.remove(&(*class, day));
-                }
-            }
-        }
-        state.used_room.remove(&(p.room_id, p.time_block_id));
-        if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
-            if let Ok(j) = part.binary_search(&position) {
-                part.remove(j);
-            }
-            if part.is_empty() {
-                state.teacher_positions.remove(&(lesson.teacher_id, day));
-            }
-        }
-        if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
-            *h = h.saturating_sub(1);
-        }
-        for class in &lesson.school_class_ids {
-            let key = (*class, day, lesson.subject_id);
-            if let Some(entry) = state.locked_room.get_mut(&key) {
-                entry.1 = entry.1.saturating_sub(1);
-                if entry.1 == 0 {
-                    state.locked_room.remove(&key);
-                }
-            }
-        }
+        rr_remove_row_bookkeeping(lesson, &p, tb_lookup, state);
         rows.push(p);
     }
 
@@ -763,6 +723,7 @@ fn rr_attempt(
     let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
     let pre_score = state.soft_score;
+    let pre_count = placements.len();
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
     for (lesson_id, day) in &chosen {
         let lesson = match lesson_lookup.get(lesson_id) {
@@ -787,14 +748,28 @@ fn rr_attempt(
         snapshots.push((*lesson_id, snap));
     }
 
-    // Recreate: walk the ruined lessons in the order they were ruined.
+    // Capture every placement row added per successful recreate. Rolling
+    // back by exact row id avoids the multi-block-across-days bug where
+    // `placements.iter().position(|p| p.lesson_id == ...)` would otherwise
+    // return one of the lesson's untouched original blocks instead of the
+    // recreated one and `rr_ruin_block` would drop pristine rows.
+    let snapshotted_lesson_days: HashSet<(LessonId, u8)> = snapshots
+        .iter()
+        .filter_map(|(lesson_id, snap)| {
+            let row = snap.rows.first()?;
+            let day = tb_lookup.get(&row.time_block_id)?.day_of_week;
+            Some((*lesson_id, day))
+        })
+        .collect();
+
     let mut failed_recreates: usize = 0;
-    let mut recreated_in_order: Vec<LessonId> = Vec::with_capacity(snapshots.len());
+    let mut recreated_rows: Vec<Vec<Placement>> = Vec::with_capacity(snapshots.len());
     for (lesson_id, _snap) in snapshots.iter() {
         let lesson = lesson_lookup
             .get(lesson_id)
             .expect("ruined lesson must resolve");
         let n = lesson.preferred_block_size;
+        let len_before = placements.len();
         let placed = crate::solve::try_place_block(
             problem,
             lesson,
@@ -810,14 +785,44 @@ fn rr_attempt(
         );
         if !placed {
             failed_recreates += 1;
-        } else {
-            recreated_in_order.push(*lesson_id);
+            continue;
         }
+        let added: Vec<Placement> = placements[len_before..].to_vec();
+        // Defensive guard: if the recreate landed on a day where the same
+        // lesson already had a placement that wasn't part of this iteration's
+        // snapshot, the post-accept state would have two windows of the same
+        // lesson on one day, which `rr_collect_anchors` would then filter out
+        // forever. Treat as a recreate failure and roll back.
+        let dest_day = added
+            .first()
+            .and_then(|p| tb_lookup.get(&p.time_block_id))
+            .map(|tb| tb.day_of_week);
+        let collides = match dest_day {
+            Some(day) => {
+                !snapshotted_lesson_days.contains(&(*lesson_id, day))
+                    && placements
+                        .iter()
+                        .filter(|p| p.lesson_id == *lesson_id)
+                        .any(|p| {
+                            tb_lookup
+                                .get(&p.time_block_id)
+                                .is_some_and(|tb| tb.day_of_week == day)
+                                && !added.iter().any(|a| a.time_block_id == p.time_block_id)
+                        })
+            }
+            None => false,
+        };
+        if collides {
+            failed_recreates += 1;
+            recreated_rows.push(added);
+            continue;
+        }
+        recreated_rows.push(added);
     }
 
     if failed_recreates > 0 {
         rr_rollback(
-            &recreated_in_order,
+            &recreated_rows,
             &snapshots,
             lesson_lookup,
             tb_lookup,
@@ -825,15 +830,31 @@ fn rr_attempt(
             state,
         );
         state.soft_score = pre_score;
+        debug_assert_eq!(
+            placements.len(),
+            pre_count,
+            "rr_rollback left placement count drifted (pre={pre_count} post={})",
+            placements.len(),
+        );
         return false;
     }
 
-    let new_score = state.soft_score;
+    // `try_place_block` accumulates against `state.soft_score`, but `rr_ruin_block`
+    // does not subtract the removed placement's gap contribution from soft_score.
+    // For a successful recreate, the post-recreate `state.soft_score` therefore
+    // drifts; subsequent Change moves operate on a stale score and the
+    // non-negative-delta invariant inside `try_change_move` can fail. Recompute
+    // exactly here so the LAHC gate decides on correct numbers and downstream
+    // moves see a consistent score. Kempe handles this via its snapshot-based
+    // delta in `kempe_post_score_delta`; R&R takes the recompute path because
+    // it doesn't pre-snapshot per-partition gap counts.
+    let new_score = crate::score::score_solution(problem, placements, weights);
+    state.soft_score = new_score;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     let lahc_ok = new_score <= pre_score || new_score <= prior;
     if !lahc_ok {
         rr_rollback(
-            &recreated_in_order,
+            &recreated_rows,
             &snapshots,
             lesson_lookup,
             tb_lookup,
@@ -841,30 +862,56 @@ fn rr_attempt(
             state,
         );
         state.soft_score = pre_score;
+        debug_assert_eq!(
+            placements.len(),
+            pre_count,
+            "rr_rollback left placement count drifted (pre={pre_count} post={})",
+            placements.len(),
+        );
         return false;
     }
 
+    debug_assert_eq!(
+        placements.len(),
+        pre_count,
+        "rr_attempt accepted but placement count drifted (pre={pre_count} post={})",
+        placements.len(),
+    );
     true
 }
 
-/// Roll back a partial or complete R&R recreate. For each successfully
-/// recreated lesson, ruin it again to undo the recreate's bookkeeping. Then
-/// for each snapshot's rows, replay the original placement back into
-/// `placements` + `state`.
+/// Roll back a partial or complete R&R recreate. For each captured set of
+/// recreated rows, remove only those exact `(lesson_id, time_block_id,
+/// room_id)` rows (the Kempe pattern). Then for each snapshot, replay the
+/// original placement rows back into `placements` + `state`. The captured-rows
+/// approach avoids the multi-block-across-days hazard the older
+/// `placements.iter().position(|p| p.lesson_id == ...)` lookup had.
 fn rr_rollback(
-    recreated: &[LessonId],
+    recreated_rows: &[Vec<Placement>],
     snapshots: &[(LessonId, BlockSnapshot)],
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     placements: &mut Vec<Placement>,
     state: &mut crate::solve::GreedyState,
 ) {
-    for lesson_id in recreated.iter().rev() {
-        let lesson = lesson_lookup
-            .get(lesson_id)
-            .expect("recreated lesson resolves");
-        if let Some(idx) = placements.iter().position(|p| p.lesson_id == *lesson_id) {
-            rr_ruin_block(idx, lesson, tb_lookup, placements, state);
+    for rows in recreated_rows.iter().rev() {
+        let mut rows_to_remove: Vec<usize> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            if let Some(idx) = placements.iter().position(|p| {
+                p.lesson_id == row.lesson_id
+                    && p.time_block_id == row.time_block_id
+                    && p.room_id == row.room_id
+            }) {
+                rows_to_remove.push(idx);
+            }
+        }
+        rows_to_remove.sort_unstable();
+        for &idx in rows_to_remove.iter().rev() {
+            let p = placements.remove(idx);
+            let lesson = lesson_lookup
+                .get(&p.lesson_id)
+                .expect("rolled-back placement's lesson resolves");
+            rr_remove_row_bookkeeping(lesson, &p, tb_lookup, state);
         }
     }
     for (lesson_id, snapshot) in snapshots.iter().rev() {
@@ -873,6 +920,57 @@ fn rr_rollback(
             .expect("snapshot lesson resolves");
         for row in snapshot.rows.iter().rev() {
             replay_placement(lesson, row, tb_lookup, placements, state);
+        }
+    }
+}
+
+/// Decrement the per-row bookkeeping for one removed placement: matches the
+/// inner loop of `rr_ruin_block` row-by-row. Lifted into its own helper so
+/// `rr_rollback` and `rr_ruin_block` share the same source of truth.
+fn rr_remove_row_bookkeeping(
+    lesson: &Lesson,
+    row: &Placement,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    state: &mut crate::solve::GreedyState,
+) {
+    let tb = tb_lookup
+        .get(&row.time_block_id)
+        .expect("removed row's tb resolves");
+    let day = tb.day_of_week;
+    let position = tb.position;
+    state
+        .used_teacher
+        .remove(&(lesson.teacher_id, row.time_block_id));
+    for class in &lesson.school_class_ids {
+        state.used_class.remove(&(*class, row.time_block_id));
+        if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
+            if let Ok(j) = part.binary_search(&position) {
+                part.remove(j);
+            }
+            if part.is_empty() {
+                state.class_positions.remove(&(*class, day));
+            }
+        }
+    }
+    state.used_room.remove(&(row.room_id, row.time_block_id));
+    if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
+        if let Ok(j) = part.binary_search(&position) {
+            part.remove(j);
+        }
+        if part.is_empty() {
+            state.teacher_positions.remove(&(lesson.teacher_id, day));
+        }
+    }
+    if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
+        *h = h.saturating_sub(1);
+    }
+    for class in &lesson.school_class_ids {
+        let key = (*class, day, lesson.subject_id);
+        if let Some(entry) = state.locked_room.get_mut(&key) {
+            entry.1 = entry.1.saturating_sub(1);
+            if entry.1 == 0 {
+                state.locked_room.remove(&key);
+            }
         }
     }
 }
