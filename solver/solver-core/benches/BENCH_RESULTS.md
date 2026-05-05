@@ -4,24 +4,24 @@
 
 | Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | lahc | 5 | 5/5 | 0 | 15 | 0.17 | 30000 |
-| grundschule | lahc_rr | 5 | 5/5 | 0 | 0 | 0.14 | 30000 |
-| grundschule | lahc_rr_kempe | 5 | 5/5 | 0 | 0 | 0.13 | 30000 |
-| grundschule | cpsat | 5 | 5/5 | 0 | 317 | 0.00 | 414 |
-| zweizuegig | lahc | 5 | 5/5 | 0 | 49 | 0.65 | 30001 |
-| zweizuegig | lahc_rr | 5 | 5/5 | 0 | 0 | 0.61 | 30001 |
-| zweizuegig | lahc_rr_kempe | 5 | 5/5 | 0 | 0 | 0.60 | 30001 |
-| zweizuegig | cpsat | 5 | 5/5 | 0 | 2737 | 0.00 | 6254 |
-| dreizuegig | lahc | 5 | 5/5 | 0 | 210 | 3.10 | 30002 |
-| dreizuegig | lahc_rr | 5 | 5/5 | 0 | 0 | 1.67 | 30001 |
-| dreizuegig | lahc_rr_kempe | 5 | 5/5 | 0 | 0 | 1.57 | 30002 |
-| dreizuegig | cpsat | 5 | 0/5 | 294 | - | 0.00 | 1757 |
-| lock_in | lahc | 5 | 5/5 | 0 | 43 | 0.88 | 30000 |
-| lock_in | lahc_rr | 5 | 5/5 | 0 | 0 | 0.45 | 30000 |
-| lock_in | lahc_rr_kempe | 5 | 5/5 | 0 | 0 | 0.44 | 30000 |
-| lock_in | cpsat | 5 | 5/5 | 0 | 1248 | 0.00 | 526 |
+| grundschule | lahc | 20 | 20/20 | 0 | 15 | 0.37 | 60000 |
+| grundschule | lahc_rr | 20 | 20/20 | 0 | 0 | 0.13 | 60000 |
+| grundschule | lahc_rr_kempe | 20 | 20/20 | 0 | 0 | 0.14 | 60000 |
+| grundschule | cpsat | 20 | 20/20 | 0 | 349 | 0.00 | 445 |
+| zweizuegig | lahc | 20 | 20/20 | 0 | 50 | 0.64 | 60001 |
+| zweizuegig | lahc_rr | 20 | 20/20 | 0 | 0 | 0.60 | 60001 |
+| zweizuegig | lahc_rr_kempe | 20 | 20/20 | 0 | 0 | 0.60 | 60001 |
+| zweizuegig | cpsat | 20 | 20/20 | 0 | 2798 | 0.00 | 5772 |
+| dreizuegig | lahc | 20 | 20/20 | 0 | 206 | 3.13 | 60002 |
+| dreizuegig | lahc_rr | 20 | 20/20 | 0 | 0 | 1.54 | 60002 |
+| dreizuegig | lahc_rr_kempe | 20 | 20/20 | 0 | 0 | 1.53 | 60002 |
+| dreizuegig | cpsat | 20 | 20/20 | 0 | 5285 | 0.00 | 12539 |
+| lock_in | lahc | 20 | 20/20 | 0 | 43 | 0.45 | 60000 |
+| lock_in | lahc_rr | 20 | 20/20 | 0 | 0 | 0.45 | 60000 |
+| lock_in | lahc_rr_kempe | 20 | 20/20 | 0 | 0 | 0.44 | 60000 |
+| lock_in | cpsat | 20 | 20/20 | 0 | 1289 | 0.00 | 570 |
 
-Refreshed 2026-05-04 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
+Refreshed 2026-05-05 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
 
 Refresh with `mise run bench:bakeoff` when a backend changes or a fixture is added. The
 bench is host-sensitive on wall-clock columns and host-stable on feasibility / hard-violation
