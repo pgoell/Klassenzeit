@@ -466,22 +466,23 @@ async def collect_pinned_placements(
     """Return persisted ScheduledLesson rows as solver wire-format pin entries.
 
     Returns one ``{"lesson_id", "time_block_id", "room_id"}`` dict per
-    ScheduledLesson row whose Lesson does NOT belong to any class in
-    ``exclude_class_ids``. Cross-class lessons (membership in >= 2 classes)
-    are pinned only if NONE of their classes are excluded; if at least one
-    is excluded, the placement is dropped because it spans the requested
-    class scope.
+    ScheduledLesson row whose Lesson has at least one class membership
+    OUTSIDE ``exclude_class_ids``. Single-class lessons in excluded classes
+    are dropped (the focus class re-places them); cross-class lessons are
+    pinned whenever any sibling class would otherwise see drift on a
+    per-class re-solve. Lessons whose membership lies entirely inside
+    ``exclude_class_ids`` are dropped.
 
     Output ordered by ``(lesson_id, time_block_id)`` for determinism.
     """
-    excluded_lessons_subq = (
+    pinned_lessons_subq = (
         select(LessonSchoolClass.lesson_id)
-        .where(LessonSchoolClass.school_class_id.in_(exclude_class_ids))
+        .where(LessonSchoolClass.school_class_id.notin_(exclude_class_ids))
         .scalar_subquery()
     )
     stmt = (
         select(ScheduledLesson)
-        .where(ScheduledLesson.lesson_id.notin_(excluded_lessons_subq))
+        .where(ScheduledLesson.lesson_id.in_(pinned_lessons_subq))
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
