@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, SmallInteger, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, SmallInteger, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -22,6 +22,7 @@ class SchoolClass(Base):
     home_room_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True
     )
+    max_lessons_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

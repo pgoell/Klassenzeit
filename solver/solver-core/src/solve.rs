@@ -85,6 +85,11 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         .iter()
         .map(|t| (t.id, t.max_hours_per_week))
         .collect();
+    let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = problem
+        .school_classes
+        .iter()
+        .filter_map(|c| c.max_lessons_per_day.map(|cap| (c.id, cap)))
+        .collect();
 
     // Seed greedy bookkeeping from surviving pinned placements so the FFD
     // loop's existing conflict checks treat pinned slots as occupied.
@@ -148,6 +153,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                             n,
                             &idx,
                             &teacher_max,
+                            &class_max_lessons_per_day,
                             &config.weights,
                             &mut state,
                             &mut solution.placements,
@@ -184,6 +190,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
                 n,
                 &idx,
                 &teacher_max,
+                &class_max_lessons_per_day,
                 &config.weights,
                 &mut state,
                 &mut solution.placements,
@@ -217,6 +224,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &mut solution.placements,
         &mut state,
         &pinned,
+        &class_max_lessons_per_day,
     );
 
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
@@ -246,6 +254,15 @@ pub(crate) struct GreedyState {
     /// triple so LAHC can remove the lock when its last placement leaves the
     /// triple.
     pub(crate) locked_room: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)>,
+    /// Per-`(class, day, subject)` cap-aware hour counter; mirrors the
+    /// running total compared against `Subject.max_hours_per_day`. Updated
+    /// in `try_place_block`'s accept path and decremented in the row-removal
+    /// helper used by `rr_ruin_block` and `kempe_rollback`.
+    pub(crate) subject_hours_by_class_day: HashMap<(SchoolClassId, u8, SubjectId), u8>,
+    /// Per-`(class, day)` cap-aware lesson counter; mirrors the running
+    /// total compared against `SchoolClass.max_lessons_per_day` (when set).
+    /// Maintained in lockstep with the existing per-class bookkeeping.
+    pub(crate) lessons_by_class_day: HashMap<(SchoolClassId, u8), u8>,
     pub(crate) soft_score: u32,
 }
 
@@ -259,6 +276,8 @@ impl GreedyState {
             class_positions: HashMap::new(),
             teacher_positions: HashMap::new(),
             locked_room: HashMap::new(),
+            subject_hours_by_class_day: HashMap::new(),
+            lessons_by_class_day: HashMap::new(),
             soft_score: 0,
         }
     }
@@ -304,6 +323,7 @@ pub(crate) fn try_place_block(
     n: u8,
     idx: &Indexed,
     teacher_max: &HashMap<TeacherId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     weights: &ConstraintWeights,
     state: &mut GreedyState,
     placements: &mut Vec<Placement>,
@@ -383,6 +403,48 @@ pub(crate) fn try_place_block(
                         first_tb.position,
                         None,
                         "class_busy",
+                    );
+                    continue 'outer;
+                }
+            }
+        }
+        // Per-day caps: reject windows that would push any member class past
+        // `Subject.max_hours_per_day` or past `SchoolClass.max_lessons_per_day`
+        // (when set). One block contributes `n` to subject hours and `1` to
+        // class lessons.
+        let subject_cap = subject.max_hours_per_day;
+        for class in class_ids {
+            let key = (*class, first_tb.day_of_week, lesson.subject_id);
+            let current_hours = state
+                .subject_hours_by_class_day
+                .get(&key)
+                .copied()
+                .unwrap_or(0);
+            if current_hours.saturating_add(n) > subject_cap {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "subject_daily_cap",
+                );
+                continue 'outer;
+            }
+            if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                let lessons_today = state
+                    .lessons_by_class_day
+                    .get(&(*class, first_tb.day_of_week))
+                    .copied()
+                    .unwrap_or(0);
+                if lessons_today.saturating_add(1) > cap {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        None,
+                        "class_daily_lesson_cap",
                     );
                     continue 'outer;
                 }
@@ -631,6 +693,17 @@ pub(crate) fn try_place_block(
             .entry((*class, c.day, lesson.subject_id))
             .or_insert((c.room_id, 0));
         entry.1 += u32::from(n);
+        // Per-day cap counters: subject hours add `n` (period span); class
+        // lessons add `1` (one block per accepted call). Decremented in
+        // `rr_remove_row_bookkeeping` per row (n=1 each call).
+        *state
+            .subject_hours_by_class_day
+            .entry((*class, c.day, lesson.subject_id))
+            .or_insert(0) += n;
+        *state
+            .lessons_by_class_day
+            .entry((*class, c.day))
+            .or_insert(0) += 1;
     }
     let teacher_part = state.teacher_positions.entry((teacher, c.day)).or_default();
     for pos in c.start_pos..=c.end_pos {
@@ -682,6 +755,7 @@ fn try_place_group(
     n: u8,
     idx: &Indexed,
     teacher_max: &HashMap<TeacherId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     weights: &ConstraintWeights,
     state: &mut GreedyState,
     placements: &mut Vec<Placement>,
@@ -753,6 +827,58 @@ fn try_place_group(
                 .unwrap_or(0);
             let max = teacher_max.get(&member.teacher_id).copied().unwrap_or(0);
             if current.saturating_add(n) > max {
+                continue 'outer;
+            }
+        }
+
+        // Per-day caps gate. Each member contributes n hours of its subject
+        // to its classes; the shared class set adds 1 lesson per member to
+        // each class. Reject windows that would push any class past its
+        // cap on any subject or past `max_lessons_per_day` (when set).
+        {
+            let day_of_week = first_tb.day_of_week;
+            let mut subject_cap_violated = false;
+            for member in &members {
+                let member_subject = problem
+                    .subjects
+                    .iter()
+                    .find(|s| s.id == member.subject_id)
+                    .expect("validate_structural ensures member subject_id resolves");
+                for class in &member.school_class_ids {
+                    let key = (*class, day_of_week, member.subject_id);
+                    let current_hours = state
+                        .subject_hours_by_class_day
+                        .get(&key)
+                        .copied()
+                        .unwrap_or(0);
+                    if current_hours.saturating_add(n) > member_subject.max_hours_per_day {
+                        subject_cap_violated = true;
+                        break;
+                    }
+                }
+                if subject_cap_violated {
+                    break;
+                }
+            }
+            if subject_cap_violated {
+                continue 'outer;
+            }
+            let mut class_cap_violated = false;
+            for class in &class_set {
+                if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                    let lessons_today = state
+                        .lessons_by_class_day
+                        .get(&(*class, day_of_week))
+                        .copied()
+                        .unwrap_or(0);
+                    let added = u8::try_from(members.len()).unwrap_or(u8::MAX);
+                    if lessons_today.saturating_add(added) > cap {
+                        class_cap_violated = true;
+                        break;
+                    }
+                }
+            }
+            if class_cap_violated {
                 continue 'outer;
             }
         }
@@ -945,7 +1071,24 @@ fn try_place_group(
                 .entry((*class, c.day, member.subject_id))
                 .or_insert((room_id, 0));
             entry.1 += u32::from(n);
+            *state
+                .subject_hours_by_class_day
+                .entry((*class, c.day, member.subject_id))
+                .or_insert(0) += n;
         }
+    }
+    // Each lesson-group member is one lesson; bump per-class lesson count
+    // by the number of members whose class set includes the class.
+    for class in &class_set {
+        let added = members
+            .iter()
+            .filter(|m| m.school_class_ids.contains(class))
+            .count();
+        let added_u8 = u8::try_from(added).unwrap_or(u8::MAX);
+        *state
+            .lessons_by_class_day
+            .entry((*class, c.day))
+            .or_insert(0) += added_u8;
     }
     state.soft_score = c.score;
     true
@@ -1119,6 +1262,16 @@ fn seed_greedy_state_from_pins(
                 .entry((*class, tb.day_of_week, lesson.subject_id))
                 .or_insert((pl.room_id, 0));
             entry.1 += 1;
+            // Per-day cap counters: each pinned row contributes 1 hour and
+            // 1 lesson to the matching keys.
+            *state
+                .subject_hours_by_class_day
+                .entry((*class, tb.day_of_week, lesson.subject_id))
+                .or_insert(0) += 1;
+            *state
+                .lessons_by_class_day
+                .entry((*class, tb.day_of_week))
+                .or_insert(0) += 1;
         }
         let part = state
             .teacher_positions
@@ -1187,10 +1340,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(solve_uuid(50)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(solve_uuid(60)),
@@ -1254,6 +1409,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.room_subject_suitabilities.push(RoomSubjectSuitability {
             room_id: RoomId(solve_uuid(30)),
@@ -1299,6 +1455,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -1332,6 +1489,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),
@@ -1358,6 +1516,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1434,6 +1593,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1507,6 +1667,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
@@ -1771,6 +1932,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1829,6 +1991,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1934,6 +2097,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(22)),
@@ -2009,6 +2173,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(20)),

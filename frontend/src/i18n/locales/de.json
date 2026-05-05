@@ -156,6 +156,10 @@
       "avoidLastPeriod": {
         "label": "Letzte Stunde meiden (Gewicht)",
         "help": "Höhere Werte gewichten die Platzierung in der letzten Stunde stärker negativ. 0 deaktiviert diese Achse."
+      },
+      "maxHoursPerDay": {
+        "label": "Stunden pro Tag (max)",
+        "help": "Maximale Stunden dieses Fachs an einem Tag pro Klasse."
       }
     },
     "dialog": {
@@ -380,7 +384,9 @@
       "noFreeTimeBlock": "{{subject}} (Stunde {{hour}}): kein freier Slot für {{teacher}} und {{class}}.",
       "noSuitableRoom": "{{subject}} (Stunde {{hour}}): kein passender Raum verfügbar.",
       "lessonGroupSplit": "Gruppenstunde konnte nicht in einem gemeinsamen Zeitblock platziert werden.",
-      "pinnedConflict": "Eine fixierte Platzierung war fehlerhaft und wurde verworfen: {{reason}}."
+      "pinnedConflict": "Eine fixierte Platzierung war fehlerhaft und wurde verworfen: {{reason}}.",
+      "subjectDailyHourCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für dieses Fach.",
+      "classDailyLessonCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für diese Klasse."
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },
@@ -409,7 +415,11 @@
       "weekSchemeLabel": "Wochenschema",
       "weekSchemePlaceholder": "Wochenschema wählen",
       "homeRoomLabel": "Klassenraum",
-      "homeRoomPlaceholder": "Kein Klassenraum"
+      "homeRoomPlaceholder": "Kein Klassenraum",
+      "maxLessonsPerDay": {
+        "label": "Stunden pro Tag (max)",
+        "help": "Leer lassen für kein Limit."
+      }
     },
     "dialog": {
       "createTitle": "Neue Klasse",

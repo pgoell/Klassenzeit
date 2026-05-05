@@ -32,6 +32,7 @@ pub(crate) fn run(
     placements: &mut Vec<Placement>,
     state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
 ) {
     let Some(deadline) = config.deadline else {
         return;
@@ -81,6 +82,15 @@ pub(crate) fn run(
         .iter()
         .map(|t| (t.id, t.max_hours_per_week))
         .collect();
+    // Sum of `hours_per_week` across all lessons is the placement-count floor:
+    // every lesson-hour materialises as one `Placement`. The LAHC loop can exit
+    // early once this floor is reached AND `state.soft_score == 0`, since no
+    // further iteration can improve a feasible objective-floor incumbent.
+    let placements_expected: usize = problem
+        .lessons
+        .iter()
+        .map(|l| l.hours_per_week as usize)
+        .sum();
 
     let mut iter: u64 = 0;
     while iter < max_iter && start.elapsed() < deadline {
@@ -107,6 +117,7 @@ pub(crate) fn run(
                 &room_order,
                 &max_position_per_day,
                 &teacher_max,
+                class_max_lessons_per_day,
                 &lahc_list,
                 iter,
             );
@@ -125,6 +136,7 @@ pub(crate) fn run(
                 state,
                 &room_order,
                 &max_position_per_day,
+                class_max_lessons_per_day,
                 &lahc_list,
                 iter,
             );
@@ -148,6 +160,7 @@ pub(crate) fn run(
                 placements,
                 state,
                 pinned,
+                class_max_lessons_per_day,
                 &lahc_list,
                 iter,
             );
@@ -155,6 +168,9 @@ pub(crate) fn run(
 
         iter += 1;
         lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
+        if state.soft_score == 0 && placements.len() == placements_expected {
+            break;
+        }
     }
 }
 
@@ -176,6 +192,7 @@ fn try_change_move(
     placements: &mut [Placement],
     state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
@@ -217,6 +234,41 @@ fn try_change_move(
     }
     if idx.teacher_blocked(teacher, new_tb.id) {
         return false;
+    }
+
+    // Per-day cap check at the destination day. When the move stays on the
+    // same day, the (class, day, subject) hour count and (class, day) lesson
+    // count both stay constant; the cap cannot newly become violated. When
+    // the move crosses to a different day, the destination day gains 1 hour
+    // and 1 lesson for each member class, so check destination headroom.
+    if old_tb.day_of_week != new_tb.day_of_week {
+        for class in class_ids {
+            let subject_cap = problem
+                .subjects
+                .iter()
+                .find(|s| s.id == lesson.subject_id)
+                .map(|s| s.max_hours_per_day)
+                .unwrap_or(u8::MAX);
+            let key = (*class, new_tb.day_of_week, lesson.subject_id);
+            let current_hours = state
+                .subject_hours_by_class_day
+                .get(&key)
+                .copied()
+                .unwrap_or(0);
+            if current_hours.saturating_add(1) > subject_cap {
+                return false;
+            }
+            if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                let lessons_today = state
+                    .lessons_by_class_day
+                    .get(&(*class, new_tb.day_of_week))
+                    .copied()
+                    .unwrap_or(0);
+                if lessons_today.saturating_add(1) > cap {
+                    return false;
+                }
+            }
+        }
     }
 
     // Same-room hard constraint at new_day: the destination triple's lock
@@ -575,6 +627,34 @@ fn apply_change_move(
         let entry = state.locked_room.entry(new_key).or_insert((new_room_id, 0));
         entry.1 += 1;
     }
+
+    // Per-day cap counters: decrement at old_day and increment at new_day.
+    // Same-day moves are net-zero (both keys are identical) so the order
+    // matters: do decrement first, then increment.
+    for class in class_ids {
+        let old_hour_key = (*class, old_tb.day_of_week, subject_id);
+        if let Some(h) = state.subject_hours_by_class_day.get_mut(&old_hour_key) {
+            *h = h.saturating_sub(1);
+            if *h == 0 {
+                state.subject_hours_by_class_day.remove(&old_hour_key);
+            }
+        }
+        let old_lesson_key = (*class, old_tb.day_of_week);
+        if let Some(c) = state.lessons_by_class_day.get_mut(&old_lesson_key) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                state.lessons_by_class_day.remove(&old_lesson_key);
+            }
+        }
+        *state
+            .subject_hours_by_class_day
+            .entry((*class, new_tb.day_of_week, subject_id))
+            .or_insert(0) += 1;
+        *state
+            .lessons_by_class_day
+            .entry((*class, new_tb.day_of_week))
+            .or_insert(0) += 1;
+    }
 }
 
 /// Number of block-anchors per R&R attempt. Hardcoded today; a follow-up
@@ -630,6 +710,21 @@ fn rr_ruin_block(
         let p = placements.remove(i);
         rr_remove_row_bookkeeping(lesson, &p, tb_lookup, state);
         rows.push(p);
+    }
+
+    // The accept path increments `lessons_by_class_day` once per block; mirror
+    // that with a single per-block decrement here, after the per-row helper
+    // has handled subject hours and other counters.
+    if !rows.is_empty() {
+        for class in &lesson.school_class_ids {
+            let lesson_key = (*class, anchor_day);
+            if let Some(c) = state.lessons_by_class_day.get_mut(&lesson_key) {
+                *c = c.saturating_sub(1);
+                if *c == 0 {
+                    state.lessons_by_class_day.remove(&lesson_key);
+                }
+            }
+        }
     }
 
     BlockSnapshot { rows }
@@ -709,6 +804,7 @@ fn rr_attempt(
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
     teacher_max: &HashMap<TeacherId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
@@ -776,6 +872,7 @@ fn rr_attempt(
             n,
             idx,
             teacher_max,
+            class_max_lessons_per_day,
             weights,
             state,
             placements,
@@ -905,6 +1002,13 @@ fn rr_rollback(
                 rows_to_remove.push(idx);
             }
         }
+        // Capture the (lesson, day) of the recreated block so we can mirror
+        // the per-block lesson-cap decrement after row removals complete.
+        let block_day_lesson = rows.first().and_then(|first| {
+            tb_lookup
+                .get(&first.time_block_id)
+                .map(|tb| (first.lesson_id, tb.day_of_week))
+        });
         rows_to_remove.sort_unstable();
         for &idx in rows_to_remove.iter().rev() {
             let p = placements.remove(idx);
@@ -913,6 +1017,19 @@ fn rr_rollback(
                 .expect("rolled-back placement's lesson resolves");
             rr_remove_row_bookkeeping(lesson, &p, tb_lookup, state);
         }
+        if let Some((lesson_id, day)) = block_day_lesson {
+            if let Some(lesson) = lesson_lookup.get(&lesson_id) {
+                for class in &lesson.school_class_ids {
+                    let lesson_key = (*class, day);
+                    if let Some(c) = state.lessons_by_class_day.get_mut(&lesson_key) {
+                        *c = c.saturating_sub(1);
+                        if *c == 0 {
+                            state.lessons_by_class_day.remove(&lesson_key);
+                        }
+                    }
+                }
+            }
+        }
     }
     for (lesson_id, snapshot) in snapshots.iter().rev() {
         let lesson = lesson_lookup
@@ -920,6 +1037,15 @@ fn rr_rollback(
             .expect("snapshot lesson resolves");
         for row in snapshot.rows.iter().rev() {
             replay_placement(lesson, row, tb_lookup, placements, state);
+        }
+        // Per-block lesson-cap counter: +1 per replayed snapshot block.
+        if let Some(first) = snapshot.rows.first() {
+            if let Some(tb) = tb_lookup.get(&first.time_block_id) {
+                let day = tb.day_of_week;
+                for class in &lesson.school_class_ids {
+                    *state.lessons_by_class_day.entry((*class, day)).or_insert(0) += 1;
+                }
+            }
         }
     }
 }
@@ -972,7 +1098,19 @@ fn rr_remove_row_bookkeeping(
                 state.locked_room.remove(&key);
             }
         }
+        // Subject-hour cap counter decrements by 1 per removed row (the
+        // accept path adds `n` once, balanced by `n` row removals).
+        if let Some(h) = state.subject_hours_by_class_day.get_mut(&key) {
+            *h = h.saturating_sub(1);
+            if *h == 0 {
+                state.subject_hours_by_class_day.remove(&key);
+            }
+        }
     }
+    // Note: `lessons_by_class_day` is not touched here. The accept path
+    // increments by 1 per block, not per row, so the matching decrement
+    // happens once per block in the caller (`rr_ruin_block` /
+    // `kempe_rollback`).
 }
 
 /// Re-add a single previously-removed placement row to `placements` +
@@ -1016,7 +1154,12 @@ fn replay_placement(
         let key = (*class, day, lesson.subject_id);
         let entry = state.locked_room.entry(key).or_insert((row.room_id, 0));
         entry.1 += 1;
+        // Subject-hour cap counter increments by 1 per replayed row.
+        *state.subject_hours_by_class_day.entry(key).or_insert(0) += 1;
     }
+    // Note: `lessons_by_class_day` is not touched here. The caller
+    // (`rr_rollback` / `kempe_rollback`) handles the per-block increment
+    // once per snapshot.
 }
 
 /// Maximum chain length per Kempe attempt. Hardcoded today; a follow-up
@@ -1440,7 +1583,16 @@ fn kempe_apply_block(
             let key = (*class, dest_day, lesson.subject_id);
             let entry = state.locked_room.entry(key).or_insert((room_id, 0));
             entry.1 += 1;
+            // Subject-hour cap counter increments by 1 per row.
+            *state.subject_hours_by_class_day.entry(key).or_insert(0) += 1;
         }
+    }
+    // Per-block lesson-cap counter: +1 per block (one call to this fn).
+    for class in &lesson.school_class_ids {
+        *state
+            .lessons_by_class_day
+            .entry((*class, dest_day))
+            .or_insert(0) += 1;
     }
 }
 
@@ -1464,6 +1616,7 @@ fn kempe_attempt(
     state: &mut crate::solve::GreedyState,
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
+    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
@@ -1774,6 +1927,7 @@ fn kempe_rollback(
                 rows_to_remove.push(idx);
             }
         }
+        let block_was_present = !rows_to_remove.is_empty();
         rows_to_remove.sort_unstable();
         for &idx in rows_to_remove.iter().rev() {
             let p = placements.remove(idx);
@@ -1816,6 +1970,26 @@ fn kempe_rollback(
                         state.locked_room.remove(&key);
                     }
                 }
+                // Subject-hour cap counter decrements by 1 per removed row.
+                if let Some(h) = state.subject_hours_by_class_day.get_mut(&key) {
+                    *h = h.saturating_sub(1);
+                    if *h == 0 {
+                        state.subject_hours_by_class_day.remove(&key);
+                    }
+                }
+            }
+        }
+        // Per-block lesson-cap counter: -1 once per recreated block we just
+        // tore down (matches `kempe_apply_block`'s per-call +1).
+        if block_was_present {
+            for class in &lesson.school_class_ids {
+                let lesson_key = (*class, *dest_day);
+                if let Some(c) = state.lessons_by_class_day.get_mut(&lesson_key) {
+                    *c = c.saturating_sub(1);
+                    if *c == 0 {
+                        state.lessons_by_class_day.remove(&lesson_key);
+                    }
+                }
             }
         }
     }
@@ -1825,6 +1999,15 @@ fn kempe_rollback(
             .expect("snapshot lesson resolves");
         for row in snapshot.rows.iter().rev() {
             replay_placement(lesson, row, tb_lookup, placements, state);
+        }
+        // Per-block lesson-cap counter: +1 per replayed snapshot block.
+        if let Some(first) = snapshot.rows.first() {
+            if let Some(tb) = tb_lookup.get(&first.time_block_id) {
+                let day = tb.day_of_week;
+                for class in &lesson.school_class_ids {
+                    *state.lessons_by_class_day.entry((*class, day)).or_insert(0) += 1;
+                }
+            }
         }
     }
 }
@@ -2282,10 +2465,12 @@ mod tests {
                 avoid_first_period: 1,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,
@@ -2342,6 +2527,7 @@ mod tests {
             &mut placements,
             &mut state,
             &HashSet::new(),
+            &HashMap::new(),
         );
 
         assert_eq!(placements.len(), 1);
@@ -2402,10 +2588,12 @@ mod tests {
                 avoid_first_period: 1,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,
@@ -2473,6 +2661,7 @@ mod tests {
             &mut placements,
             &mut state,
             &HashSet::new(),
+            &HashMap::new(),
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
@@ -2545,15 +2734,18 @@ mod tests {
                 avoid_first_period: 1,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![
                 SchoolClass {
                     id: class_a,
                     home_room_id: None,
+                    max_lessons_per_day: None,
                 },
                 SchoolClass {
                     id: class_b,
                     home_room_id: None,
+                    max_lessons_per_day: None,
                 },
             ],
             lessons: vec![
@@ -2643,6 +2835,7 @@ mod tests {
             &mut placements,
             &mut state,
             &HashSet::new(),
+            &HashMap::new(),
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
@@ -2676,6 +2869,7 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -2718,6 +2912,7 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -2757,6 +2952,7 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![],
             lessons: vec![],
@@ -2825,10 +3021,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![
                 Lesson {
@@ -2956,10 +3154,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: lessons_v,
             teacher_qualifications: qualifications,
@@ -3080,6 +3280,7 @@ mod tests {
                 &mut snap_state,
                 &room_order,
                 &max_position_per_day,
+                &HashMap::new(),
                 &lahc_list,
                 0,
             );
@@ -3119,6 +3320,8 @@ mod tests {
             class_positions: s.class_positions.clone(),
             teacher_positions: s.teacher_positions.clone(),
             locked_room: s.locked_room.clone(),
+            subject_hours_by_class_day: s.subject_hours_by_class_day.clone(),
+            lessons_by_class_day: s.lessons_by_class_day.clone(),
             soft_score: s.soft_score,
         }
     }
@@ -3293,6 +3496,7 @@ mod tests {
             .map(|i| SchoolClass {
                 id: SchoolClassId(lahc_uuid(50 + i)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             })
             .collect();
         let teachers_v: Vec<Teacher> = (0..N)
@@ -3358,6 +3562,7 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: classes,
             lessons: lessons_v,
@@ -3453,10 +3658,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![
                 Lesson {
@@ -3588,6 +3795,7 @@ mod tests {
                 &mut snap_s,
                 &room_order,
                 &max_position_per_day,
+                &HashMap::new(),
                 &lahc_list,
                 0,
             );
@@ -3703,15 +3911,18 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![
                 SchoolClass {
                     id: class_chain,
                     home_room_id: None,
+                    max_lessons_per_day: None,
                 },
                 SchoolClass {
                     id: class_lock,
                     home_room_id: None,
+                    max_lessons_per_day: None,
                 },
             ],
             lessons: vec![
@@ -3918,6 +4129,7 @@ mod tests {
                 &mut s,
                 &room_order,
                 &max_position_per_day,
+                &HashMap::new(),
                 &lahc_list,
                 0,
             );
@@ -3993,10 +4205,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,

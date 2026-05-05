@@ -385,6 +385,113 @@ async def test_update_school_class_clears_home_room_id_when_patched_null(
     assert patch_response.json()["home_room_id"] is None
 
 
+async def test_create_school_class_defaults_max_lessons_per_day_to_null(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes without max_lessons_per_day defaults to None."""
+    await create_test_user(email="admin@sc-cap-default.com", role="admin")
+    await login_as("admin@sc-cap-default.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-Cap-Default", 4)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-Cap-Default")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "4a-Cap-Default",
+            "grade_level": 4,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["max_lessons_per_day"] is None
+
+
+async def test_school_class_round_trips_explicit_max_lessons_per_day(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes with explicit max_lessons_per_day round-trips through the response."""
+    await create_test_user(email="admin@sc-cap-explicit.com", role="admin")
+    await login_as("admin@sc-cap-explicit.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-Cap-Explicit", 5)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-Cap-Explicit")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "5a-Cap-Explicit",
+            "grade_level": 5,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "max_lessons_per_day": 5,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["max_lessons_per_day"] == 5
+
+
+async def test_school_class_max_lessons_per_day_clears_on_patch_null(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} with explicit null max_lessons_per_day clears the value."""
+    await create_test_user(email="admin@sc-cap-clear.com", role="admin")
+    await login_as("admin@sc-cap-clear.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-Cap-Clear", 6)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-Cap-Clear")
+    create = await client.post(
+        "/api/classes",
+        json={
+            "name": "6a-Cap-Clear",
+            "grade_level": 6,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "max_lessons_per_day": 6,
+        },
+    )
+    class_id = create.json()["id"]
+    assert create.json()["max_lessons_per_day"] == 6
+
+    patch = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"max_lessons_per_day": None},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["max_lessons_per_day"] is None
+
+
+async def test_school_class_max_lessons_per_day_updates_on_patch(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} with a number updates max_lessons_per_day."""
+    await create_test_user(email="admin@sc-cap-update.com", role="admin")
+    await login_as("admin@sc-cap-update.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-Cap-Update", 7)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-Cap-Update")
+    create = await client.post(
+        "/api/classes",
+        json={
+            "name": "7a-Cap-Update",
+            "grade_level": 7,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+        },
+    )
+    class_id = create.json()["id"]
+
+    patch = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"max_lessons_per_day": 8},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["max_lessons_per_day"] == 8
+
+
 async def test_create_school_class_grade_level_too_high(
     client: AsyncClient,
     create_test_user: CreateUserFn,

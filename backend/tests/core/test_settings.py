@@ -158,3 +158,23 @@ def test_solver_backend_default_is_production_choice(monkeypatch: pytest.MonkeyP
     settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
 
     assert settings.solver_backend == "lahc_rr_kempe"
+
+
+def test_solve_deadline_ms_default_is_5000(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production default is 5s; .env.test overrides to 0 for greedy-only tests.
+
+    Raised from 200 ms to 5000 ms once the LAHC outer loop gained an
+    objective-floor early-exit predicate: easy problems still finish in
+    well under 100 ms, hard problems get the additional budget to escape
+    local optima. Update this assertion AND the matching ADR in lockstep
+    when a future bake-off refresh changes the verdict.
+    """
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS", raising=False)
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solve_deadline_ms == 5000

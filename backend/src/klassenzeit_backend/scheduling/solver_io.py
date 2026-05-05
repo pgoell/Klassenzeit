@@ -312,6 +312,7 @@ async def build_problem_json(
                 "prefer_late_period": s.prefer_late_period,
                 "avoid_first_period": s.avoid_first_period,
                 "avoid_last_period": s.avoid_last_period,
+                "max_hours_per_day": s.max_hours_per_day,
             }
             for s in subjects
         ],
@@ -319,6 +320,7 @@ async def build_problem_json(
             {
                 "id": str(c.id),
                 "home_room_id": str(c.home_room_id) if c.home_room_id else None,
+                "max_lessons_per_day": c.max_lessons_per_day,
             }
             for c in involved_classes
         ],

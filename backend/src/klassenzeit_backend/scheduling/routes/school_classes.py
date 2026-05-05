@@ -56,6 +56,7 @@ def _to_response(school_class: SchoolClass) -> SchoolClassResponse:
         stundentafel_id=school_class.stundentafel_id,
         week_scheme_id=school_class.week_scheme_id,
         home_room_id=school_class.home_room_id,
+        max_lessons_per_day=school_class.max_lessons_per_day,
         created_at=school_class.created_at,
         updated_at=school_class.updated_at,
     )
@@ -86,6 +87,7 @@ async def create_school_class_route(
         stundentafel_id=body.stundentafel_id,
         week_scheme_id=body.week_scheme_id,
         home_room_id=body.home_room_id,
+        max_lessons_per_day=body.max_lessons_per_day,
     )
     db.add(school_class)
     try:
@@ -176,6 +178,8 @@ async def update_school_class_route(
         school_class.week_scheme_id = body.week_scheme_id
     if "home_room_id" in body.model_fields_set:
         school_class.home_room_id = body.home_room_id
+    if "max_lessons_per_day" in body.model_fields_set:
+        school_class.max_lessons_per_day = body.max_lessons_per_day
     try:
         await db.commit()
     except IntegrityError as exc:

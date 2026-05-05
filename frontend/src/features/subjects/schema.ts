@@ -9,6 +9,7 @@ export const SubjectFormSchema = z.object({
   prefer_late_period: z.number().int().min(0).max(10),
   avoid_first_period: z.number().int().min(0).max(10),
   avoid_last_period: z.number().int().min(0).max(10),
+  max_hours_per_day: z.number().int().min(1).max(20),
 });
 
 export type SubjectFormValues = z.infer<typeof SubjectFormSchema>;

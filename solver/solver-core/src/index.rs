@@ -107,6 +107,7 @@ mod tests {
                     avoid_first_period: 0,
                     avoid_last_period: 0,
                     prefer_late_period: 0,
+                    max_hours_per_day: 8,
                 },
                 Subject {
                     id: SubjectId(u(6)),
@@ -114,11 +115,13 @@ mod tests {
                     avoid_first_period: 0,
                     avoid_last_period: 0,
                     prefer_late_period: 0,
+                    max_hours_per_day: 8,
                 },
             ],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(u(7)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(u(8)),

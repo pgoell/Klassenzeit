@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Solver
-    solve_deadline_ms: int | None = 200
+    solve_deadline_ms: int | None = 5000
     solver_backend: Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] = "lahc_rr_kempe"
 
 

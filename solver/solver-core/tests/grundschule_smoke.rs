@@ -57,6 +57,7 @@ fn grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         })
         .collect();
 
@@ -65,6 +66,7 @@ fn grundschule() -> Problem {
         .map(|i| SchoolClass {
             id: SchoolClassId(grundschule_uuid(70 + i)),
             home_room_id: None,
+            max_lessons_per_day: None,
         })
         .collect();
 

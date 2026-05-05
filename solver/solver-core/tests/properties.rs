@@ -214,10 +214,12 @@ proptest! {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let class = SchoolClass {
             id: SchoolClassId(Uuid::from_bytes([50; 16])),
             home_room_id: None,
+            max_lessons_per_day: None,
         };
         let qual = TeacherQualification {
             teacher_id: teacher.id,

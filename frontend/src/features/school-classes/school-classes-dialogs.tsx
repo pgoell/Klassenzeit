@@ -14,6 +14,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -64,6 +65,7 @@ export function SchoolClassFormDialog({
       stundentafel_id: schoolClass?.stundentafel_id ?? "",
       week_scheme_id: schoolClass?.week_scheme_id ?? "",
       home_room_id: schoolClass?.home_room_id ?? null,
+      max_lessons_per_day: schoolClass?.max_lessons_per_day ?? null,
     },
   });
   const createMutation = useCreateSchoolClass();
@@ -92,6 +94,7 @@ export function SchoolClassFormDialog({
       stundentafel_id: values.stundentafel_id,
       week_scheme_id: values.week_scheme_id,
       home_room_id: values.home_room_id,
+      max_lessons_per_day: values.max_lessons_per_day,
     };
     if (schoolClass) {
       await updateMutation.mutateAsync({ id: schoolClass.id, body });
@@ -259,6 +262,33 @@ export function SchoolClassFormDialog({
                   </FormItem>
                 );
               }}
+            />
+            <FormField
+              control={form.control}
+              name="max_lessons_per_day"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("schoolClasses.fields.maxLessonsPerDay.label")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={field.value ?? ""}
+                      onChange={(e) =>
+                        field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                      }
+                      className="w-24"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t("schoolClasses.fields.maxLessonsPerDay.help")}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
             <DialogFooter>
               <Button type="submit" disabled={submitting || missingPrereqs}>

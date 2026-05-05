@@ -67,6 +67,7 @@ async def create_subject_route(
         prefer_late_period=body.prefer_late_period,
         avoid_first_period=body.avoid_first_period,
         avoid_last_period=body.avoid_last_period,
+        max_hours_per_day=body.max_hours_per_day,
     )
     db.add(subject)
     try:
@@ -86,6 +87,7 @@ async def create_subject_route(
         prefer_late_period=subject.prefer_late_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
+        max_hours_per_day=subject.max_hours_per_day,
         created_at=subject.created_at,
         updated_at=subject.updated_at,
     )
@@ -116,6 +118,7 @@ async def list_subjects(
             prefer_late_period=s.prefer_late_period,
             avoid_first_period=s.avoid_first_period,
             avoid_last_period=s.avoid_last_period,
+            max_hours_per_day=s.max_hours_per_day,
             created_at=s.created_at,
             updated_at=s.updated_at,
         )
@@ -152,6 +155,7 @@ async def get_subject(
         prefer_late_period=subject.prefer_late_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
+        max_hours_per_day=subject.max_hours_per_day,
         created_at=subject.created_at,
         updated_at=subject.updated_at,
     )
@@ -194,6 +198,8 @@ async def update_subject(
         subject.avoid_first_period = body.avoid_first_period
     if body.avoid_last_period is not None:
         subject.avoid_last_period = body.avoid_last_period
+    if body.max_hours_per_day is not None:
+        subject.max_hours_per_day = body.max_hours_per_day
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -211,6 +217,7 @@ async def update_subject(
         prefer_late_period=subject.prefer_late_period,
         avoid_first_period=subject.avoid_first_period,
         avoid_last_period=subject.avoid_last_period,
+        max_hours_per_day=subject.max_hours_per_day,
         created_at=subject.created_at,
         updated_at=subject.updated_at,
     )
