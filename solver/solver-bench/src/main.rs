@@ -20,6 +20,18 @@ use solver_core::test_fixtures::{
 use solver_core::types::{Problem, SolveConfig};
 use solver_core::PRODUCTION_ACTIVE_WEIGHTS;
 
+/// Total number of placements a fully solved problem must produce: one per (lesson, hour).
+/// `placements.len() < placements_expected_for_problem(problem)` is a feasibility failure
+/// even when `solution.violations` is empty (a placement drop during local search does
+/// not grow the violation list). Bench harness predicate.
+fn placements_expected_for_problem(problem: &Problem) -> u64 {
+    problem
+        .lessons
+        .iter()
+        .map(|l| l.hours_per_week as u64)
+        .sum()
+}
+
 #[derive(Clone, Copy)]
 enum BenchBackend {
     Lahc,
@@ -131,16 +143,19 @@ fn main() -> ExitCode {
             continue;
         }
         let problem = build();
+        let expected = placements_expected_for_problem(&problem);
         for backend in &backends {
             eprintln!("cell start: {} / {}", name, backend.label());
-            let cell = run_cell(*backend, &problem, args.budget, args.seeds);
+            let cell = run_cell(*backend, &problem, expected, args.budget, args.seeds);
             eprintln!(
-                "cell done: {} / {} feasibility {}/{} hard_med={} soft_med={} total_ms_med={:.0}",
+                "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} soft_med={} total_ms_med={:.0}",
                 name,
                 backend.label(),
                 cell.feasibility_count,
                 cell.seeds,
                 cell.hard_violations_median,
+                cell.placements_total_median,
+                cell.placements_expected,
                 cell.soft_score_median
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "-".to_string()),
@@ -164,14 +179,22 @@ struct CellResult {
     seeds: u64,
     feasibility_count: u64,
     hard_violations_median: u32,
+    placements_total_median: u64,
+    placements_expected: u64,
     soft_score_median: Option<u32>,
     ffd_ms_median: f64,
     total_ms_median: f64,
 }
 
-fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u64) -> CellResult {
+fn run_cell(
+    backend: BenchBackend,
+    problem: &Problem,
+    expected: u64,
+    budget: Duration,
+    seeds: u64,
+) -> CellResult {
     if let BenchBackend::CpSat = backend {
-        return run_cpsat_cell(problem, budget, seeds);
+        return run_cpsat_cell(problem, expected, budget, seeds);
     }
 
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
@@ -187,6 +210,7 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
 
     let mut total_ms_samples: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut hard_violations_samples: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut placements_total_samples: Vec<u64> = Vec::with_capacity(seeds as usize);
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
@@ -210,19 +234,27 @@ fn run_cell(backend: BenchBackend, problem: &Problem, budget: Duration, seeds: u
         let solution = solve_with_config(problem, &cfg).expect("solve");
         let total_ms = start.elapsed().as_secs_f64() * 1_000.0;
         let hard = solution.violations.len() as u32;
-        let feasible = hard == 0;
+        let placements_total = solution.placements.len() as u64;
+        debug_assert!(
+            placements_total <= expected,
+            "placements_total ({placements_total}) > expected ({expected}); structural invariant violated",
+        );
+        let feasible = hard == 0 && placements_total == expected;
         if feasible {
             feasibility_count += 1;
             soft_score_feasible.push(solution.soft_score);
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
+        placements_total_samples.push(placements_total);
     }
 
     CellResult {
         seeds,
         feasibility_count,
         hard_violations_median: median_u32(&mut hard_violations_samples),
+        placements_total_median: median_u64(&mut placements_total_samples),
+        placements_expected: expected,
         soft_score_median: if soft_score_feasible.is_empty() {
             None
         } else {
@@ -259,7 +291,7 @@ fn tempfile_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("{prefix}{nanos}{suffix}"))
 }
 
-fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult {
+fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64) -> CellResult {
     let problem_json =
         serde_json::to_string(problem).expect("serialise problem for cpsat subprocess");
     let tmpfile = tempfile_path("kz-bench-problem-", ".json");
@@ -267,6 +299,7 @@ fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult
 
     let mut total_ms_samples: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut hard_violations_samples: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut placements_total_samples: Vec<u64> = Vec::with_capacity(seeds as usize);
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
@@ -283,12 +316,14 @@ fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult
                 );
                 hard_violations_samples.push(u32::MAX);
                 total_ms_samples.push(total_ms);
+                placements_total_samples.push(0);
                 continue;
             }
             Err(e) => {
                 eprintln!("cpsat subprocess error (seed={seed}): {e}");
                 hard_violations_samples.push(u32::MAX);
                 total_ms_samples.push(total_ms);
+                placements_total_samples.push(0);
                 continue;
             }
         };
@@ -298,11 +333,17 @@ fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult
                 eprintln!("cpsat parse error (seed={seed}): {e}");
                 hard_violations_samples.push(u32::MAX);
                 total_ms_samples.push(total_ms);
+                placements_total_samples.push(0);
                 continue;
             }
         };
         let hard = solution.violations.len() as u32;
-        let feasible = hard == 0;
+        let placements_total = solution.placements.len() as u64;
+        debug_assert!(
+            placements_total <= expected,
+            "cpsat placements_total ({placements_total}) > expected ({expected}); structural invariant violated",
+        );
+        let feasible = hard == 0 && placements_total == expected;
         if feasible {
             feasibility_count += 1;
             let soft = solver_core::score_solution(
@@ -314,6 +355,7 @@ fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
+        placements_total_samples.push(placements_total);
     }
 
     let _ = std::fs::remove_file(&tmpfile);
@@ -322,6 +364,8 @@ fn run_cpsat_cell(problem: &Problem, budget: Duration, seeds: u64) -> CellResult
         seeds,
         feasibility_count,
         hard_violations_median: median_u32(&mut hard_violations_samples),
+        placements_total_median: median_u64(&mut placements_total_samples),
+        placements_expected: expected,
         soft_score_median: if soft_score_feasible.is_empty() {
             None
         } else {
@@ -338,6 +382,12 @@ fn median_u32(values: &mut [u32]) -> u32 {
     values[mid]
 }
 
+fn median_u64(values: &mut [u64]) -> u64 {
+    values.sort_unstable();
+    let mid = values.len() / 2;
+    values[mid]
+}
+
 fn median_f64(values: &mut [f64]) -> f64 {
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mid = values.len() / 2;
@@ -347,8 +397,8 @@ fn median_f64(values: &mut [f64]) -> f64 {
 fn write_header(out: &mut String) {
     out.push_str("# Solver bake-off feasibility bench\n\n");
     out.push_str("<!-- Regenerated by `mise run bench:bakeoff`. Do not hand-edit. -->\n\n");
-    out.push_str("| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) |\n");
-    out.push_str("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    out.push_str("| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) |\n");
+    out.push_str("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
 }
 
 fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &CellResult) {
@@ -357,11 +407,13 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         None => "-".to_string(),
     };
     out.push_str(&format!(
-        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {soft} | {ffd:.2} | {total:.0} |\n",
+        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {ffd:.2} | {total:.0} |\n",
         backend = backend.label(),
         seeds = cell.seeds,
         n = cell.feasibility_count,
         hard = cell.hard_violations_median,
+        placed = cell.placements_total_median,
+        expected = cell.placements_expected,
         ffd = cell.ffd_ms_median,
         total = cell.total_ms_median,
     ));
@@ -495,6 +547,8 @@ mod tests {
             seeds: 20,
             feasibility_count: 0,
             hard_violations_median: 1,
+            placements_total_median: 0,
+            placements_expected: 0,
             soft_score_median: None,
             ffd_ms_median: 0.05,
             total_ms_median: 60050.0,
@@ -512,6 +566,8 @@ mod tests {
             seeds: 20,
             feasibility_count: 20,
             hard_violations_median: 0,
+            placements_total_median: 0,
+            placements_expected: 0,
             soft_score_median: Some(10),
             ffd_ms_median: 1.0,
             total_ms_median: 60100.0,
@@ -527,6 +583,8 @@ mod tests {
             seeds: 20,
             feasibility_count: 20,
             hard_violations_median: 0,
+            placements_total_median: 0,
+            placements_expected: 0,
             soft_score_median: Some(10),
             ffd_ms_median: 1.0,
             total_ms_median: 60100.0,
@@ -542,6 +600,8 @@ mod tests {
             seeds: 20,
             feasibility_count: 18,
             hard_violations_median: 0,
+            placements_total_median: 0,
+            placements_expected: 0,
             soft_score_median: Some(15),
             ffd_ms_median: 0.0,
             total_ms_median: 60050.0,
@@ -549,6 +609,62 @@ mod tests {
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::CpSat, &cell);
         assert!(out.contains("| cpsat |"));
+    }
+
+    #[test]
+    fn write_row_renders_placements_column() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 20,
+            hard_violations_median: 0,
+            placements_total_median: 196,
+            placements_expected: 196,
+            soft_score_median: Some(10),
+            ffd_ms_median: 1.0,
+            total_ms_median: 60100.0,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "zweizuegig", BenchBackend::LahcRr, &cell);
+        assert!(
+            out.contains("| 196/196 |"),
+            "expected `| 196/196 |` somewhere in row, got: {out}"
+        );
+    }
+
+    #[test]
+    fn write_row_renders_underflow_placement_count() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 0,
+            hard_violations_median: 0,
+            placements_total_median: 60,
+            placements_expected: 196,
+            soft_score_median: None,
+            ffd_ms_median: 0.5,
+            total_ms_median: 60000.0,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "zweizuegig", BenchBackend::LahcRr, &cell);
+        assert!(
+            out.contains("| 60/196 |"),
+            "expected `| 60/196 |` somewhere in row, got: {out}"
+        );
+        assert!(
+            out.contains("| 0/20 |"),
+            "expected `| 0/20 |` (feasibility) somewhere in row, got: {out}"
+        );
+    }
+
+    #[test]
+    fn placements_expected_for_problem_sums_hours_per_week() {
+        let problem = grundschule_fixture();
+        let manual_sum: u64 = problem
+            .lessons
+            .iter()
+            .map(|l| l.hours_per_week as u64)
+            .sum();
+        assert_eq!(placements_expected_for_problem(&problem), manual_sum);
+        assert_eq!(placements_expected_for_problem(&problem), 45);
     }
 
     #[test]
