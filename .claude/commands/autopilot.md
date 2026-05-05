@@ -136,7 +136,13 @@ Then:
 - Update `docs/architecture/overview.md` if subsystems changed.
 - Add an ADR at `docs/adr/NNNN-<short-title>.md` for load-bearing decisions (new dep, new subsystem, new toolchain). Index in `docs/adr/README.md`.
 - Update `README.md` commands table if new `mise run` tasks landed.
-- Update `docs/superpowers/OPEN_THINGS.md`: remove resolved items, add follow-ups ordered by importance.
+- Update `docs/superpowers/OPEN_THINGS.md`. The file is for OPEN items only. Completed work does not belong anywhere in this file: not at the top, not under a "Completed sprints" section, not as `✅ Shipped` markers inline. Specifically:
+    - When an item ships, DELETE it from OPEN_THINGS entirely. Do not leave a `✅ Shipped <date> in PR #<N>` line behind. The PR description and `git log` are the canonical record of what shipped; OPEN_THINGS is the canonical record of what is still open.
+    - When a PR closes the last open work in the active sprint program, promote the next `## Queued sprint: ...` to `## Active sprint program: ...` and DELETE the closed sprint section. Open quality / tuning items the closed sprint deferred move to a `## Open <topic> follow-ups` section between the new active sprint and `## Planned future sprints`, NOT to a "Completed" section (no such section exists in this file).
+    - When an item under `## Acknowledged deferrals` closes (intentionally or by side effect), DELETE the entry. Do not leave "Closed YYYY-MM-DD" annotations.
+    - PR-number references that name PRs from the lifetime of an open item (e.g., "the regression PR #171 left this xfail behind") are fine: those name a still-relevant historical anchor for an open item. The rule is about closed items, not historical references.
+    - `## Reference data` (e.g., the Hessen Grundschule reference table) is research that future sprints consume. It is not "completed work" and stays in the file.
+    - Add new follow-ups ordered by importance within whichever section fits (active sprint's tidy phase, `## Open <topic> follow-ups`, or `## Backlog`). Don't add duplicates.
 - **Workflow improvements.** If the run surfaced anything that should change `.claude/commands/autopilot.md` or any other workflow doc, edit it now and commit on the feature branch. Reflect on: decisions that weren't captured anywhere, surprising failure modes, points where the skills didn't fire when they should have. Keep changes minimal and concrete; one sentence per learning.
 - **Auto-memory updates.** Refresh `/home/pascal/.claude/projects/-home-pascal-Code-Klassenzeit/memory/` entries (roadmap status, feedback, references) so the next session starts from the current truth.
 
