@@ -676,24 +676,27 @@ fn rr_ruin_block(
 }
 
 /// Collect the set of `(lesson, day)` blocks eligible to be ruined by an R&R
-/// attempt. Returns one tuple per block for lessons that are neither pinned
-/// nor part of a lesson group. The single-anchor-per-block contract lets the
-/// recreate step call `try_place_block` once per chosen anchor. Returned in a
-/// deterministic order so the R&R RNG shuffle reproduces under a fixed seed.
+/// or Kempe attempt. Returns one tuple per block for lessons that are
+/// neither pinned nor part of a lesson group, and only when the day holds
+/// exactly one block of the lesson (`count(placements_on_day) <=
+/// preferred_block_size`). The single-anchor-per-block contract lets the
+/// recreate step call `try_place_block` once per chosen anchor without
+/// silently dropping placements when FFD packed multiple `N=1` rows of the
+/// same lesson on one day for compactness. Returned in a deterministic
+/// order so the R&R / Kempe RNG shuffle reproduces under a fixed seed.
 ///
 /// Tuples (not placement indices) because a single ruin removes every
 /// placement of a lesson on its day, which can shift indices both above and
 /// below other anchors when a lesson has multiple non-contiguous block
-/// placements on the same day. Callers look up the current placement index at
-/// ruin time from this tuple.
+/// placements on the same day. Callers look up the current placement index
+/// at ruin time from this tuple.
 fn rr_collect_anchors(
     placements: &[Placement],
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     pinned: &HashSet<LessonId>,
 ) -> Vec<(LessonId, u8)> {
-    let mut seen: HashSet<(LessonId, u8)> = HashSet::new();
-    let mut anchors: Vec<(LessonId, u8)> = Vec::new();
+    let mut counts: HashMap<(LessonId, u8), u32> = HashMap::new();
     for p in placements.iter() {
         let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
             continue;
@@ -707,11 +710,20 @@ fn rr_collect_anchors(
         let Some(tb) = tb_lookup.get(&p.time_block_id) else {
             continue;
         };
-        let key = (p.lesson_id, tb.day_of_week);
-        if seen.insert(key) {
-            anchors.push(key);
-        }
+        *counts.entry((p.lesson_id, tb.day_of_week)).or_insert(0) += 1;
     }
+
+    let mut anchors: Vec<(LessonId, u8)> = counts
+        .into_iter()
+        .filter_map(|((lesson_id, day), count)| {
+            let lesson = lesson_lookup.get(&lesson_id)?;
+            if count <= u32::from(lesson.preferred_block_size) {
+                Some((lesson_id, day))
+            } else {
+                None
+            }
+        })
+        .collect();
     // Deterministic order before the R&R RNG shuffles.
     anchors.sort_unstable_by(|a, b| a.0 .0.cmp(&b.0 .0).then(a.1.cmp(&b.1)));
     anchors
@@ -1359,31 +1371,10 @@ fn kempe_attempt(
 ) -> bool {
     let pre_score = state.soft_score;
 
-    // Seed pick: collect block-anchors (R&R eligibility rules; identical for
-    // Kempe). Filter out anchors where the lesson has more than one block
-    // on the chosen day; FFD can pack two N=1 blocks of the same lesson
-    // onto one day for compactness, which would make the swap drop hours.
-    // Empty means there is nothing eligible to swap.
-    let raw_anchors = rr_collect_anchors(placements, lesson_lookup, tb_lookup, pinned);
-    let anchors: Vec<(LessonId, u8)> = raw_anchors
-        .into_iter()
-        .filter(|(lesson_id, day)| {
-            let lesson = match lesson_lookup.get(lesson_id) {
-                Some(l) => *l,
-                None => return false,
-            };
-            let hours_on_day = placements
-                .iter()
-                .filter(|p| {
-                    p.lesson_id == *lesson_id
-                        && tb_lookup
-                            .get(&p.time_block_id)
-                            .is_some_and(|tb| tb.day_of_week == *day)
-                })
-                .count();
-            hours_on_day == usize::from(lesson.preferred_block_size)
-        })
-        .collect();
+    // Seed pick: rr_collect_anchors filters (lesson, day) where FFD packed
+    // multiple N=1 blocks of the same lesson on one day. See its doc
+    // comment for the single-anchor-per-block invariant.
+    let anchors = rr_collect_anchors(placements, lesson_lookup, tb_lookup, pinned);
     if anchors.is_empty() {
         return false;
     }

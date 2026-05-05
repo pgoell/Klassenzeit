@@ -40,6 +40,17 @@ fn lahc_kempe_cfg(seed: u64) -> SolveConfig {
     }
 }
 
+fn lahc_rr_kempe_cfg(seed: u64) -> SolveConfig {
+    SolveConfig {
+        weights: lahc_weights(),
+        seed,
+        deadline: Some(Duration::from_millis(20)),
+        lahc_rr_period: Some(5),
+        lahc_kempe_period: Some(5),
+        ..SolveConfig::default()
+    }
+}
+
 fn lahc_id_from(n: u32) -> Uuid {
     let mut bytes = [0u8; 16];
     bytes[12..16].copy_from_slice(&n.to_be_bytes());
@@ -222,6 +233,36 @@ proptest! {
         }).unwrap();
         let lahc_rr = solve_with_config(&p, &lahc_rr_cfg(7)).unwrap();
         prop_assert!(lahc_rr.violations.len() <= greedy.violations.len());
+    }
+
+    #[test]
+    fn lahc_rr_never_decreases_placement_count(p in lahc_small_problem()) {
+        let greedy = solve_with_config(&p, &SolveConfig {
+            weights: lahc_weights(),
+            ..SolveConfig::default()
+        }).unwrap();
+        let lahc_rr = solve_with_config(&p, &lahc_rr_cfg(7)).unwrap();
+        prop_assert!(
+            lahc_rr.placements.len() >= greedy.placements.len(),
+            "lahc_rr dropped placements: {} < greedy {}",
+            lahc_rr.placements.len(),
+            greedy.placements.len(),
+        );
+    }
+
+    #[test]
+    fn lahc_rr_kempe_never_decreases_placement_count(p in lahc_small_problem()) {
+        let greedy = solve_with_config(&p, &SolveConfig {
+            weights: lahc_weights(),
+            ..SolveConfig::default()
+        }).unwrap();
+        let lahc_rr_kempe = solve_with_config(&p, &lahc_rr_kempe_cfg(7)).unwrap();
+        prop_assert!(
+            lahc_rr_kempe.placements.len() >= greedy.placements.len(),
+            "lahc_rr_kempe dropped placements: {} < greedy {}",
+            lahc_rr_kempe.placements.len(),
+            greedy.placements.len(),
+        );
     }
 
     #[test]
