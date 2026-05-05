@@ -82,6 +82,15 @@ pub(crate) fn run(
         .iter()
         .map(|t| (t.id, t.max_hours_per_week))
         .collect();
+    // Sum of `hours_per_week` across all lessons is the placement-count floor:
+    // every lesson-hour materialises as one `Placement`. The LAHC loop can exit
+    // early once this floor is reached AND `state.soft_score == 0`, since no
+    // further iteration can improve a feasible objective-floor incumbent.
+    let placements_expected: usize = problem
+        .lessons
+        .iter()
+        .map(|l| l.hours_per_week as usize)
+        .sum();
 
     let mut iter: u64 = 0;
     while iter < max_iter && start.elapsed() < deadline {
@@ -159,6 +168,9 @@ pub(crate) fn run(
 
         iter += 1;
         lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
+        if state.soft_score == 0 && placements.len() == placements_expected {
+            break;
+        }
     }
 }
 
