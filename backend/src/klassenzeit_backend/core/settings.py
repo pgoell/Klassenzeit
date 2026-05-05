@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # Solver
     solve_deadline_ms: int | None = 200
-    solver_backend: Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] = "lahc"
+    solver_backend: Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] = "lahc_rr_kempe"
 
 
 @lru_cache

@@ -140,3 +140,21 @@ def test_settings_log_level_overrides(monkeypatch) -> None:
     monkeypatch.setenv("KZ_LOG_LEVEL", "DEBUG")
     settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
     assert settings.log_level == "DEBUG"
+
+
+def test_solver_backend_default_is_production_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the production-default solver backend per ADR 0031.
+
+    Flipping this default is intentional: see ADR 0031's Pareto-frontier
+    decision rule. Update this assertion AND the ADR in lockstep when a future
+    bake-off refresh changes the verdict.
+    """
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.delenv("KZ_SOLVER_BACKEND", raising=False)
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solver_backend == "lahc_rr_kempe"
