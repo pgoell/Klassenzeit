@@ -353,6 +353,17 @@ pub fn validate_daily_caps(problem: &Problem, placements: &[Placement]) -> Resul
 /// duplicate rows) and malformed blocks; under-placement is detected
 /// upstream via the violations vec and the bake-off bench's per-cell
 /// placement-count gate (item 28).
+///
+/// Lesson-group co-placement is exempted from the class double-booking
+/// check: two lessons sharing a `(class, time_block)` pair are allowed
+/// when both have the same `Some(lesson_group_id)`. The per-Jahrgang
+/// religion trio (RK / RE / ETH) co-places all three lessons at one
+/// `(day, position)` window in the same class set because students pick
+/// exactly one of the three; `try_place_group` enforces this. Teacher
+/// and room collisions remain hard violations regardless of group: a
+/// teacher cannot teach two lessons at once, and `try_place_group`'s
+/// `taken: HashSet<RoomId>` already forbids two members from sharing a
+/// room.
 pub fn validate_no_double_booking(
     problem: &Problem,
     placements: &[Placement],
@@ -387,6 +398,18 @@ pub fn validate_no_double_booking(
                     // Same lesson, same row: caught by the cardinality check below.
                 }
                 Entry::Occupied(o) => {
+                    let other = lesson_by_id[o.get()];
+                    let same_group = matches!(
+                        (lesson.lesson_group_id, other.lesson_group_id),
+                        (Some(a), Some(b)) if a == b
+                    );
+                    if same_group {
+                        // Lesson-group co-placement: members share `(class, tb)`
+                        // by design (e.g. RK / RE / ETH religion trio; students
+                        // pick one). `try_place_group` enforces the same
+                        // (day, position) window for every member.
+                        continue;
+                    }
                     return Err(Error::Input(format!(
                         "double-booking: class {:?} at time-block {:?}: lessons {:?} and {:?}",
                         class_id,
@@ -1203,5 +1226,129 @@ mod tests {
         let Error::Input(msg) = err;
         assert!(msg.contains("block shape"), "msg: {msg}");
         assert!(msg.contains("multiple of 2"), "msg: {msg}");
+    }
+
+    #[test]
+    fn validate_no_double_booking_accepts_lesson_group_class_share() {
+        use crate::ids::LessonGroupId;
+        let mut p = minimal_problem();
+        let group_id = LessonGroupId(uuid(110));
+        let class_id = p.school_classes[0].id;
+        p.lessons[0].lesson_group_id = Some(group_id);
+        p.lessons[0].hours_per_week = 1;
+        p.teachers.push(Teacher {
+            id: TeacherId(uuid(111)),
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(uuid(111)),
+            subject_id: p.subjects[0].id,
+        });
+        p.rooms.push(Room {
+            id: RoomId(uuid(112)),
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(113)),
+            school_class_ids: vec![class_id],
+            subject_id: p.subjects[0].id,
+            teacher_id: TeacherId(uuid(111)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(group_id),
+        });
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[1].id,
+            },
+        ];
+        validate_no_double_booking(&p, &placements).unwrap();
+    }
+
+    #[test]
+    fn validate_no_double_booking_rejects_class_share_when_group_ids_differ() {
+        use crate::ids::LessonGroupId;
+        let mut p = minimal_problem();
+        let class_id = p.school_classes[0].id;
+        p.lessons[0].lesson_group_id = Some(LessonGroupId(uuid(120)));
+        p.lessons[0].hours_per_week = 1;
+        p.teachers.push(Teacher {
+            id: TeacherId(uuid(121)),
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(uuid(121)),
+            subject_id: p.subjects[0].id,
+        });
+        p.rooms.push(Room {
+            id: RoomId(uuid(122)),
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(123)),
+            school_class_ids: vec![class_id],
+            subject_id: p.subjects[0].id,
+            teacher_id: TeacherId(uuid(121)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(LessonGroupId(uuid(124))),
+        });
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[1].id,
+            },
+        ];
+        let err = validate_no_double_booking(&p, &placements).unwrap_err();
+        let Error::Input(msg) = err;
+        assert!(msg.contains("double-booking: class"), "msg: {msg}");
+    }
+
+    #[test]
+    fn validate_no_double_booking_rejects_lesson_group_teacher_share() {
+        use crate::ids::LessonGroupId;
+        let mut p = minimal_problem();
+        let group_id = LessonGroupId(uuid(130));
+        let class_id = p.school_classes[0].id;
+        p.lessons[0].lesson_group_id = Some(group_id);
+        p.lessons[0].hours_per_week = 1;
+        p.rooms.push(Room {
+            id: RoomId(uuid(132)),
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(133)),
+            school_class_ids: vec![class_id],
+            subject_id: p.subjects[0].id,
+            teacher_id: p.teachers[0].id,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(group_id),
+        });
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[1].id,
+            },
+        ];
+        let err = validate_no_double_booking(&p, &placements).unwrap_err();
+        let Error::Input(msg) = err;
+        assert!(msg.contains("double-booking: teacher"), "msg: {msg}");
     }
 }
