@@ -458,6 +458,84 @@ async def test_create_subject_rejects_out_of_range_avoid_last_period(
     assert response.status_code == 422
 
 
+async def test_create_subject_defaults_max_hours_per_day_to_two(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects without max_hours_per_day defaults to 2."""
+    await create_test_user(email="admin@cap-default.com", role="admin")
+    await login_as("admin@cap-default.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={"name": "Mathe-Cap-Default", "short_name": "MD", "color": "chart-1"},
+    )
+    assert response.status_code == 201
+    assert response.json()["max_hours_per_day"] == 2
+
+
+async def test_subject_round_trips_explicit_max_hours_per_day(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with explicit max_hours_per_day round-trips through the response."""
+    await create_test_user(email="admin@cap-explicit.com", role="admin")
+    await login_as("admin@cap-explicit.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Sport-Cap",
+            "short_name": "SC",
+            "color": "chart-2",
+            "max_hours_per_day": 3,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["max_hours_per_day"] == 3
+
+
+async def test_subject_patch_updates_max_hours_per_day(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /subjects/{id} updates max_hours_per_day."""
+    await create_test_user(email="admin@cap-patch.com", role="admin")
+    await login_as("admin@cap-patch.com", "testpassword123")
+    create = await client.post(
+        "/api/subjects",
+        json={"name": "Cap-Patched", "short_name": "CP", "color": "chart-3"},
+    )
+    subject_id = create.json()["id"]
+    response = await client.patch(
+        f"/api/subjects/{subject_id}",
+        json={"max_hours_per_day": 4},
+    )
+    assert response.status_code == 200
+    assert response.json()["max_hours_per_day"] == 4
+
+
+async def test_create_subject_rejects_max_hours_per_day_below_one(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /subjects with max_hours_per_day=0 returns 422."""
+    await create_test_user(email="admin@cap-low.com", role="admin")
+    await login_as("admin@cap-low.com", "testpassword123")
+    response = await client.post(
+        "/api/subjects",
+        json={
+            "name": "Cap-Low",
+            "short_name": "CL",
+            "color": "chart-4",
+            "max_hours_per_day": 0,
+        },
+    )
+    assert response.status_code == 422
+
+
 async def test_create_subject_accepts_non_binary_weight(
     client: AsyncClient,
     create_test_user: CreateUserFn,

@@ -18,6 +18,7 @@ class SubjectCreate(BaseModel):
     prefer_late_period: int = Field(0, ge=0, le=10)
     avoid_first_period: int = Field(0, ge=0, le=10)
     avoid_last_period: int = Field(0, ge=0, le=10)
+    max_hours_per_day: int = Field(2, ge=1, le=20)
 
 
 class SubjectUpdate(BaseModel):
@@ -30,6 +31,7 @@ class SubjectUpdate(BaseModel):
     prefer_late_period: int | None = Field(default=None, ge=0, le=10)
     avoid_first_period: int | None = Field(default=None, ge=0, le=10)
     avoid_last_period: int | None = Field(default=None, ge=0, le=10)
+    max_hours_per_day: int | None = Field(default=None, ge=1, le=20)
 
 
 class SubjectResponse(BaseModel):
@@ -43,5 +45,6 @@ class SubjectResponse(BaseModel):
     prefer_late_period: int
     avoid_first_period: int
     avoid_last_period: int
+    max_hours_per_day: int
     created_at: datetime
     updated_at: datetime

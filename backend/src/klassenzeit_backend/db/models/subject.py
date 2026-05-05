@@ -30,6 +30,9 @@ class Subject(Base):
     avoid_last_period: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    max_hours_per_day: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default=text("2")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

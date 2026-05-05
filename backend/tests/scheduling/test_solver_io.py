@@ -651,6 +651,8 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "no_suitable_room",
         "lesson_group_split",
         "pinned_conflict",
+        "subject_daily_hour_cap_exceeded",
+        "class_daily_lesson_cap_exceeded",
     }
 
 
@@ -711,6 +713,8 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "no_suitable_room": 0,
         "lesson_group_split": 0,
         "pinned_conflict": 0,
+        "subject_daily_hour_cap_exceeded": 0,
+        "class_daily_lesson_cap_exceeded": 0,
     }
 
 
@@ -823,6 +827,153 @@ async def test_build_problem_json_emits_home_room_id_per_school_class(
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(cls.id))
     assert sc_entry["home_room_id"] == str(home_room.id)
+
+
+async def test_build_problem_json_emits_subject_max_hours_per_day(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """``Subject.max_hours_per_day`` is forwarded to the solver per subject row."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    seeded.subject.max_hours_per_day = 3
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem = json.loads(problem_json)
+
+    matched = next(s for s in problem["subjects"] if s["id"] == str(seeded.subject.id))
+    assert matched["max_hours_per_day"] == 3
+
+
+async def test_build_problem_json_emits_school_class_max_lessons_per_day_when_set(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a class has max_lessons_per_day set, build_problem_json echoes it."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    seeded.cls.max_lessons_per_day = 4
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
+    assert sc_entry["max_lessons_per_day"] == 4
+
+
+async def test_build_problem_json_emits_null_max_lessons_per_day_when_class_has_no_cap(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a class has no max_lessons_per_day, build_problem_json emits null."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
+    assert sc_entry["max_lessons_per_day"] is None
+
+
+async def test_run_solve_honors_subject_daily_hour_cap(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """A 4-hour-per-week subject with cap=2 distributes across multiple days."""
+    subject = await create_subject()
+    subject.max_hours_per_day = 2
+    scheme = await create_week_scheme()
+    blocks = []
+    for d in range(5):
+        for p in range(5):
+            blocks.append(
+                await create_time_block(
+                    week_scheme_id=scheme.id,
+                    day_of_week=d,
+                    position=p,
+                    start_time=time(8 + p, 0),
+                    end_time=time(9 + p, 0),
+                )
+            )
+    await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+    )
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=4,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    await db_session.flush()
+
+    problem_json, _, counts = await build_problem_json(db_session, cls.id)
+    solution = await run_solve(problem_json, cls.id, counts, deadline_ms=0)
+
+    placements = solution["placements"]
+    assert len(placements) == 4
+    block_lookup = {str(b.id): b for b in blocks}
+    by_day: dict[int, int] = {}
+    for p in placements:
+        day = block_lookup[p["time_block_id"]].day_of_week
+        by_day[day] = by_day.get(day, 0) + 1
+    for day, count in by_day.items():
+        assert count <= 2, f"day {day} has {count} hours of subject; cap is 2"
 
 
 async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home_room(
