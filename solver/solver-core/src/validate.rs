@@ -246,6 +246,96 @@ pub fn validate_no_room_hopping(problem: &Problem, placements: &[Placement]) -> 
     Ok(())
 }
 
+/// Hard-constraint sanity check: per-day caps are never exceeded by the final
+/// placements. `Subject.max_hours_per_day` counts hours (one per placement
+/// row); `SchoolClass.max_lessons_per_day` counts blocks (a maximal run of
+/// contiguous same-day same-lesson positions). A failure here indicates a
+/// solver bug because cap-violating candidates are pruned at placement time
+/// (ADR 0033). Cross-class lessons attribute every placement to every member
+/// class so the same hour can trip the cap on more than one class.
+pub fn validate_daily_caps(problem: &Problem, placements: &[Placement]) -> Result<(), Error> {
+    use std::collections::HashMap;
+
+    let mut rows_by_lesson_day: HashMap<(LessonId, u8), Vec<u8>> = HashMap::new();
+    for placement in placements {
+        let lesson = problem
+            .lessons
+            .iter()
+            .find(|l| l.id == placement.lesson_id)
+            .ok_or_else(|| Error::Input(format!("unknown lesson {:?}", placement.lesson_id)))?;
+        let tb = problem
+            .time_blocks
+            .iter()
+            .find(|t| t.id == placement.time_block_id)
+            .ok_or_else(|| {
+                Error::Input(format!("unknown time block {:?}", placement.time_block_id))
+            })?;
+        rows_by_lesson_day
+            .entry((lesson.id, tb.day_of_week))
+            .or_default()
+            .push(tb.position);
+    }
+
+    let mut subject_hours: HashMap<(SchoolClassId, u8, SubjectId), u32> = HashMap::new();
+    let mut class_blocks: HashMap<(SchoolClassId, u8), u32> = HashMap::new();
+    for ((lesson_id, day), positions) in &rows_by_lesson_day {
+        let lesson = problem
+            .lessons
+            .iter()
+            .find(|l| l.id == *lesson_id)
+            .ok_or_else(|| Error::Input(format!("unknown lesson {:?}", lesson_id)))?;
+        let hours = u32::try_from(positions.len()).unwrap_or(u32::MAX);
+        let mut sorted = positions.clone();
+        sorted.sort_unstable();
+        let mut blocks: u32 = 0;
+        let mut prev: Option<u8> = None;
+        for p in &sorted {
+            if prev.is_none_or(|q| *p != q + 1) {
+                blocks += 1;
+            }
+            prev = Some(*p);
+        }
+        for class_id in &lesson.school_class_ids {
+            *subject_hours
+                .entry((*class_id, *day, lesson.subject_id))
+                .or_default() += hours;
+            *class_blocks.entry((*class_id, *day)).or_default() += blocks;
+        }
+    }
+
+    for ((class_id, day, subject_id), hours) in &subject_hours {
+        let subject = problem
+            .subjects
+            .iter()
+            .find(|s| s.id == *subject_id)
+            .ok_or_else(|| Error::Input(format!("unknown subject {:?}", subject_id)))?;
+        if *hours > u32::from(subject.max_hours_per_day) {
+            return Err(Error::Input(format!(
+                "subject {:?} exceeds max_hours_per_day on (class {:?}, day {}): {} > {}",
+                subject_id, class_id, day, hours, subject.max_hours_per_day
+            )));
+        }
+    }
+
+    for ((class_id, day), blocks) in &class_blocks {
+        let class = problem
+            .school_classes
+            .iter()
+            .find(|c| c.id == *class_id)
+            .ok_or_else(|| Error::Input(format!("unknown school_class {:?}", class_id)))?;
+        if let Some(cap) = class.max_lessons_per_day {
+            if *blocks > u32::from(cap) {
+                return Err(Error::Input(format!(
+                    "class {:?} exceeds max_lessons_per_day on day {}: {} > {}",
+                    class_id, day, blocks, cap
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Scan lessons for teacher / subject pairs that are not in
 /// `teacher_qualifications` and record one `NoQualifiedTeacher` violation per
 /// hour on the affected lesson.
@@ -553,5 +643,98 @@ mod tests {
         p.lessons[1].teacher_id = p.lessons[0].teacher_id;
         let err = validate_structural(&p).unwrap_err();
         assert!(matches!(err, Error::Input(msg) if msg.contains("duplicate teacher")));
+    }
+
+    fn caps_problem_two_periods_one_day() -> Problem {
+        let mut p = minimal_problem();
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(uuid(11)),
+            day_of_week: 0,
+            position: 1,
+        });
+        p.lessons[0].hours_per_week = 2;
+        p
+    }
+
+    #[test]
+    fn validate_daily_caps_accepts_within_caps() {
+        let p = caps_problem_two_periods_one_day();
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[1].id,
+                room_id: p.rooms[0].id,
+            },
+        ];
+        validate_daily_caps(&p, &placements).unwrap();
+    }
+
+    #[test]
+    fn validate_daily_caps_rejects_subject_hours_per_day_exceeded() {
+        let mut p = caps_problem_two_periods_one_day();
+        p.subjects[0].max_hours_per_day = 1;
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[1].id,
+                room_id: p.rooms[0].id,
+            },
+        ];
+        let err = validate_daily_caps(&p, &placements).unwrap_err();
+        assert!(matches!(err, Error::Input(msg) if msg.contains("max_hours_per_day")));
+    }
+
+    #[test]
+    fn validate_daily_caps_rejects_class_lessons_per_day_exceeded() {
+        let mut p = caps_problem_two_periods_one_day();
+        p.school_classes[0].max_lessons_per_day = Some(1);
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(uuid(12)),
+            day_of_week: 0,
+            position: 3,
+        });
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[2].id,
+                room_id: p.rooms[0].id,
+            },
+        ];
+        let err = validate_daily_caps(&p, &placements).unwrap_err();
+        assert!(matches!(err, Error::Input(msg) if msg.contains("max_lessons_per_day")));
+    }
+
+    #[test]
+    fn validate_daily_caps_counts_two_period_block_as_one_lesson() {
+        let mut p = caps_problem_two_periods_one_day();
+        p.school_classes[0].max_lessons_per_day = Some(1);
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+            },
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[1].id,
+                room_id: p.rooms[0].id,
+            },
+        ];
+        validate_daily_caps(&p, &placements).unwrap();
     }
 }
