@@ -306,10 +306,12 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let class = SchoolClass {
             id: SchoolClassId(uuid(5)),
             home_room_id: None,
+            max_lessons_per_day: None,
         };
         let lesson = Lesson {
             id: LessonId(uuid(6)),
@@ -483,6 +485,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(uuid(7)),
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.subjects.push(Subject {
             id: SubjectId(uuid(8)),
@@ -490,6 +493,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         });
         p.teachers.push(Teacher {
             id: TeacherId(uuid(9)),

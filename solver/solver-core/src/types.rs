@@ -219,6 +219,17 @@ pub struct Subject {
     /// Wire format is additive: callers omitting the field deserialise to 0.
     #[serde(default)]
     pub prefer_late_period: u32,
+    /// Per-day cap on hours of this subject for any single class on any
+    /// single day. Counts hours (period span), not lessons; a 2-period
+    /// block lesson contributes 2 to the daily count. Hard constraint:
+    /// cap-violating candidates are pruned at placement time. Wire format
+    /// is additive: callers omitting the field deserialise to 2.
+    #[serde(default = "default_max_hours_per_day")]
+    pub max_hours_per_day: u8,
+}
+
+fn default_max_hours_per_day() -> u8 {
+    2
 }
 
 /// A school class that receives lessons.
@@ -234,6 +245,14 @@ pub struct SchoolClass {
     /// without the field deserialise to `None`.
     #[serde(default)]
     pub home_room_id: Option<RoomId>,
+    /// Optional per-day cap on total lessons for this class on any single
+    /// day. Counts lessons (placements), not periods; a 2-period block
+    /// lesson contributes 1 to the daily count. `None` means no cap beyond
+    /// what the class's `time_blocks` allow. Hard constraint: when set,
+    /// cap-violating candidates are pruned at placement time. Wire format
+    /// is additive: callers omitting the field deserialise to `None`.
+    #[serde(default)]
+    pub max_lessons_per_day: Option<u8>,
 }
 
 /// A lesson that must be placed `hours_per_week` times.
@@ -379,6 +398,16 @@ pub enum ViolationKind {
     /// `"unknown_lesson"`, `"unknown_time_block"`, `"unknown_room"`,
     /// `"duplicate_slot"`, `"block_size_mismatch"`.
     PinnedConflict,
+    /// A class accumulated more hours of a single subject on one day than
+    /// the subject's `max_hours_per_day` cap allows. Surfaced in solver
+    /// telemetry only; the runtime path prunes cap-violating candidates
+    /// before they enter the search.
+    SubjectDailyHourCapExceeded,
+    /// A class accumulated more total lessons on one day than the class's
+    /// `max_lessons_per_day` cap allows. Surfaced in solver telemetry only;
+    /// the runtime path prunes cap-violating candidates before they enter
+    /// the search.
+    ClassDailyLessonCapExceeded,
 }
 
 #[cfg(test)]

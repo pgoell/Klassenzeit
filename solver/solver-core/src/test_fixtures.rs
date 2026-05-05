@@ -63,6 +63,7 @@ pub fn grundschule_fixture() -> Problem {
             avoid_first_period: u32::from(i == 7),              // index 7 = Sport
             avoid_last_period: u32::from(matches!(i, 0 | 1)),   // index 0 = Deutsch, 1 = Mathematik
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         })
         .collect();
 
@@ -70,6 +71,7 @@ pub fn grundschule_fixture() -> Problem {
         .map(|i| SchoolClass {
             id: SchoolClassId(fixture_uuid(70 + i)),
             home_room_id: Some(RoomId(fixture_uuid(50 + i))),
+            max_lessons_per_day: None,
         })
         .collect();
 
@@ -173,6 +175,7 @@ pub fn zweizuegig_fixture() -> Problem {
             avoid_first_period: u32::from(i == 7),              // index 7 = Sport
             avoid_last_period: u32::from(matches!(i, 0 | 1)),   // index 0 = Deutsch, 1 = Mathematik
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         })
         .collect();
 
@@ -181,6 +184,7 @@ pub fn zweizuegig_fixture() -> Problem {
         .map(|i| SchoolClass {
             id: SchoolClassId(fixture_uuid(90 + i)),
             home_room_id: Some(RoomId(fixture_uuid(56 + i))),
+            max_lessons_per_day: None,
         })
         .collect();
 
@@ -343,6 +347,7 @@ pub fn dreizuegig_fixture() -> Problem {
             avoid_first_period: u32::from(i == 9),              // index 9 = Sport
             avoid_last_period: u32::from(matches!(i, 0 | 1)),   // index 0 = Deutsch, 1 = Mathematik
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         })
         .collect();
 
@@ -379,6 +384,7 @@ pub fn dreizuegig_fixture() -> Problem {
         .map(|i| SchoolClass {
             id: SchoolClassId(fixture_uuid(80 + i)),
             home_room_id: Some(RoomId(fixture_uuid(64 + i))),
+            max_lessons_per_day: None,
         })
         .collect();
 
@@ -600,6 +606,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
         .map(|i| SchoolClass {
             id: SchoolClassId(fixture_uuid(70 + i)),
             home_room_id: Some(klassenraum_ids[i as usize]),
+            max_lessons_per_day: None,
         })
         .collect();
 
@@ -620,6 +627,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 1,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: m,
@@ -627,6 +635,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 1,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: su,
@@ -634,6 +643,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: e_subj,
@@ -641,6 +651,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: eth,
@@ -648,6 +659,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: ku,
@@ -655,6 +667,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: mu,
@@ -662,6 +675,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: sp,
@@ -669,6 +683,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 1,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
         Subject {
             id: foe,
@@ -676,6 +691,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         },
     ];
 

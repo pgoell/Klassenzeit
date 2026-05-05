@@ -1,16 +1,47 @@
 //! Property tests for the LAHC local-search loop. Reuses the same problem
 //! generator shape as `score_property.rs` so the bounds stay consistent.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::types::{
-    ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, SolveConfig, Subject,
-    Teacher, TeacherQualification, TimeBlock,
+    ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
+    Subject, Teacher, TeacherQualification, TimeBlock,
 };
 use solver_core::{score_solution, solve_with_config};
 use uuid::Uuid;
+
+/// Assert that the solution does not violate any subject's per-day hour cap.
+fn assert_subject_cap_conformance(
+    problem: &Problem,
+    solution: &Solution,
+) -> Result<(), TestCaseError> {
+    let tb_lookup: HashMap<_, _> = problem.time_blocks.iter().map(|t| (t.id, t)).collect();
+    let subject_lookup: HashMap<_, _> = problem.subjects.iter().map(|s| (s.id, s)).collect();
+    let lesson_lookup: HashMap<_, _> = problem.lessons.iter().map(|l| (l.id, l)).collect();
+    let mut subject_hours: HashMap<(SchoolClassId, u8, SubjectId), u8> = HashMap::new();
+    for p in &solution.placements {
+        let tb = tb_lookup[&p.time_block_id];
+        let lesson = lesson_lookup[&p.lesson_id];
+        for class in &lesson.school_class_ids {
+            let key = (*class, tb.day_of_week, lesson.subject_id);
+            *subject_hours.entry(key).or_default() += 1;
+        }
+    }
+    for ((_, _, subject_id), count) in &subject_hours {
+        let cap = subject_lookup[subject_id].max_hours_per_day;
+        prop_assert!(
+            *count <= cap,
+            "subject hour cap violated: count={} cap={}",
+            count,
+            cap,
+        );
+    }
+    Ok(())
+}
 
 fn lahc_weights() -> ConstraintWeights {
     ConstraintWeights {
@@ -66,7 +97,7 @@ prop_compose! {
         slots_per_day in 2u8..=5,
     ) -> Problem {
         let subject_a = SubjectId(lahc_id_from(1));
-        let subjects = vec![Subject { id: subject_a, prefer_early_period: 0, avoid_first_period: 0, avoid_last_period: 0, prefer_late_period: 0 }];
+        let subjects = vec![Subject { id: subject_a, prefer_early_period: 0, avoid_first_period: 0, avoid_last_period: 0, prefer_late_period: 0, max_hours_per_day: 8 }];
 
         let teachers: Vec<Teacher> = (0..n_teachers)
             .map(|i| Teacher {
@@ -86,6 +117,7 @@ prop_compose! {
             .map(|i| SchoolClass {
                 id: SchoolClassId(lahc_id_from(2000 + i as u32)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             })
             .collect();
 
@@ -251,6 +283,7 @@ proptest! {
             lahc_rr.placements.len(),
             greedy.placements.len(),
         );
+        assert_subject_cap_conformance(&p, &lahc_rr)?;
     }
 
     #[test]
@@ -266,6 +299,7 @@ proptest! {
             lahc_rr_kempe.placements.len(),
             greedy.placements.len(),
         );
+        assert_subject_cap_conformance(&p, &lahc_rr_kempe)?;
     }
 
     #[test]
@@ -426,10 +460,12 @@ fn build_lahc_pinned_problem() -> Problem {
             avoid_first_period: 1,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         }],
         school_classes: vec![SchoolClass {
             id: class,
             home_room_id: None,
+            max_lessons_per_day: None,
         }],
         lessons: vec![
             Lesson {

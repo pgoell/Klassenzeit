@@ -60,12 +60,14 @@ pub fn feasible_problem(
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         })
         .collect();
     let classes_vec: Vec<SchoolClass> = (0..classes)
         .map(|i| SchoolClass {
             id: SchoolClassId(common_uuid(20 + i)),
             home_room_id: None,
+            max_lessons_per_day: None,
         })
         .collect();
 

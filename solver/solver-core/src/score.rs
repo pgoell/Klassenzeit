@@ -363,10 +363,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -537,6 +539,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let tb = TimeBlock {
             id: TimeBlockId(score_uuid(10)),
@@ -559,6 +562,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 3,
@@ -585,6 +589,7 @@ mod tests {
             avoid_first_period: 1,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let weights = ConstraintWeights {
             avoid_first_period: 9,
@@ -615,6 +620,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 1,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let weights = ConstraintWeights {
             avoid_last_period: 11,
@@ -668,10 +674,12 @@ mod tests {
                 avoid_first_period: avoid_first,
                 avoid_last_period: avoid_last,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: SchoolClassId(score_uuid(50)),
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -886,6 +894,7 @@ mod tests {
         p.school_classes.push(SchoolClass {
             id: class2,
             home_room_id: None,
+            max_lessons_per_day: None,
         });
         p.school_classes[0].home_room_id = Some(RoomId(score_uuid(30)));
         p.rooms.push(Room {
@@ -923,6 +932,7 @@ mod tests {
             avoid_first_period: 1,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 2,
@@ -962,6 +972,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         // single-weight = 2 * 3 * 1 = 6, double-weight = 2 * 3 * 2 = 12
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 6);
@@ -986,6 +997,7 @@ mod tests {
             avoid_first_period: w,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 5);
         assert_eq!(subject_preference_score(&mk(3), &tb, 6, &weights), 15);
@@ -1009,6 +1021,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: w,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         };
         assert_eq!(subject_preference_score(&mk(1), &tb, 6, &weights), 4);
         assert_eq!(subject_preference_score(&mk(2), &tb, 6, &weights), 8);
@@ -1027,6 +1040,7 @@ mod tests {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: w,
+            max_hours_per_day: 8,
         };
         // max_position_for_day = 5; pos 0 contributes 5 * 4 * 1 = 20,
         // pos 5 contributes 0.
@@ -1096,10 +1110,12 @@ mod tests {
                 avoid_first_period: 0,
                 avoid_last_period: 1,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
             school_classes: vec![SchoolClass {
                 id: class_id,
                 home_room_id: None,
+                max_lessons_per_day: None,
             }],
             lessons: vec![Lesson {
                 id: lesson_id,

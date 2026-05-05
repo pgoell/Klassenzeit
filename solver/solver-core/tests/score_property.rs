@@ -47,11 +47,13 @@ prop_compose! {
             avoid_first_period: 0,
             avoid_last_period: 0,
             prefer_late_period: 0,
+            max_hours_per_day: 8,
         }).collect();
 
         let school_classes: Vec<SchoolClass> = (0..n_classes).map(|i| SchoolClass {
             id: SchoolClassId(id_from(u32::try_from(i).unwrap_or(0) + 5000)),
             home_room_id: None,
+            max_lessons_per_day: None,
         }).collect();
 
         let teacher_qualifications: Vec<TeacherQualification> = teachers.iter()
@@ -148,8 +150,9 @@ proptest! {
                 avoid_first_period: 0,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
-            school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
+            school_classes: vec![SchoolClass { id: class_id, home_room_id: None, max_lessons_per_day: None }],
             lessons: vec![Lesson {
                 id: lesson_id,
                 school_class_ids: vec![class_id],
@@ -199,8 +202,9 @@ proptest! {
                 avoid_first_period: 1,
                 avoid_last_period: 0,
                 prefer_late_period: 0,
+                max_hours_per_day: 8,
             }],
-            school_classes: vec![SchoolClass { id: class_id, home_room_id: None }],
+            school_classes: vec![SchoolClass { id: class_id, home_room_id: None, max_lessons_per_day: None }],
             lessons: vec![Lesson {
                 id: lesson_id,
                 school_class_ids: vec![class_id],
