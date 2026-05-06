@@ -145,7 +145,7 @@ Then:
     - `## Reference data` (e.g., the Hessen Grundschule reference table) is research that future sprints consume. It is not "completed work" and stays in the file.
     - Add new follow-ups ordered by importance within whichever section fits (active sprint's tidy phase, `## Open <topic> follow-ups`, or `## Backlog`). Don't add duplicates.
 - **Workflow improvements.** If the run surfaced anything that should change `.claude/commands/autopilot.md` or any other workflow doc, edit it now and commit on the feature branch. Reflect on: decisions that weren't captured anywhere, surprising failure modes, points where the skills didn't fire when they should have. Keep changes minimal and concrete; one sentence per learning.
-- **Auto-memory updates.** Refresh `/home/pascal/.claude/projects/-home-pascal-Code-Klassenzeit/memory/` entries (roadmap status, feedback, references) so the next session starts from the current truth.
+- **Auto-memory updates.** Refresh `/home/pascal/.claude/projects/-home-pascal-Code-Klassenzeit/memory/` entries (roadmap status, feedback, references) so the next session starts from the current truth. **Update the YAML frontmatter `description` field too, not just the body.** The description is what the memory loader uses for relevance ranking; a body-only refresh leaves the loader pointing at stale next-pickup names. When delegating this step to a subagent, list the description field in the prompt explicitly so it doesn't get treated as immutable frontmatter.
 
 ### 7. Skill audit, then open the PR
 
