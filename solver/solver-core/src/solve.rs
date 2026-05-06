@@ -354,7 +354,14 @@ struct BlockCandidate {
     start_pos: u8,
     end_pos: u8,
     room_id: RoomId,
-    score: u32,
+    /// Slice-only running cost (`class_gap + teacher_gap + subject_pref`)
+    /// post-place. Persisted to `state.soft_score` so the slice contract
+    /// LAHC's Change move and R&R post-recreate `running_slice_from_placements`
+    /// rely on stays intact.
+    slice_score: u32,
+    /// Total cost = `slice_score + home_room_penalty(room_id)`. Used for
+    /// candidate ranking and pruning. NOT persisted to `state.soft_score`.
+    total_score: u32,
 }
 
 /// Gap-count after inserting positions `start..=end` (inclusive) into a sorted
@@ -396,7 +403,6 @@ pub(crate) fn try_place_block(
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
 ) -> bool {
-    let _home_room_lookup = home_room_lookup;
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     let teacher = lesson.teacher_id;
     let subject = problem
@@ -570,15 +576,16 @@ pub(crate) fn try_place_block(
             .saturating_add(class_delta_w)
             .saturating_add(teacher_delta_w)
             .saturating_add(i64::from(subject_pref));
-        let score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
+        let slice_score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
 
-        // Pruning: skip the room scan if this score cannot beat the current
-        // best. Room tiebreak (day, start_pos, room.id) cannot rescue a
-        // higher-score window; tb_order's sort means subsequent windows have
-        // weakly larger (day, position) so the tiebreak rule never reorders
-        // a tied later window above an earlier one already chosen.
+        // Pruning: skip the room scan if this window's slice-score lower bound
+        // cannot beat the current best total. `home_room_penalty >= 0` for every
+        // (window, room), so slice is a sound lower bound on total; a window
+        // whose slice already exceeds the best total cannot produce a strictly
+        // better candidate. Tiebreak (day, start_pos, room.id) preserved via
+        // strict `<` and tb_order's sort.
         if let Some(b) = &best {
-            if score >= b.score {
+            if slice_score >= b.total_score {
                 #[cfg(feature = "solver-trace")]
                 trace::ffd_trace(
                     lesson.id,
@@ -622,9 +629,12 @@ pub(crate) fn try_place_block(
             continue;
         }
 
-        // Pick the lowest-id room feasible across the full window. When the
-        // same-room lock pins a specific room, only consider that room.
-        let mut chosen_room: Option<RoomId> = None;
+        // Pick the feasible room that minimises `home_room_penalty(room)`. Strict
+        // `<` plus `room_order`'s id-sorted iteration means the lowest-id room
+        // wins on a penalty tie. Early-break when penalty == 0: a home-room
+        // match is unbeatable and later rooms are id-greater (only-tied-or-worse
+        // on the penalty/id tiebreak).
+        let mut best_room: Option<(RoomId, u32)> = None;
         'rooms: for &room_idx in room_order {
             let room = &problem.rooms[room_idx];
             if let Some(locked) = shared_lock {
@@ -676,12 +686,26 @@ pub(crate) fn try_place_block(
                     continue 'rooms;
                 }
             }
-            chosen_room = Some(room.id);
-            break;
+            let penalty =
+                crate::score::home_room_penalty(lesson, home_room_lookup, room.id, weights);
+            let take = match best_room {
+                None => true,
+                Some((_, best_penalty)) => penalty < best_penalty,
+            };
+            if take {
+                best_room = Some((room.id, penalty));
+                if penalty == 0 {
+                    // Home-room match found at lowest-id; later rooms are
+                    // id-greater and at-best-tied on penalty, so they cannot
+                    // strictly beat this candidate.
+                    break;
+                }
+            }
         }
-        let Some(room_id) = chosen_room else {
+        let Some((room_id, room_penalty)) = best_room else {
             continue;
         };
+        let total_score = slice_score.saturating_add(room_penalty);
 
         #[cfg(feature = "solver-trace")]
         trace::ffd_trace(
@@ -697,12 +721,16 @@ pub(crate) fn try_place_block(
             start_pos,
             end_pos,
             room_id,
-            score,
+            slice_score,
+            total_score,
         });
 
-        // Early exit: a delta=0 window at the lowest (day, position, id)
-        // tiebreak is unbeatable by later windows, so stop scanning.
-        if score == state.soft_score {
+        // Early exit: a window with both slice delta zero AND home-room match
+        // at every member class is unbeatable (state.soft_score == total_score
+        // means no slice gain plus no home-room penalty), and `tb_order`'s sort
+        // means later windows have weakly larger (day, position) so the tiebreak
+        // rule cannot rescue a tied later window.
+        if total_score == state.soft_score {
             break;
         }
     }
@@ -776,7 +804,7 @@ pub(crate) fn try_place_block(
         let ins = teacher_part.binary_search(&pos).unwrap_or_else(|i| i);
         teacher_part.insert(ins, pos);
     }
-    state.soft_score = c.score;
+    state.soft_score = c.slice_score;
     #[cfg(feature = "solver-trace")]
     trace::ffd_trace(lesson.id, c.day, c.start_pos, Some(c.room_id), "placed");
     true
@@ -2586,5 +2614,119 @@ mod tests {
         assert_eq!(sol.violations.len(), 1);
         assert_eq!(stats.time_to_first_feasible_ms, None);
         assert_eq!(stats.time_to_optimal_ms, None);
+    }
+
+    #[test]
+    fn try_place_block_room_picker_minimises_home_room_penalty() {
+        fn id(n: u8) -> Uuid {
+            Uuid::from_bytes([n; 16])
+        }
+
+        // Two rooms: R0 (id=30) and R1 (id=31). R0 is the class's home room.
+        // The lesson's class has home_room_id=R0. The picker MUST pick R0
+        // because home_room_penalty(R0) = 0 vs home_room_penalty(R1) = w.
+        let class_id = SchoolClassId(id(1));
+        let teacher_id = TeacherId(id(2));
+        let subject_id = SubjectId(id(3));
+        let r0 = RoomId(id(30));
+        let r1 = RoomId(id(31));
+        let tb_id = TimeBlockId(id(40));
+        let lesson_id = LessonId(id(50));
+
+        let problem = Problem {
+            time_blocks: vec![TimeBlock {
+                id: tb_id,
+                day_of_week: 0,
+                position: 0,
+            }],
+            teachers: vec![Teacher {
+                id: teacher_id,
+                max_hours_per_week: 10,
+            }],
+            rooms: vec![Room { id: r0 }, Room { id: r1 }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                max_lessons_per_day: None,
+                home_room_id: Some(r0),
+            }],
+            subjects: vec![Subject {
+                id: subject_id,
+                max_hours_per_day: 4,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_early_period: 0,
+                prefer_late_period: 0,
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                subject_id,
+                teacher_id,
+                school_class_ids: vec![class_id],
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id,
+                subject_id,
+            }],
+            room_subject_suitabilities: vec![],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            pinned_placements: vec![],
+        };
+
+        let idx = crate::index::Indexed::new(&problem);
+        let mut state = GreedyState::new();
+        let mut placements: Vec<Placement> = Vec::new();
+        let teacher_max: HashMap<TeacherId, u8> = problem
+            .teachers
+            .iter()
+            .map(|t| (t.id, t.max_hours_per_week))
+            .collect();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let weights = ConstraintWeights {
+            class_gap: 10,
+            teacher_gap: 10,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            prefer_home_room: 100,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            class_day_balance: 0,
+        };
+        let tb_order: Vec<usize> = vec![0];
+        // room_order intentionally orders R1 first so the picker would pick
+        // R1 under id-order iteration. The picker MUST pick R0 by penalty.
+        let room_order: Vec<usize> = vec![1, 0];
+        let max_position_per_day: HashMap<u8, u8> = HashMap::from([(0, 0)]);
+
+        let placed = try_place_block(
+            &problem,
+            &problem.lessons[0],
+            1,
+            &idx,
+            &teacher_max,
+            &class_max_lessons_per_day,
+            &weights,
+            &home_room_lookup,
+            &mut state,
+            &mut placements,
+            &tb_order,
+            &room_order,
+            &max_position_per_day,
+        );
+
+        assert!(placed, "lesson should be placed");
+        assert_eq!(placements.len(), 1);
+        assert_eq!(
+            placements[0].room_id, r0,
+            "picker should choose home room (R0) over non-home room (R1) regardless of room_order"
+        );
     }
 }
