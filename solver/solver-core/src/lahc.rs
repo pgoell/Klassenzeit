@@ -54,6 +54,11 @@ pub(crate) fn run(
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
         problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+        .school_classes
+        .iter()
+        .map(|c| (c.id, c.home_room_id))
+        .collect();
     let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
         .time_blocks
         .iter()
@@ -120,6 +125,7 @@ pub(crate) fn run(
                 problem,
                 idx,
                 &config.weights,
+                &home_room_lookup,
                 &mut rr_rng,
                 &lesson_lookup,
                 &tb_lookup,
@@ -817,6 +823,7 @@ fn rr_attempt(
     problem: &Problem,
     idx: &Indexed,
     weights: &ConstraintWeights,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     rr_rng: &mut SmallRng,
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
@@ -897,6 +904,7 @@ fn rr_attempt(
             teacher_max,
             class_max_lessons_per_day,
             weights,
+            home_room_lookup,
             state,
             placements,
             tb_order,

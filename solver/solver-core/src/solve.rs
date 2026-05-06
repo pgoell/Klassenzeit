@@ -124,6 +124,11 @@ pub fn solve_with_config_stats(
     });
     let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
     room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+    let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+        .school_classes
+        .iter()
+        .map(|c| (c.id, c.home_room_id))
+        .collect();
     let max_position_per_day: HashMap<u8, u8> =
         problem
             .time_blocks
@@ -211,6 +216,7 @@ pub fn solve_with_config_stats(
                 &teacher_max,
                 &class_max_lessons_per_day,
                 &config.weights,
+                &home_room_lookup,
                 &mut state,
                 &mut solution.placements,
                 &tb_order,
@@ -383,12 +389,14 @@ pub(crate) fn try_place_block(
     teacher_max: &HashMap<TeacherId, u8>,
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     weights: &ConstraintWeights,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     state: &mut GreedyState,
     placements: &mut Vec<Placement>,
     tb_order: &[usize],
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
 ) -> bool {
+    let _home_room_lookup = home_room_lookup;
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     let teacher = lesson.teacher_id;
     let subject = problem
