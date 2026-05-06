@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 
 use solver_core::{Problem, RoomId, SchoolClassId, Solution, SubjectId};
 
+pub use solver_core::QualityReport;
+
 /// Threshold: a class's daily-load spread (max - min across the school week)
 /// must not exceed this for the spread predicate to pass. Mirrors the Python
 /// test's `check_class_day_balance(max_spread=2)`.

@@ -95,6 +95,15 @@ struct CellResult {
     total_interior_gaps_median: Option<u32>,
     late_period_ratio_median: Option<f64>,
     quality_pass_count_median: Option<u32>,
+    unplaced_hours_median: Option<u32>,
+    class_gap_hours_median: Option<u32>,
+    teacher_gap_hours_median: Option<u32>,
+    class_day_balance_cost_median: Option<u32>,
+    home_room_misses_median: Option<u32>,
+    prefer_early_units_median: Option<u32>,
+    avoid_first_units_median: Option<u32>,
+    avoid_last_units_median: Option<u32>,
+    prefer_late_units_median: Option<u32>,
 }
 
 struct SupervisorArgs {
@@ -421,6 +430,7 @@ fn run_lahc_cell(
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut quality_reports: Vec<quality::QualityPredicates> = Vec::with_capacity(seeds as usize);
+    let mut component_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
     let (lahc_rr_period, lahc_kempe_period) = match backend {
@@ -456,6 +466,12 @@ fn run_lahc_cell(
                 tto_feasible.push(t);
             }
             quality_reports.push(quality::evaluate_quality_predicates(problem, &solution));
+            component_reports.push(solver_core::quality_report(
+                problem,
+                &solution.placements,
+                &solution.violations,
+                &PRODUCTION_ACTIVE_WEIGHTS,
+            ));
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
@@ -469,6 +485,17 @@ fn run_lahc_cell(
         late_period_ratio_median,
         quality_pass_count_median,
     ) = aggregate_quality_medians(&quality_reports);
+    let (
+        unplaced_hours_median,
+        class_gap_hours_median,
+        teacher_gap_hours_median,
+        class_day_balance_cost_median,
+        home_room_misses_median,
+        prefer_early_units_median,
+        avoid_first_units_median,
+        avoid_last_units_median,
+        prefer_late_units_median,
+    ) = aggregate_component_medians(&component_reports);
 
     CellResult {
         seeds,
@@ -499,6 +526,15 @@ fn run_lahc_cell(
         total_interior_gaps_median,
         late_period_ratio_median,
         quality_pass_count_median,
+        unplaced_hours_median,
+        class_gap_hours_median,
+        teacher_gap_hours_median,
+        class_day_balance_cost_median,
+        home_room_misses_median,
+        prefer_early_units_median,
+        avoid_first_units_median,
+        avoid_last_units_median,
+        prefer_late_units_median,
     }
 }
 
@@ -537,6 +573,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut quality_reports: Vec<quality::QualityPredicates> = Vec::with_capacity(seeds as usize);
+    let mut component_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
     let mut peak_kb_max: u64 = 0;
 
@@ -610,6 +647,12 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
                 soft_score: parsed.soft_score,
             };
             quality_reports.push(quality::evaluate_quality_predicates(problem, &solution));
+            component_reports.push(solver_core::quality_report(
+                problem,
+                &solution.placements,
+                &solution.violations,
+                &PRODUCTION_ACTIVE_WEIGHTS,
+            ));
         }
         if let Some(p) = parsed.peak_rss_kb {
             peak_kb_max = peak_kb_max.max(p);
@@ -628,6 +671,17 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         late_period_ratio_median,
         quality_pass_count_median,
     ) = aggregate_quality_medians(&quality_reports);
+    let (
+        unplaced_hours_median,
+        class_gap_hours_median,
+        teacher_gap_hours_median,
+        class_day_balance_cost_median,
+        home_room_misses_median,
+        prefer_early_units_median,
+        avoid_first_units_median,
+        avoid_last_units_median,
+        prefer_late_units_median,
+    ) = aggregate_component_medians(&component_reports);
 
     CellResult {
         seeds,
@@ -658,6 +712,15 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         total_interior_gaps_median,
         late_period_ratio_median,
         quality_pass_count_median,
+        unplaced_hours_median,
+        class_gap_hours_median,
+        teacher_gap_hours_median,
+        class_day_balance_cost_median,
+        home_room_misses_median,
+        prefer_early_units_median,
+        avoid_first_units_median,
+        avoid_last_units_median,
+        prefer_late_units_median,
     }
 }
 
@@ -722,6 +785,47 @@ fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityM
     )
 }
 
+/// Nine-tuple returned by [`aggregate_component_medians`]: one entry per
+/// `QualityReport` field that does not already have a CellResult median
+/// (`hard_violations` and `weighted_score` are mirrored by the existing
+/// `hard_violations_median` and `soft_score_median`).
+type ComponentMedians = (
+    Option<u32>, // unplaced_hours
+    Option<u32>, // class_gap_hours
+    Option<u32>, // teacher_gap_hours
+    Option<u32>, // class_day_balance_cost
+    Option<u32>, // home_room_misses
+    Option<u32>, // prefer_early_units
+    Option<u32>, // avoid_first_units
+    Option<u32>, // avoid_last_units
+    Option<u32>, // prefer_late_units
+);
+
+fn aggregate_component_medians(reports: &[quality::QualityReport]) -> ComponentMedians {
+    if reports.is_empty() {
+        return (None, None, None, None, None, None, None, None, None);
+    }
+    let median = |samples: Vec<u32>| -> Option<u32> {
+        if samples.is_empty() {
+            None
+        } else {
+            let mut s = samples;
+            Some(median_u32(&mut s))
+        }
+    };
+    (
+        median(reports.iter().map(|r| r.unplaced_hours).collect()),
+        median(reports.iter().map(|r| r.class_gap_hours).collect()),
+        median(reports.iter().map(|r| r.teacher_gap_hours).collect()),
+        median(reports.iter().map(|r| r.class_day_balance_cost).collect()),
+        median(reports.iter().map(|r| r.home_room_misses).collect()),
+        median(reports.iter().map(|r| r.prefer_early_units).collect()),
+        median(reports.iter().map(|r| r.avoid_first_units).collect()),
+        median(reports.iter().map(|r| r.avoid_last_units).collect()),
+        median(reports.iter().map(|r| r.prefer_late_units).collect()),
+    )
+}
+
 fn median_f64(values: &mut [f64]) -> f64 {
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mid = values.len() / 2;
@@ -732,16 +836,32 @@ fn write_header(out: &mut String) {
     out.push_str("# Solver bake-off feasibility bench\n\n");
     out.push_str("<!-- Regenerated by `mise run bench:bakeoff`. Do not hand-edit. -->\n\n");
     out.push_str(
-        "| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+        "| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
     );
     out.push_str(
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
     );
 }
 
 fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &CellResult) {
     let soft = match cell.soft_score_median {
         Some(s) => s.to_string(),
+        None => "-".to_string(),
+    };
+    let class_gap_h = match cell.class_gap_hours_median {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let teacher_gap_h = match cell.teacher_gap_hours_median {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let home_room_miss = match cell.home_room_misses_median {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let day_balance = match cell.class_day_balance_cost_median {
+        Some(v) => v.to_string(),
         None => "-".to_string(),
     };
     let ttf = match cell.time_to_first_feasible_ms_median {
@@ -773,7 +893,7 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         None => "-".to_string(),
     };
     out.push_str(&format!(
-        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
         backend = backend.label(),
         seeds = cell.seeds,
         n = cell.feasibility_count,
@@ -788,7 +908,7 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
 
 fn write_error_row(out: &mut String, fixture: &str, backend: BenchBackend, _reason: &str) {
     out.push_str(&format!(
-        "| {fixture} | {backend} | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+        "| {fixture} | {backend} | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
         backend = backend.label(),
     ));
 }
@@ -1000,6 +1120,15 @@ mod tests {
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
             quality_pass_count_median: None,
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
@@ -1027,6 +1156,15 @@ mod tests {
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
             quality_pass_count_median: None,
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
@@ -1055,6 +1193,15 @@ mod tests {
             total_interior_gaps_median: Some(1),
             late_period_ratio_median: Some(0.6),
             quality_pass_count_median: Some(4),
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         };
         let s = serde_json::to_string(&cell).unwrap();
         let back: CellResult = serde_json::from_str(&s).unwrap();
@@ -1106,6 +1253,15 @@ mod tests {
             total_interior_gaps_median: Some(1),
             late_period_ratio_median: Some(0.6),
             quality_pass_count_median: Some(4),
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
@@ -1138,6 +1294,15 @@ mod tests {
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
             quality_pass_count_median: None,
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
@@ -1207,6 +1372,15 @@ mod tests {
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
             quality_pass_count_median: None,
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
         }
     }
 
@@ -1271,6 +1445,102 @@ mod tests {
         assert!(
             out.contains("Feasibility"),
             "footer must reference the Feasibility column: {out}"
+        );
+    }
+
+    #[test]
+    fn cell_result_serialises_nine_new_quality_report_medians() {
+        let cell = CellResult {
+            seeds: 4,
+            feasibility_count: 4,
+            hard_violations_median: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
+            soft_score_median: Some(90),
+            ffd_ms_median: 1.0,
+            total_ms_median: 2.0,
+            peak_kb: 1024,
+            time_to_first_feasible_ms_median: Some(1.0),
+            time_to_optimal_ms_median: Some(2.0),
+            worst_spread_median: Some(2),
+            worst_home_room_ratio_median: Some(0.7),
+            total_interior_gaps_median: Some(0),
+            late_period_ratio_median: None,
+            quality_pass_count_median: Some(4),
+            unplaced_hours_median: Some(0),
+            class_gap_hours_median: Some(1),
+            teacher_gap_hours_median: Some(2),
+            class_day_balance_cost_median: Some(3),
+            home_room_misses_median: Some(4),
+            prefer_early_units_median: Some(5),
+            avoid_first_units_median: Some(6),
+            avoid_last_units_median: Some(7),
+            prefer_late_units_median: Some(8),
+        };
+        let json = serde_json::to_string(&cell).expect("serialise");
+        let parsed: CellResult = serde_json::from_str(&json).expect("parse");
+        assert_eq!(cell, parsed);
+    }
+
+    #[test]
+    fn aggregate_component_medians_returns_per_field_medians() {
+        let reports = vec![
+            solver_core::QualityReport {
+                unplaced_hours: 0,
+                class_gap_hours: 1,
+                teacher_gap_hours: 2,
+                class_day_balance_cost: 3,
+                home_room_misses: 4,
+                prefer_early_units: 5,
+                avoid_first_units: 6,
+                avoid_last_units: 7,
+                prefer_late_units: 8,
+                ..solver_core::QualityReport::default()
+            },
+            solver_core::QualityReport {
+                unplaced_hours: 0,
+                class_gap_hours: 3,
+                teacher_gap_hours: 4,
+                class_day_balance_cost: 5,
+                home_room_misses: 6,
+                prefer_early_units: 7,
+                avoid_first_units: 8,
+                avoid_last_units: 9,
+                prefer_late_units: 10,
+                ..solver_core::QualityReport::default()
+            },
+            solver_core::QualityReport {
+                unplaced_hours: 0,
+                class_gap_hours: 2,
+                teacher_gap_hours: 3,
+                class_day_balance_cost: 4,
+                home_room_misses: 5,
+                prefer_early_units: 6,
+                avoid_first_units: 7,
+                avoid_last_units: 8,
+                prefer_late_units: 9,
+                ..solver_core::QualityReport::default()
+            },
+        ];
+        let medians = aggregate_component_medians(&reports);
+        // Three samples sorted; median is the middle one.
+        assert_eq!(medians.0, Some(0)); // unplaced_hours
+        assert_eq!(medians.1, Some(2)); // class_gap_hours
+        assert_eq!(medians.2, Some(3)); // teacher_gap_hours
+        assert_eq!(medians.3, Some(4)); // class_day_balance_cost
+        assert_eq!(medians.4, Some(5)); // home_room_misses
+        assert_eq!(medians.5, Some(6)); // prefer_early_units
+        assert_eq!(medians.6, Some(7)); // avoid_first_units
+        assert_eq!(medians.7, Some(8)); // avoid_last_units
+        assert_eq!(medians.8, Some(9)); // prefer_late_units
+    }
+
+    #[test]
+    fn aggregate_component_medians_returns_none_on_empty_input() {
+        let medians = aggregate_component_medians(&[]);
+        assert_eq!(
+            medians,
+            (None, None, None, None, None, None, None, None, None)
         );
     }
 }
