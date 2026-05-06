@@ -57,6 +57,7 @@
       "Bash(uv run alembic history *)",
       "Bash(mise exec -- pnpm exec tsc --noEmit)",
       "Bash(mise exec -- pnpm vitest run *)",
+      "Bash(mise exec -- cargo nextest *)",
       "Bash(mise exec -- pnpm biome check)",
       "Bash(mise exec -- pnpm biome check .)",
       "Bash(mise exec -- actionlint)",

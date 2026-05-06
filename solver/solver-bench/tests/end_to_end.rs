@@ -15,7 +15,7 @@ fn unique_outfile(label: &str) -> PathBuf {
 }
 
 #[test]
-fn supervisor_emits_three_new_columns_in_markdown() {
+fn supervisor_emits_observability_and_quality_columns() {
     let out = unique_outfile("columns");
     let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
         .args([
@@ -43,6 +43,26 @@ fn supervisor_emits_three_new_columns_in_markdown() {
     assert!(
         body.contains("Time to optimal"),
         "missing tto column header: {body}"
+    );
+    assert!(
+        body.contains("Worst spread (median)"),
+        "missing worst-spread header: {body}"
+    );
+    assert!(
+        body.contains("Worst home-room ratio (median)"),
+        "missing home-room header: {body}"
+    );
+    assert!(
+        body.contains("Total interior gaps (median)"),
+        "missing gaps header: {body}"
+    );
+    assert!(
+        body.contains("Late-period ratio (median)"),
+        "missing late-period header: {body}"
+    );
+    assert!(
+        body.contains("Quality (pass / 4)"),
+        "missing quality column header: {body}"
     );
     let _ = std::fs::remove_file(&out);
 }
