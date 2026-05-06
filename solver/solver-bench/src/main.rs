@@ -420,7 +420,7 @@ fn run_lahc_cell(
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
-    let mut quality_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
+    let mut quality_reports: Vec<quality::QualityPredicates> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
     let (lahc_rr_period, lahc_kempe_period) = match backend {
@@ -455,7 +455,7 @@ fn run_lahc_cell(
             if let Some(t) = stats.time_to_optimal_ms {
                 tto_feasible.push(t);
             }
-            quality_reports.push(quality::evaluate_quality(problem, &solution));
+            quality_reports.push(quality::evaluate_quality_predicates(problem, &solution));
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
@@ -536,7 +536,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
-    let mut quality_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
+    let mut quality_reports: Vec<quality::QualityPredicates> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
     let mut peak_kb_max: u64 = 0;
 
@@ -609,7 +609,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
                 violations: vec![],
                 soft_score: parsed.soft_score,
             };
-            quality_reports.push(quality::evaluate_quality(problem, &solution));
+            quality_reports.push(quality::evaluate_quality_predicates(problem, &solution));
         }
         if let Some(p) = parsed.peak_rss_kb {
             peak_kb_max = peak_kb_max.max(p);
@@ -683,7 +683,7 @@ type QualityMedians = (
     Option<u32>,
 );
 
-fn aggregate_quality_medians(reports: &[quality::QualityReport]) -> QualityMedians {
+fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityMedians {
     if reports.is_empty() {
         return (None, None, None, None, None);
     }
