@@ -2729,4 +2729,123 @@ mod tests {
             "picker should choose home room (R0) over non-home room (R1) regardless of room_order"
         );
     }
+
+    #[test]
+    fn try_place_block_room_picker_falls_back_to_id_order_when_no_home_room_advantage() {
+        fn fallback_id(n: u8) -> Uuid {
+            Uuid::from_bytes([n; 16])
+        }
+
+        // Same setup as the home-room test, but the class has no home room.
+        // With `room_order = [1, 0]` (R1 first, R0 second) and no home-room
+        // advantage on either room, the picker's strict `<` does not flip
+        // when R0's penalty 0 ties R1's penalty 0. The first feasible room
+        // (R1) wins. This pins the determinism contract: callers wanting
+        // lowest-id-wins-on-tie must pass `room_order` already sorted by id
+        // (the canonical FFD greedy caller does).
+        let class_id = SchoolClassId(fallback_id(1));
+        let teacher_id = TeacherId(fallback_id(2));
+        let subject_id = SubjectId(fallback_id(3));
+        let r0 = RoomId(fallback_id(30));
+        let r1 = RoomId(fallback_id(31));
+        let tb_id = TimeBlockId(fallback_id(40));
+        let lesson_id = LessonId(fallback_id(50));
+
+        let problem = Problem {
+            time_blocks: vec![TimeBlock {
+                id: tb_id,
+                day_of_week: 0,
+                position: 0,
+            }],
+            teachers: vec![Teacher {
+                id: teacher_id,
+                max_hours_per_week: 10,
+            }],
+            rooms: vec![Room { id: r0 }, Room { id: r1 }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                max_lessons_per_day: None,
+                home_room_id: None,
+            }],
+            subjects: vec![Subject {
+                id: subject_id,
+                max_hours_per_day: 4,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_early_period: 0,
+                prefer_late_period: 0,
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                subject_id,
+                teacher_id,
+                school_class_ids: vec![class_id],
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id,
+                subject_id,
+            }],
+            room_subject_suitabilities: vec![],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            pinned_placements: vec![],
+        };
+
+        let idx = crate::index::Indexed::new(&problem);
+        let mut state = GreedyState::new();
+        let mut placements: Vec<Placement> = Vec::new();
+        let teacher_max: HashMap<TeacherId, u8> = problem
+            .teachers
+            .iter()
+            .map(|t| (t.id, t.max_hours_per_week))
+            .collect();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let weights = ConstraintWeights {
+            class_gap: 10,
+            teacher_gap: 10,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            prefer_home_room: 100,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            class_day_balance: 0,
+        };
+        let tb_order: Vec<usize> = vec![0];
+        // Walk R1 first to check the picker still considers R0 and prefers
+        // it by tiebreak only when penalties differ. With no home-room
+        // advantage, penalties tie at 0; strict `<` keeps R1.
+        let room_order: Vec<usize> = vec![1, 0];
+        let max_position_per_day: HashMap<u8, u8> = HashMap::from([(0, 0)]);
+
+        let placed = try_place_block(
+            &problem,
+            &problem.lessons[0],
+            1,
+            &idx,
+            &teacher_max,
+            &class_max_lessons_per_day,
+            &weights,
+            &home_room_lookup,
+            &mut state,
+            &mut placements,
+            &tb_order,
+            &room_order,
+            &max_position_per_day,
+        );
+
+        assert!(placed, "lesson should be placed");
+        assert_eq!(placements.len(), 1);
+        assert_eq!(
+            placements[0].room_id, r1,
+            "with no home-room advantage and room_order=[R1, R0], picker keeps R1"
+        );
+    }
 }
