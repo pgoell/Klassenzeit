@@ -1,5 +1,7 @@
 # Bench-results refresh implementation plan (item 42)
 
+> **Status (2026-05-06): deferred.** Execution of this plan stopped at Task 4 (waiting for the bench to finish): the third cell (`grundschule / lahc_rr_kempe`) panicked at production budget on item 39's `validate_no_double_booking` post-condition validator, the supervisor aborted, and only 2 of 16 cells produced data. The bug is tracked as OPEN_THINGS item 45 (P0). This plan stays in tree as a record of the attempt; it should not be executed until item 45 ships. Anything below this line reflects the original intent, not what was actually run.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refresh `solver/solver-core/benches/BENCH_RESULTS.md` at production cell shape (`--budget 60s --seeds 20`, ~80 min wall-clock) so the committed table reflects item 31's five quality columns and item 41's full-cost soft-score reconciliation; close out OPEN_THINGS item 42 and update auto-memory.

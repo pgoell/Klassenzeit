@@ -1,5 +1,7 @@
 # Production refresh of `BENCH_RESULTS.md` post-item-31 / post-item-41 (active sprint, item 42)
 
+> **Status (2026-05-06): deferred.** The production refresh attempted under this spec discovered a P0 `lahc_rr_kempe` double-booking caught by item 39's `validate_no_double_booking` post-condition validator (`grundschule / lahc_rr_kempe` cell, panic at `solver-bench/src/main.rs:421`). The bench supervisor is fail-fast on cell errors and aborted after 2 of 16 cells. Filed as OPEN_THINGS item 45 (P0). Item 42 stays open and is now blocked on item 45's fix; this spec stays in tree as a record of the attempt and the analysis. Anything below this line reflects the original intent, not what shipped.
+
 **Sprint program.** Solver feasibility correctness + observability (active program).
 **Phase.** Sprint-tidy phase: item 42.
 **Goal.** Re-run `mise run bench:bakeoff` at production cell shape (`--budget 60s --seeds 20`, ~80 min wall-clock) and commit the regenerated `solver/solver-core/benches/BENCH_RESULTS.md` so the table reflects (a) item 31's five new quality columns (`Worst spread (median)`, `Worst home-room ratio (median)`, `Total interior gaps (median)`, `Late-period ratio (median)`, `Quality (pass / 4)`) and (b) item 41's full-cost `soft_score` reconciliation. The committed file is currently 12 columns of demo-shape data (`--budget 5s --seeds 4`); the renderer now emits 17 columns. Production-shape numbers are the artefact ADR 0032's production-default decision was supposed to keep current.
