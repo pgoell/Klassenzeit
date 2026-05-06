@@ -11,6 +11,7 @@ use solver_core::types::{
     ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
     Subject, Teacher, TeacherQualification, TimeBlock,
 };
+use solver_core::validate::validate_no_double_booking;
 use solver_core::{score_solution, solve_with_config, solve_with_config_stats};
 use uuid::Uuid;
 
@@ -421,6 +422,20 @@ proptest! {
     }
 
     #[test]
+    fn lahc_rr_kempe_does_not_double_book_class(p in lahc_small_problem()) {
+        // Bug fix for item 45: kempe_build_chain must reject chains whose
+        // conflict graph is not bipartite under the BFS 2-coloring.
+        // Without the bipartiteness check, a depth-2 chain member could be
+        // assigned to the same destination day as the seed and collide on
+        // a shared class, producing a double-booking that the post-condition
+        // validator (item 39) catches.
+        let solution = solve_with_config(&p, &lahc_rr_kempe_cfg(0))
+            .expect("solve_with_config should not error on generated problem");
+        validate_no_double_booking(&p, &solution.placements)
+            .expect("validate_no_double_booking must pass on lahc_rr_kempe output");
+    }
+
+    #[test]
     fn lahc_stats_ttf_le_tto_le_total(problem in lahc_small_problem(), seed in 0u64..1024) {
         // The probes' invariants under any (problem, seed):
         //   - whenever both ttf and tto are Some, ttf <= tto;
@@ -442,6 +457,36 @@ proptest! {
             prop_assert!(tto <= total_ms + 50.0, "tto {} > total+50ms {}", tto, total_ms + 50.0);
         }
     }
+}
+
+/// Regression for item 45: pin the grundschule seed that triggered the
+/// `lahc_rr_kempe` chain double-booking at production budget. Pre-fix
+/// (kempe_build_chain without bipartiteness check), `validate_no_double_booking`
+/// fires with `Err(Error::Input("double-booking: class ..."))`. Post-fix,
+/// the chain BFS aborts cleanly and the solver completes without any
+/// post-condition validator hit.
+///
+/// Deadline tuned to 40s: the bug requires the LAHC outer loop to reach a
+/// Kempe iteration that exercises the non-bipartite chain on this seed. At
+/// less than ~39s wall-clock the deadline cuts off the loop before the bad
+/// Kempe move runs, so the test is silently green pre-fix; 40s is the floor
+/// where pre-fix RED is reliable. Post-fix, the LAHC outer loop runs to the
+/// same deadline (the score doesn't reach the optimum on grundschule under
+/// these settings) and the validator passes.
+#[test]
+fn lahc_rr_kempe_does_not_double_book_class_at_grundschule() {
+    let p = solver_core::test_fixtures::grundschule_fixture();
+    let cfg = SolveConfig {
+        weights: solver_core::types::PRODUCTION_ACTIVE_WEIGHTS,
+        seed: 8,
+        deadline: Some(Duration::from_secs(40)),
+        lahc_rr_period: Some(25),
+        lahc_kempe_period: Some(23),
+        ..SolveConfig::default()
+    };
+    let solution = solve_with_config(&p, &cfg).expect("solve_with_config must not error");
+    validate_no_double_booking(&p, &solution.placements)
+        .expect("validate_no_double_booking must pass post-fix");
 }
 
 /// Build a tiny problem with one pinned lesson at TB0 (under `avoid_first_period`,

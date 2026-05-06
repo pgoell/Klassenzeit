@@ -1240,6 +1240,15 @@ fn kempe_build_chain(
         };
         let n = popped_lesson.preferred_block_size;
 
+        // Compute the destination day for any new neighbour added under this
+        // popped member. The chain alternates source_day / dest_day per BFS
+        // depth; new neighbours go to the opposite day from the popped member.
+        let neighbour_dest = if popped_dest_day == dest_day {
+            source_day
+        } else {
+            dest_day
+        };
+
         // Window verification for the popped lesson at its destination day.
         for k in 0..n {
             if !tb_by_day_pos.contains_key(&(popped_dest_day, start_pos + k)) {
@@ -1295,6 +1304,30 @@ fn kempe_build_chain(
                 if hours_on_source != usize::from(other.preferred_block_size) {
                     return ChainBuild::Aborted;
                 }
+                // Bipartiteness invariant: this candidate is about to be assigned
+                // `chain[candidate] = neighbour_dest`. Reject the chain if any chain
+                // member already at `neighbour_dest` shares a class or teacher with
+                // the candidate. Without this check the BFS would silently 2-color a
+                // non-bipartite conflict graph, producing same-day same-class
+                // collisions at apply time (item 45).
+                let same_color_conflict = chain.iter().any(|(existing_id, existing_dest)| {
+                    if *existing_dest != neighbour_dest {
+                        return false;
+                    }
+                    let existing_lesson = match lesson_lookup.get(existing_id).copied() {
+                        Some(l) => l,
+                        None => return false,
+                    };
+                    let teacher_conflict = existing_lesson.teacher_id == other.teacher_id;
+                    let class_conflict = existing_lesson
+                        .school_class_ids
+                        .iter()
+                        .any(|c| other.school_class_ids.contains(c));
+                    teacher_conflict || class_conflict
+                });
+                if same_color_conflict {
+                    return ChainBuild::Aborted;
+                }
                 if !frontier_seen.contains(&placement.lesson_id) {
                     new_neighbours.push(placement.lesson_id);
                     frontier_seen.insert(placement.lesson_id);
@@ -1306,11 +1339,6 @@ fn kempe_build_chain(
         // HashSet iteration order does not leak into the chain shape.
         new_neighbours.sort_unstable_by_key(|id| id.0);
 
-        let neighbour_dest = if popped_dest_day == dest_day {
-            source_day
-        } else {
-            dest_day
-        };
         for neighbour_id in new_neighbours {
             chain.insert(neighbour_id, neighbour_dest);
             frontier.push_back(neighbour_id);
