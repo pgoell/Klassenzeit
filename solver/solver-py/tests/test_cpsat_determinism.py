@@ -53,6 +53,13 @@ def _cpsat_det_problem() -> str:
 
 def test_solve_cpsat_json_deterministic_under_seed_and_deadline() -> None:
     p = _cpsat_det_problem()
-    a = solve_cpsat_json(p, deadline_ms=2_000, seed=7)
-    b = solve_cpsat_json(p, deadline_ms=2_000, seed=7)
+    a = json.loads(solve_cpsat_json(p, deadline_ms=2_000, seed=7))
+    b = json.loads(solve_cpsat_json(p, deadline_ms=2_000, seed=7))
+    # Determinism applies to the solver outputs (placements, violations,
+    # soft_score). The observability fields (peak_rss_kb,
+    # time_to_first_feasible_ms, time_to_optimal_ms) are wall-clock /
+    # process-state measurements and necessarily differ per run.
+    for k in ("peak_rss_kb", "time_to_first_feasible_ms", "time_to_optimal_ms"):
+        a.pop(k, None)
+        b.pop(k, None)
     assert a == b
