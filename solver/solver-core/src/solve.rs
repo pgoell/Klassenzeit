@@ -6,14 +6,14 @@
 //! `Solution`; `Err(Error::Input)` is reserved for structural input errors.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::Error;
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use crate::index::Indexed;
 use crate::types::{
-    ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, TimeBlock, Violation,
-    ViolationKind,
+    ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, SolveStats, TimeBlock,
+    Violation, ViolationKind,
 };
 use crate::validate::{
     pre_solve_violations, validate_daily_caps, validate_no_double_booking,
@@ -57,8 +57,24 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
 /// in FFD order; for each lesson-hour, picks the hard-feasible
 /// `(time_block, room)` candidate that minimises the running soft-score
 /// (sum of weighted gap-hours per `(class, day)` and `(teacher, day)`
-/// partition).
+/// partition). Wrapper over [`solve_with_config_stats`] that discards the
+/// timing probes; production callers (the no-config `solve()`,
+/// `solve_json_with_config`, the solver-py binding) keep the byte-identical
+/// signature.
 pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solution, Error> {
+    solve_with_config_stats(problem, config).map(|(sol, _)| sol)
+}
+
+/// Like [`solve_with_config`], plus optional timing probes ([`SolveStats`])
+/// recorded against the function entry's wall-clock origin. Today only the
+/// bake-off bench (`solver-bench`) consumes the stats; production callers go
+/// through [`solve_with_config`] which discards them.
+pub fn solve_with_config_stats(
+    problem: &Problem,
+    config: &SolveConfig,
+) -> Result<(Solution, SolveStats), Error> {
+    let solve_start = Instant::now();
+    let mut stats = SolveStats::default();
     validate_structural(problem)?;
 
     let (seed_placements, pinned, mut pin_violations) = validate_pins(problem);
@@ -220,6 +236,24 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         }
     }
 
+    // FFD-already-feasible probe: if greedy produced a feasible, soft-score-zero
+    // schedule, both ttf and tto are recorded as Some(0.0) before LAHC runs.
+    // If feasibility holds but soft_score > 0, ttf alone is set so the LAHC
+    // loop's running-best probe captures any improvement.
+    let placements_expected: usize = problem
+        .lessons
+        .iter()
+        .map(|l| l.hours_per_week as usize)
+        .sum();
+    let greedy_feasible =
+        solution.violations.is_empty() && solution.placements.len() == placements_expected;
+    if greedy_feasible {
+        stats.time_to_first_feasible_ms = Some(0.0);
+        if state.soft_score == 0 {
+            stats.time_to_optimal_ms = Some(0.0);
+        }
+    }
+
     crate::lahc::run(
         problem,
         &idx,
@@ -228,6 +262,8 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         &mut state,
         &pinned,
         &class_max_lessons_per_day,
+        &mut stats,
+        solve_start,
     );
 
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
@@ -253,7 +289,7 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
     // number.
     solution.soft_score =
         crate::score::score_solution(problem, &solution.placements, &config.weights);
-    Ok(solution)
+    Ok((solution, stats))
 }
 
 /// Mutable bookkeeping shared across all lesson-hour placements during one
@@ -2443,5 +2479,104 @@ mod tests {
                 "pin for tb {tb_id:?} must appear verbatim in placements"
             );
         }
+    }
+
+    #[test]
+    fn solve_with_config_stats_returns_zero_ttf_when_greedy_is_feasible() {
+        // base_problem has one lesson, one feasible (tb, room) pair; FFD greedy
+        // produces a feasible, soft-score-zero solution before LAHC runs. ttf
+        // and tto must both report Some(0.0) without spending wall-clock in LAHC.
+        let cfg = SolveConfig {
+            weights: ConstraintWeights {
+                class_gap: 1,
+                teacher_gap: 1,
+                ..ConstraintWeights::default()
+            },
+            ..SolveConfig::default()
+        };
+        let (sol, stats) = solve_with_config_stats(&base_problem(), &cfg).unwrap();
+        assert!(sol.violations.is_empty());
+        assert_eq!(sol.placements.len(), 1);
+        assert_eq!(stats.time_to_first_feasible_ms, Some(0.0));
+        assert_eq!(stats.time_to_optimal_ms, Some(0.0));
+    }
+
+    #[test]
+    fn solve_with_config_stats_records_running_best_improvement() {
+        // A multi-lesson, multi-day problem with a non-trivial deadline so
+        // LAHC has both placements to shuffle and time to find improvements.
+        // Whenever the run reaches feasibility (it does here on FFD greedy),
+        // ttf must be set, tto must also be set, and tto >= ttf.
+        let mut p = base_problem();
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(solve_uuid(12)),
+            day_of_week: 1,
+            position: 0,
+        });
+        p.time_blocks.push(TimeBlock {
+            id: TimeBlockId(solve_uuid(13)),
+            day_of_week: 1,
+            position: 1,
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(solve_uuid(61)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50))],
+            subject_id: SubjectId(solve_uuid(40)),
+            teacher_id: TeacherId(solve_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        p.lessons.push(Lesson {
+            id: LessonId(solve_uuid(62)),
+            school_class_ids: vec![SchoolClassId(solve_uuid(50))],
+            subject_id: SubjectId(solve_uuid(40)),
+            teacher_id: TeacherId(solve_uuid(20)),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        let cfg = SolveConfig {
+            weights: ConstraintWeights {
+                class_gap: 1,
+                teacher_gap: 1,
+                ..ConstraintWeights::default()
+            },
+            seed: 7,
+            deadline: Some(Duration::from_millis(20)),
+            ..SolveConfig::default()
+        };
+        let (sol, stats) = solve_with_config_stats(&p, &cfg).unwrap();
+        assert!(sol.violations.is_empty());
+        assert!(stats.time_to_first_feasible_ms.is_some());
+        let ttf = stats.time_to_first_feasible_ms.unwrap();
+        let tto = stats
+            .time_to_optimal_ms
+            .expect("tto set when run is feasible");
+        assert!(tto + 1e-6 >= ttf, "tto {tto} < ttf {ttf}");
+    }
+
+    #[test]
+    fn solve_with_config_stats_returns_none_when_unfeasible() {
+        // No qualified teacher means greedy emits a violation and never
+        // reaches feasibility; LAHC has no placements to move. Both stats
+        // fields must stay None.
+        let mut p = base_problem();
+        p.teacher_qualifications.clear();
+        let cfg = SolveConfig {
+            weights: ConstraintWeights {
+                class_gap: 1,
+                teacher_gap: 1,
+                ..ConstraintWeights::default()
+            },
+            seed: 1,
+            deadline: Some(Duration::from_millis(5)),
+            ..SolveConfig::default()
+        };
+        let (sol, stats) = solve_with_config_stats(&p, &cfg).unwrap();
+        assert!(sol.placements.is_empty());
+        assert_eq!(sol.violations.len(), 1);
+        assert_eq!(stats.time_to_first_feasible_ms, None);
+        assert_eq!(stats.time_to_optimal_ms, None);
     }
 }

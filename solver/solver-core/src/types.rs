@@ -88,6 +88,25 @@ pub struct ConstraintWeights {
     pub class_day_balance: u32,
 }
 
+/// Optional timing probes produced by [`crate::solve_with_config_stats`].
+/// Populated by the LAHC loop and the FFD greedy entry-check; consumers
+/// (today: `solver-bench`) median or aggregate across seed runs.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SolveStats {
+    /// Wall-clock from `solve_with_config_stats` entry to first feasible
+    /// incumbent. `Some(0.0)` when FFD greedy is already feasible at LAHC
+    /// entry. `None` when the run never reaches feasibility.
+    pub time_to_first_feasible_ms: Option<f64>,
+    /// Wall-clock from `solve_with_config_stats` entry to the last
+    /// running-best improvement. `Some(0.0)` when FFD greedy is already at
+    /// `state.soft_score == 0` and feasible. `None` when no LAHC iteration
+    /// improved the running-best (or LAHC was not run because deadline is
+    /// `None`). Note that LAHC has no proof of optimality; `time_to_optimal_ms`
+    /// is a lower bound on the actual optimisation cost (the time of the LAST
+    /// improvement, not the FIRST proof of optimality).
+    pub time_to_optimal_ms: Option<f64>,
+}
+
 /// Production-active soft-constraint weights. The bake-off bench, the JSON
 /// adapter, and the new `score_solution_json` PyO3 binding all use this exact
 /// weight set so cross-backend bench cells compare on the same scorer.
