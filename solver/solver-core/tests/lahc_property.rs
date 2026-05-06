@@ -95,6 +95,7 @@ prop_compose! {
         n_rooms in 1usize..=3,
         n_days in 1u8..=3,
         slots_per_day in 2u8..=5,
+        preferred_block_size in 1u8..=2u8,
     ) -> Problem {
         let subject_a = SubjectId(lahc_id_from(1));
         let subjects = vec![Subject { id: subject_a, prefer_early_period: 0, avoid_first_period: 0, avoid_last_period: 0, prefer_late_period: 0, max_hours_per_day: 8 }];
@@ -143,17 +144,28 @@ prop_compose! {
         let lessons: Vec<Lesson> = school_classes
             .iter()
             .enumerate()
-            .map(|(i, sc)| Lesson {
-                id: LessonId(lahc_id_from(5000 + i as u32)),
-                school_class_ids: vec![sc.id],
-                subject_id: subject_a,
-                teacher_id: teachers[i % teachers.len()].id,
+            .map(|(i, sc)| {
                 // Vary hours so FFD spreads multi-block lessons across days; sprint item 37
-                // rollback bug only fires on multi-block-across-days lessons (preferred_block_size=1
-                // and hours_per_week>=3), the constant 2 hid it.
-                hours_per_week: 2 + ((i as u8) % 3),
-                preferred_block_size: 1,
-                lesson_group_id: None,
+                // rollback bug only fires on multi-block-across-days lessons
+                // (preferred_block_size=1 and hours_per_week>=3), the constant 2 hid it.
+                // Sprint item 40 widens the generator to draw preferred_block_size from
+                // {1, 2} per problem so the Kempe chain code's multi-position window walk
+                // gets coverage; hours_per_week stays a multiple of the drawn block size
+                // so validate_structural never rejects the generated Problem.
+                let hours = if preferred_block_size == 2 {
+                    2u8 + 2 * ((i as u8) % 2)
+                } else {
+                    2u8 + ((i as u8) % 3)
+                };
+                Lesson {
+                    id: LessonId(lahc_id_from(5000 + i as u32)),
+                    school_class_ids: vec![sc.id],
+                    subject_id: subject_a,
+                    teacher_id: teachers[i % teachers.len()].id,
+                    hours_per_week: hours,
+                    preferred_block_size,
+                    lesson_group_id: None,
+                }
             })
             .collect();
 
