@@ -1309,7 +1309,11 @@ fn kempe_build_chain(
                 // member already at `neighbour_dest` shares a class or teacher with
                 // the candidate. Without this check the BFS would silently 2-color a
                 // non-bipartite conflict graph, producing same-day same-class
-                // collisions at apply time (item 45).
+                // collisions at apply time (item 45). The chain is updated eagerly
+                // (a few lines below) so two same-iteration new neighbours of the
+                // same popped member that both go to `neighbour_dest` and share a
+                // class or teacher are caught here too: the second one's check sees
+                // the first one already in `chain`.
                 let same_color_conflict = chain.iter().any(|(existing_id, existing_dest)| {
                     if *existing_dest != neighbour_dest {
                         return false;
@@ -1331,6 +1335,15 @@ fn kempe_build_chain(
                 if !frontier_seen.contains(&placement.lesson_id) {
                     new_neighbours.push(placement.lesson_id);
                     frontier_seen.insert(placement.lesson_id);
+                    // Eager chain insert so the bipartiteness check above sees this
+                    // candidate when later placements in the same popped iteration
+                    // are evaluated. Frontier extension happens after the inner
+                    // loops in deterministic LessonId.0 order; chain ordering is
+                    // unobservable (HashMap, used only for membership / dest lookup).
+                    chain.insert(placement.lesson_id, neighbour_dest);
+                    if chain.len() > KEMPE_MAX_CHAIN {
+                        return ChainBuild::Aborted;
+                    }
                 }
             }
         }
@@ -1340,11 +1353,7 @@ fn kempe_build_chain(
         new_neighbours.sort_unstable_by_key(|id| id.0);
 
         for neighbour_id in new_neighbours {
-            chain.insert(neighbour_id, neighbour_dest);
             frontier.push_back(neighbour_id);
-            if chain.len() > KEMPE_MAX_CHAIN {
-                return ChainBuild::Aborted;
-            }
         }
     }
 
@@ -3626,6 +3635,192 @@ mod tests {
             &pinned,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_chain_aborts_when_two_same_iteration_neighbours_share_class() {
+        // Same-iteration hole in the bipartiteness check from item 45's first
+        // fix: when the seed pulls in two new neighbours in one popped
+        // iteration, both going to the same `neighbour_dest`, the original
+        // check walked only `chain` (which is updated at end-of-iteration),
+        // so it never saw the two new neighbours as same-color peers. If they
+        // share a class, the apply produces a class double-booking that
+        // `validate_no_double_booking` catches at production budget.
+        //
+        // Setup: 3 lessons all in class A, three different teachers. Seed L0
+        // has n=2 at (D=0, P=0..=1). L1 (n=1) at (D=1, P=0), L2 (n=1) at
+        // (D=1, P=1). Both L1 and L2 conflict with L0 via class A and are
+        // added in L0's pop; both go to neighbour_dest = source_day = 0. They
+        // share class A with each other, so the chain is non-bipartite and
+        // must abort. With the eager-chain-insert fix, the second neighbour
+        // sees the first one in `chain` and the bipartiteness check fires.
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let t0 = TeacherId(lahc_uuid(20));
+        let t1 = TeacherId(lahc_uuid(21));
+        let t2 = TeacherId(lahc_uuid(22));
+        let l0 = LessonId(lahc_uuid(60));
+        let l1 = LessonId(lahc_uuid(61));
+        let l2 = LessonId(lahc_uuid(62));
+        let tb_d0_p0 = TimeBlockId(lahc_uuid(100));
+        let tb_d0_p1 = TimeBlockId(lahc_uuid(101));
+        let tb_d1_p0 = TimeBlockId(lahc_uuid(102));
+        let tb_d1_p1 = TimeBlockId(lahc_uuid(103));
+
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_d0_p0,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d0_p1,
+                    day_of_week: 0,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_d1_p0,
+                    day_of_week: 1,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d1_p1,
+                    day_of_week: 1,
+                    position: 1,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: t0,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: t1,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: t2,
+                    max_hours_per_week: 40,
+                },
+            ],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_a,
+                home_room_id: None,
+                max_lessons_per_day: None,
+            }],
+            lessons: vec![
+                Lesson {
+                    id: l0,
+                    school_class_ids: vec![class_a],
+                    subject_id: subject,
+                    teacher_id: t0,
+                    hours_per_week: 2,
+                    preferred_block_size: 2,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: l1,
+                    school_class_ids: vec![class_a],
+                    subject_id: subject,
+                    teacher_id: t1,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: l2,
+                    school_class_ids: vec![class_a],
+                    subject_id: subject,
+                    teacher_id: t2,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: t0,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: t1,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: t2,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let placements = vec![
+            Placement {
+                lesson_id: l0,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: l0,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: l1,
+                time_block_id: tb_d1_p0,
+                room_id: room,
+            },
+            Placement {
+                lesson_id: l2,
+                time_block_id: tb_d1_p1,
+                room_id: room,
+            },
+        ];
+
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        let outcome = kempe_build_chain(
+            l0,
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+        );
+        assert!(
+            matches!(outcome, ChainBuild::Aborted),
+            "chain must abort when two same-iteration neighbours both go to source_day and share class A",
+        );
     }
 
     #[test]
