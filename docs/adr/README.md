@@ -57,3 +57,4 @@ sections, and add the new entry to the index below.
 | 0031 | [Solver production-default backend](0031-solver-production-default.md) | Accepted |
 | 0032 | [Solver production-default revisit](0032-solver-production-default-revisit.md) | Accepted |
 | 0033 | [Solver daily caps and optimum-aware deadline](0033-solver-daily-caps-and-early-exit.md) | Accepted |
+| 0034 | [Bench cell-subprocess architecture and observability columns](0034-bench-cell-subprocess-and-observability.md) | Accepted |
