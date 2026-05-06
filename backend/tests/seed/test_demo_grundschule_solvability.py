@@ -2,11 +2,12 @@
 
 Drives the full flow through the HTTP test client so lesson generation,
 solver invocation, and placement persistence all run as they would in
-production, plus a teacher-assignment step that production currently
-expects the user to perform (either via the UI or by extending the
-generate-lessons endpoint later). The per-test db_session is shared via
-the existing dependency override, so the route handlers' commits are
-nested savepoint restarts, rolled back at test teardown.
+production. Teacher assignment is handled by the
+`auto_assign_teachers_for_lessons` step inside the generate-lessons
+route, with no canonical `_TEACHER_ASSIGNMENTS_*` UPDATE on top: this is
+the same teacher distribution end users get. The per-test db_session is
+shared via the existing dependency override, so the route handlers'
+commits are nested savepoint restarts, rolled back at test teardown.
 """
 
 from collections.abc import Awaitable, Callable
@@ -27,34 +28,30 @@ LoginFn = Callable[[str, str], Awaitable[None]]
 
 
 @pytest.mark.xfail(
-    reason=(
-        "Demo Grundschule occasionally hits 'no_suitable_room' on FFD greedy "
-        "since the same-room hard constraint landed: FFD locks "
-        "(class, day, subject) into a room early in the search, then can't "
-        "place a later hour because every candidate room conflicts with "
-        "either the lock or another class's placement. Flake rate ~50% per "
-        "run on this seed. LAHC cannot escape because LAHC moves accepted "
-        "placements rather than re-placing violations. Re-enable strict "
-        "after FFD ordering becomes same-room-aware (planned per "
-        "OPEN_THINGS 'Reduce demo Grundschule Wochenschema' + 'Tighten "
-        "Grundschule schedule quality bar'). Strict=False so XPASS doesn't "
-        "fail the suite once the solver catches up."
-    ),
     strict=False,
+    reason=(
+        "Auto-assigned teacher distribution under lahc_rr_kempe at 5000 ms "
+        "LAHC budget intermittently produces a double-booking that the "
+        "solver's `validate_no_double_booking` post-condition rejects with "
+        "an `input: double-booking` ValueError before placements are "
+        "returned. R&R + Kempe usually escapes the FFD lock-in but not "
+        "always; tracked under OPEN_THINGS item 4 (subject UUID order leak "
+        "in scarcity-first auto-assign tiebreak). Strict=False so XPASS "
+        "doesn't fail the suite once the underlying flake is fixed."
+    ),
 )
-async def test_seeded_grundschule_solves_with_zero_violations(
+async def test_seeded_grundschule_solves_with_auto_assigned_teachers(
     db_session: AsyncSession,
     client: AsyncClient,
     create_test_user: CreateUserFn,
     login_as: LoginFn,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Opt into the production 200ms LAHC pass (the rest of the suite stays
-    # greedy-only via KZ_SOLVE_DEADLINE_MS=0). LAHC alone does not fix the
-    # FFD lock-in described in the xfail reason above, but enabling it
-    # matches the production solver path and is the correct shape for when
-    # FFD becomes same-room-aware.
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 200)
+    # Production deadline: 5000 ms LAHC budget per ADR 0033. Test env
+    # default is KZ_SOLVE_DEADLINE_MS=0 (greedy-only); this opts back in
+    # so the test exercises the production solver path on the
+    # auto-assign teacher distribution.
+    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 
