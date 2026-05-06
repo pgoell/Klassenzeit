@@ -64,5 +64,21 @@ fn supervisor_emits_observability_and_quality_columns() {
         body.contains("Quality (pass / 4)"),
         "missing quality column header: {body}"
     );
+    assert!(
+        body.contains("Class gap h (median)"),
+        "missing class-gap-h header: {body}"
+    );
+    assert!(
+        body.contains("Teacher gap h (median)"),
+        "missing teacher-gap-h header: {body}"
+    );
+    assert!(
+        body.contains("Home room miss (median)"),
+        "missing home-room-miss header: {body}"
+    );
+    assert!(
+        body.contains("Day balance (median)"),
+        "missing day-balance header: {body}"
+    );
     let _ = std::fs::remove_file(&out);
 }

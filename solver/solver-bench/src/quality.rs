@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 
 use solver_core::{Problem, RoomId, SchoolClassId, Solution, SubjectId};
 
+pub use solver_core::QualityReport;
+
 /// Threshold: a class's daily-load spread (max - min across the school week)
 /// must not exceed this for the spread predicate to pass. Mirrors the Python
 /// test's `check_class_day_balance(max_spread=2)`.
@@ -31,12 +33,12 @@ pub const QUALITY_MAX_INTERIOR_GAPS: u32 = 2;
 /// Borrowed from OPEN_THINGS item 14's xfail bar.
 pub const QUALITY_MIN_LATE_PERIOD_RATIO: f64 = 0.5;
 
-/// Per-cell quality summary returned by [`evaluate_quality`]. All four metrics
+/// Per-cell quality summary returned by [`evaluate_quality_predicates`]. All four metrics
 /// are pure functions over [`Problem`] + [`Solution`]; `None` on either ratio
 /// means "no relevant placements to evaluate" and counts as a pass for the
 /// composite predicate.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct QualityReport {
+pub struct QualityPredicates {
     /// Max over classes of `max_lessons_in_day - min_lessons_in_day` across
     /// `day_of_week ∈ 0..5`. Empty schedule returns 0.
     pub worst_spread: u32,
@@ -260,13 +262,13 @@ fn late_period_ratio(problem: &Problem, solution: &Solution) -> Option<f64> {
 
 /// Pure function over [`Problem`] + [`Solution`]. See module rustdoc for the
 /// per-predicate semantics. Never panics; treats empty placements gracefully.
-pub fn evaluate_quality(problem: &Problem, solution: &Solution) -> QualityReport {
+pub fn evaluate_quality_predicates(problem: &Problem, solution: &Solution) -> QualityPredicates {
     let home_rooms: HashMap<SchoolClassId, RoomId> = problem
         .school_classes
         .iter()
         .filter_map(|c| c.home_room_id.map(|r| (c.id, r)))
         .collect();
-    QualityReport {
+    QualityPredicates {
         worst_spread: worst_class_day_spread(problem, solution),
         worst_home_room_ratio: worst_home_room_ratio(problem, solution, &home_rooms),
         total_interior_gaps: total_interior_gaps(problem, solution),
@@ -276,7 +278,7 @@ pub fn evaluate_quality(problem: &Problem, solution: &Solution) -> QualityReport
 
 /// Returns the count (0..=4) of predicates that pass at the configured
 /// thresholds. `None` ratios count as passing (vacuous truth).
-pub fn quality_pass_count(report: &QualityReport) -> u32 {
+pub fn quality_pass_count(report: &QualityPredicates) -> u32 {
     let mut n = 0;
     if report.worst_spread <= QUALITY_MAX_SPREAD {
         n += 1;
@@ -333,7 +335,7 @@ mod tests {
 
     #[test]
     fn quality_pass_count_treats_none_ratios_as_pass() {
-        let report = QualityReport {
+        let report = QualityPredicates {
             worst_spread: 0,
             worst_home_room_ratio: None,
             total_interior_gaps: 0,
@@ -344,7 +346,7 @@ mod tests {
 
     #[test]
     fn quality_pass_count_counts_each_failing_predicate() {
-        let report = QualityReport {
+        let report = QualityPredicates {
             worst_spread: 5,                  // fail
             worst_home_room_ratio: Some(0.3), // fail
             total_interior_gaps: 10,          // fail
@@ -352,7 +354,7 @@ mod tests {
         };
         assert_eq!(quality_pass_count(&report), 0);
 
-        let report = QualityReport {
+        let report = QualityPredicates {
             worst_spread: 2,                  // pass
             worst_home_room_ratio: Some(0.7), // pass
             total_interior_gaps: 0,           // pass
@@ -363,7 +365,7 @@ mod tests {
 
     #[test]
     fn quality_report_default_passes_every_predicate() {
-        let report = QualityReport::default();
+        let report = QualityPredicates::default();
         assert_eq!(quality_pass_count(&report), 4);
     }
 
@@ -380,7 +382,7 @@ mod tests {
             ..SolveConfig::default()
         };
         let solution = solve_with_config(&problem, &cfg).expect("solve");
-        let report = evaluate_quality(&problem, &solution);
+        let report = evaluate_quality_predicates(&problem, &solution);
         let n = quality_pass_count(&report);
         assert!(
             n >= 3,

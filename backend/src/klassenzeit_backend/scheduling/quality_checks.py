@@ -3,6 +3,30 @@
 Used by integration tests and (eventually) by an admin-facing quality
 endpoint to surface issues without re-deriving the predicate logic per
 consumer.
+
+`QualityIssue.kind` maps onto the backend-neutral `QualityReport`
+(item 50) component vector exposed by `solver_core::quality_report`.
+The two are not 1:1: predicates carry thresholds and per-class shape,
+the report carries unweighted axis subtotals.
+
+Mapping (QualityIssue.kind -> QualityReport field):
+
+- imbalance      -> class_day_balance_cost. Same axis; predicate uses
+  per-class spread vs. max_spread threshold.
+- home_room_miss -> home_room_misses. Same axis; predicate uses
+  per-class ratio vs. min_ratio threshold.
+- interior_gap   -> class_gap_hours. Same axis; predicate uses
+  per-class total-gaps threshold, report carries the global sum.
+- day_too_long   -> avoid_last_units (loose). Closest soft component;
+  predicate's max_position is sharper than the soft axis.
+- room_hop       -> (none). Hard constraint pruned by
+  solver_core::validate_no_room_hopping; no soft component.
+
+The teacher-gap axis (`QualityReport.teacher_gap_hours`) and the four
+subject-timing axes (`prefer_early_units`, `avoid_first_units`,
+`avoid_last_units`, `prefer_late_units`) have no QualityIssue today;
+add new `kind` literals if a future integration test or admin endpoint
+needs to report on them.
 """
 
 from collections.abc import Iterable
