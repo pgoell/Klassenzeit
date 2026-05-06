@@ -11,7 +11,7 @@ use solver_core::types::{
     ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
     Subject, Teacher, TeacherQualification, TimeBlock,
 };
-use solver_core::{score_solution, solve_with_config};
+use solver_core::{score_solution, solve_with_config, solve_with_config_stats};
 use uuid::Uuid;
 
 /// Assert that the solution does not violate any subject's per-day hour cap.
@@ -418,6 +418,29 @@ proptest! {
             .expect("pinned lesson missing from solution");
         prop_assert_eq!(pinned_in_solution.time_block_id, pin.time_block_id);
         prop_assert_eq!(pinned_in_solution.room_id, pin.room_id);
+    }
+
+    #[test]
+    fn lahc_stats_ttf_le_tto_le_total(problem in lahc_small_problem(), seed in 0u64..1024) {
+        // The probes' invariants under any (problem, seed):
+        //   - whenever both ttf and tto are Some, ttf <= tto;
+        //   - tto is bounded by the outer wall-clock plus a 50ms slack to
+        //     absorb the gap between this test's Instant::now() and
+        //     solve_with_config_stats's own entry instant.
+        let cfg = SolveConfig {
+            weights: lahc_weights(),
+            seed,
+            deadline: Some(Duration::from_millis(50)),
+            max_iterations: Some(2000),
+            ..SolveConfig::default()
+        };
+        let outer_start = std::time::Instant::now();
+        let (_sol, stats) = solve_with_config_stats(&problem, &cfg).expect("solve");
+        let total_ms = outer_start.elapsed().as_secs_f64() * 1000.0;
+        if let (Some(ttf), Some(tto)) = (stats.time_to_first_feasible_ms, stats.time_to_optimal_ms) {
+            prop_assert!(ttf <= tto + 1e-6, "ttf {} > tto {}", ttf, tto);
+            prop_assert!(tto <= total_ms + 50.0, "tto {} > total+50ms {}", tto, total_ms + 50.0);
+        }
     }
 }
 

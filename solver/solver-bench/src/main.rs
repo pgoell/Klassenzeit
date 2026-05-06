@@ -1,29 +1,30 @@
 //! Solver feasibility bake-off bench harness.
 //!
-//! Runs `solve_with_config` per `(fixture, backend, seed)` cell against the
-//! production active-default `ConstraintWeights` and writes a markdown table
-//! to BENCH_RESULTS.md.
+//! Two-mode binary:
+//! - Supervisor (default): parses CLI, spawns one `solver-bench --cell ...`
+//!   child per `(fixture, backend)` pair, collects each cell's CellResult JSON,
+//!   writes a markdown table to BENCH_RESULTS.md.
+//! - Cell-child (`--cell ...`): runs the seed loop for one (fixture, backend)
+//!   pair, reads its own peak RSS via `getrusage(RUSAGE_SELF)`, prints one
+//!   CellResult JSON object on stdout, exits.
 //!
-//! Spec: `docs/superpowers/specs/2026-05-04-solver-ffd-ordering-and-bench-design.md`.
-//! Methodology: `docs/adr/0029-solver-feasibility-bake-off.md`.
+//! ADR: docs/adr/0034-bench-cell-subprocess-and-observability.md
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
-use std::process::ExitCode;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
-use solver_core::solve_with_config;
+use serde::{Deserialize, Serialize};
+use solver_core::solve_with_config_stats;
 use solver_core::test_fixtures::{
     dreizuegig_fixture, ffd_lock_in_grundschule, grundschule_fixture, zweizuegig_fixture,
 };
 use solver_core::types::{Problem, SolveConfig};
 use solver_core::PRODUCTION_ACTIVE_WEIGHTS;
 
-/// Total number of placements a fully solved problem must produce: one per (lesson, hour).
-/// `placements.len() < placements_expected_for_problem(problem)` is a feasibility failure
-/// even when `solution.violations` is empty (a placement drop during local search does
-/// not grow the violation list). Bench harness predicate.
 fn placements_expected_for_problem(problem: &Problem) -> u64 {
     problem
         .lessons
@@ -32,7 +33,7 @@ fn placements_expected_for_problem(problem: &Problem) -> u64 {
         .sum()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BenchBackend {
     Lahc,
     LahcRr,
@@ -49,6 +50,16 @@ impl BenchBackend {
             BenchBackend::CpSat => "cpsat",
         }
     }
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "lahc" => Ok(Self::Lahc),
+            "lahc_rr" => Ok(Self::LahcRr),
+            "lahc_rr_kempe" => Ok(Self::LahcRrKempe),
+            "cpsat" => Ok(Self::CpSat),
+            other => Err(format!("unknown backend '{other}'")),
+        }
+    }
+    const ALL: [Self; 4] = [Self::Lahc, Self::LahcRr, Self::LahcRrKempe, Self::CpSat];
 }
 
 type FixtureEntry = (&'static str, fn() -> Problem);
@@ -60,15 +71,34 @@ const FIXTURES: &[FixtureEntry] = &[
     ("lock_in", ffd_lock_in_grundschule),
 ];
 
-struct CliArgs {
+fn fixture_by_name(name: &str) -> Option<fn() -> Problem> {
+    FIXTURES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct CellResult {
+    seeds: u64,
+    feasibility_count: u64,
+    hard_violations_median: u32,
+    placements_total_median: u64,
+    placements_expected: u64,
+    soft_score_median: Option<u32>,
+    ffd_ms_median: f64,
+    total_ms_median: f64,
+    peak_kb: u64,
+    time_to_first_feasible_ms_median: Option<f64>,
+    time_to_optimal_ms_median: Option<f64>,
+}
+
+struct SupervisorArgs {
     budget: Duration,
     seeds: u64,
     fixtures: Vec<String>,
     out: PathBuf,
 }
 
-fn default_args() -> CliArgs {
-    CliArgs {
+fn default_supervisor_args() -> SupervisorArgs {
+    SupervisorArgs {
         budget: Duration::from_secs(60),
         seeds: 20,
         fixtures: FIXTURES.iter().map(|(n, _)| (*n).to_string()).collect(),
@@ -90,28 +120,28 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
     }
 }
 
-fn parse_args(raw: Vec<String>) -> Result<CliArgs, String> {
-    let mut args = default_args();
+fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
+    let mut args = default_supervisor_args();
     let mut iter = raw.into_iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
             "--budget" => {
-                let value = iter.next().ok_or("--budget needs a value")?;
-                args.budget = parse_duration(&value)?;
+                let v = iter.next().ok_or("--budget needs a value")?;
+                args.budget = parse_duration(&v)?;
             }
             "--seeds" => {
-                let value = iter.next().ok_or("--seeds needs a value")?;
-                args.seeds = value
+                let v = iter.next().ok_or("--seeds needs a value")?;
+                args.seeds = v
                     .parse::<u64>()
                     .map_err(|e| format!("--seeds must be a positive integer: {e}"))?;
             }
             "--fixtures" => {
-                let value = iter.next().ok_or("--fixtures needs a value")?;
-                args.fixtures = value.split(',').map(str::to_string).collect();
+                let v = iter.next().ok_or("--fixtures needs a value")?;
+                args.fixtures = v.split(',').map(str::to_string).collect();
             }
             "--out" => {
-                let value = iter.next().ok_or("--out needs a value")?;
-                args.out = PathBuf::from(value);
+                let v = iter.next().ok_or("--out needs a value")?;
+                args.out = PathBuf::from(v);
             }
             other => return Err(format!("unknown flag '{other}'")),
         }
@@ -119,36 +149,96 @@ fn parse_args(raw: Vec<String>) -> Result<CliArgs, String> {
     Ok(args)
 }
 
+struct CellArgs {
+    fixture: String,
+    backend: BenchBackend,
+    budget: Duration,
+    seeds: u64,
+}
+
+fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
+    let mut fixture: Option<String> = None;
+    let mut backend: Option<BenchBackend> = None;
+    let mut budget: Option<Duration> = None;
+    let mut seeds: Option<u64> = None;
+    let mut iter = raw.into_iter();
+    while let Some(flag) = iter.next() {
+        match flag.as_str() {
+            "--cell" => {
+                fixture = Some(iter.next().ok_or("--cell needs a fixture name")?);
+            }
+            "--backend" => {
+                backend = Some(BenchBackend::parse(
+                    &iter.next().ok_or("--backend needs a value")?,
+                )?);
+            }
+            "--budget" => {
+                budget = Some(parse_duration(
+                    &iter.next().ok_or("--budget needs a value")?,
+                )?);
+            }
+            "--seeds" => {
+                seeds = Some(
+                    iter.next()
+                        .ok_or("--seeds needs a value")?
+                        .parse::<u64>()
+                        .map_err(|e| format!("--seeds must be a positive integer: {e}"))?,
+                );
+            }
+            other => return Err(format!("unknown cell flag '{other}'")),
+        }
+    }
+    Ok(CellArgs {
+        fixture: fixture.ok_or("--cell <fixture> required")?,
+        backend: backend.ok_or("--backend <name> required")?,
+        budget: budget.ok_or("--budget <dur> required")?,
+        seeds: seeds.ok_or("--seeds <n> required")?,
+    })
+}
+
 fn main() -> ExitCode {
     let raw: Vec<String> = env::args().skip(1).collect();
-    let args = match parse_args(raw) {
+    if matches!(raw.first().map(|s| s.as_str()), Some("--cell")) {
+        return run_cell_child(raw);
+    }
+    run_supervisor(raw)
+}
+
+fn run_supervisor(raw: Vec<String>) -> ExitCode {
+    let args = match parse_supervisor_args(raw) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("solver-bench: {e}");
             return ExitCode::from(2);
         }
     };
-
-    let backends = [
-        BenchBackend::Lahc,
-        BenchBackend::LahcRr,
-        BenchBackend::LahcRrKempe,
-        BenchBackend::CpSat,
-    ];
     let mut markdown = String::new();
     write_header(&mut markdown);
 
-    for (name, build) in FIXTURES {
+    let exe = match env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("solver-bench: cannot resolve current exe: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    for (name, _build) in FIXTURES {
         if !args.fixtures.iter().any(|f| f == name) {
             continue;
         }
-        let problem = build();
-        let expected = placements_expected_for_problem(&problem);
-        for backend in &backends {
+        for backend in &BenchBackend::ALL {
             eprintln!("cell start: {} / {}", name, backend.label());
-            let cell = run_cell(*backend, &problem, expected, args.budget, args.seeds);
+            let cell = match spawn_cell(&exe, name, *backend, args.budget, args.seeds) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("cell error: {} / {}: {e}", name, backend.label());
+                    return ExitCode::FAILURE;
+                }
+            };
             eprintln!(
-                "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} soft_med={} total_ms_med={:.0}",
+                "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} \
+                 soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} tto_med={}",
                 name,
                 backend.label(),
                 cell.feasibility_count,
@@ -160,6 +250,13 @@ fn main() -> ExitCode {
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "-".to_string()),
                 cell.total_ms_median,
+                cell.peak_kb,
+                cell.time_to_first_feasible_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.time_to_optimal_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
             );
             write_row(&mut markdown, name, *backend, &cell);
         }
@@ -175,28 +272,92 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-struct CellResult {
+fn spawn_cell(
+    exe: &Path,
+    fixture: &str,
+    backend: BenchBackend,
+    budget: Duration,
     seeds: u64,
-    feasibility_count: u64,
-    hard_violations_median: u32,
-    placements_total_median: u64,
-    placements_expected: u64,
-    soft_score_median: Option<u32>,
-    ffd_ms_median: f64,
-    total_ms_median: f64,
+) -> Result<CellResult, String> {
+    let budget_str = if budget < Duration::from_secs(1) {
+        format!("{}ms", budget.as_millis())
+    } else {
+        format!("{}s", budget.as_secs())
+    };
+    let mut cmd = Command::new(exe);
+    cmd.arg("--cell")
+        .arg(fixture)
+        .arg("--backend")
+        .arg(backend.label())
+        .arg("--budget")
+        .arg(&budget_str)
+        .arg("--seeds")
+        .arg(seeds.to_string())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    let child = cmd.spawn().map_err(|e| format!("spawn cell: {e}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("wait cell: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("cell exited with {:?}", output.status));
+    }
+    let stdout =
+        std::str::from_utf8(&output.stdout).map_err(|e| format!("cell stdout utf-8: {e}"))?;
+    serde_json::from_str(stdout.trim()).map_err(|e| format!("cell JSON: {e}; raw: {stdout}"))
 }
 
-fn run_cell(
+fn run_cell_child(raw: Vec<String>) -> ExitCode {
+    let args = match parse_cell_args(raw) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("solver-bench --cell: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let build = match fixture_by_name(&args.fixture) {
+        Some(b) => b,
+        None => {
+            eprintln!("solver-bench --cell: unknown fixture '{}'", args.fixture);
+            return ExitCode::from(2);
+        }
+    };
+    let problem = build();
+    let expected = placements_expected_for_problem(&problem);
+    let cell = match args.backend {
+        BenchBackend::CpSat => run_cpsat_cell(&problem, expected, args.budget, args.seeds),
+        _ => run_lahc_cell(args.backend, &problem, expected, args.budget, args.seeds),
+    };
+    let json = serde_json::to_string(&cell).expect("serialise CellResult");
+    let mut stdout = std::io::stdout().lock();
+    if let Err(e) = stdout.write_all(json.as_bytes()) {
+        eprintln!("solver-bench --cell: write stdout: {e}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn read_self_peak_kb() -> u64 {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    if rc != 0 {
+        return 0;
+    }
+    let raw = usage.ru_maxrss as u64;
+    if cfg!(target_os = "macos") {
+        raw / 1024
+    } else {
+        raw
+    }
+}
+
+fn run_lahc_cell(
     backend: BenchBackend,
     problem: &Problem,
     expected: u64,
     budget: Duration,
     seeds: u64,
 ) -> CellResult {
-    if let BenchBackend::CpSat = backend {
-        return run_cpsat_cell(problem, expected, budget, seeds);
-    }
-
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
         weights: weights.clone(),
@@ -205,13 +366,15 @@ fn run_cell(
     };
 
     let ffd_start = Instant::now();
-    let _greedy = solve_with_config(problem, &greedy_cfg).expect("greedy solve");
+    let _greedy = solve_with_config_stats(problem, &greedy_cfg).expect("greedy solve");
     let ffd_ms = ffd_start.elapsed().as_secs_f64() * 1_000.0;
 
     let mut total_ms_samples: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut hard_violations_samples: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut placements_total_samples: Vec<u64> = Vec::with_capacity(seeds as usize);
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
+    let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
     let (lahc_rr_period, lahc_kempe_period) = match backend {
@@ -231,18 +394,21 @@ fn run_cell(
             ..SolveConfig::default()
         };
         let start = Instant::now();
-        let solution = solve_with_config(problem, &cfg).expect("solve");
+        let (solution, stats) = solve_with_config_stats(problem, &cfg).expect("solve");
         let total_ms = start.elapsed().as_secs_f64() * 1_000.0;
         let hard = solution.violations.len() as u32;
         let placements_total = solution.placements.len() as u64;
-        debug_assert!(
-            placements_total <= expected,
-            "placements_total ({placements_total}) > expected ({expected}); structural invariant violated",
-        );
+        debug_assert!(placements_total <= expected);
         let feasible = hard == 0 && placements_total == expected;
         if feasible {
             feasibility_count += 1;
             soft_score_feasible.push(solution.soft_score);
+            if let Some(t) = stats.time_to_first_feasible_ms {
+                ttf_feasible.push(t);
+            }
+            if let Some(t) = stats.time_to_optimal_ms {
+                tto_feasible.push(t);
+            }
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
@@ -262,15 +428,22 @@ fn run_cell(
         },
         ffd_ms_median: ffd_ms,
         total_ms_median: median_f64(&mut total_ms_samples),
+        peak_kb: read_self_peak_kb(),
+        time_to_first_feasible_ms_median: if ttf_feasible.is_empty() {
+            None
+        } else {
+            Some(median_f64(&mut ttf_feasible))
+        },
+        time_to_optimal_ms_median: if tto_feasible.is_empty() {
+            None
+        } else {
+            Some(median_f64(&mut tto_feasible))
+        },
     }
 }
 
-fn build_cpsat_command(
-    problem_path: &std::path::Path,
-    budget: std::time::Duration,
-    seed: u64,
-) -> std::process::Command {
-    let mut cmd = std::process::Command::new("python3");
+fn build_cpsat_command(problem_path: &Path, budget: Duration, seed: u64) -> Command {
+    let mut cmd = Command::new("python3");
     cmd.arg("-m")
         .arg("klassenzeit_solver.cpsat")
         .arg("--problem-file")
@@ -282,7 +455,7 @@ fn build_cpsat_command(
     cmd
 }
 
-fn tempfile_path(prefix: &str, suffix: &str) -> std::path::PathBuf {
+fn tempfile_path(prefix: &str, suffix: &str) -> PathBuf {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -301,7 +474,20 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
     let mut hard_violations_samples: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut placements_total_samples: Vec<u64> = Vec::with_capacity(seeds as usize);
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
+    let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
+    let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
+    let mut peak_kb_max: u64 = 0;
+
+    #[derive(Deserialize)]
+    struct CpSatJson {
+        placements: serde_json::Value,
+        violations: Vec<serde_json::Value>,
+        soft_score: u32,
+        peak_rss_kb: Option<u64>,
+        time_to_first_feasible_ms: Option<f64>,
+        time_to_optimal_ms: Option<f64>,
+    }
 
     for seed in 1..=seeds {
         let start = Instant::now();
@@ -327,7 +513,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
                 continue;
             }
         };
-        let solution: solver_core::Solution = match serde_json::from_str(&solution_json) {
+        let parsed: CpSatJson = match serde_json::from_str(&solution_json) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("cpsat parse error (seed={seed}): {e}");
@@ -337,16 +523,26 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
                 continue;
             }
         };
-        let hard = solution.violations.len() as u32;
-        let placements_total = solution.placements.len() as u64;
-        debug_assert!(
-            placements_total <= expected,
-            "cpsat placements_total ({placements_total}) > expected ({expected}); structural invariant violated",
-        );
+        let placements_total = parsed
+            .placements
+            .as_array()
+            .map(|a| a.len() as u64)
+            .unwrap_or(0);
+        let hard = parsed.violations.len() as u32;
+        debug_assert!(placements_total <= expected);
         let feasible = hard == 0 && placements_total == expected;
         if feasible {
             feasibility_count += 1;
-            soft_score_feasible.push(solution.soft_score);
+            soft_score_feasible.push(parsed.soft_score);
+            if let Some(t) = parsed.time_to_first_feasible_ms {
+                ttf_feasible.push(t);
+            }
+            if let Some(t) = parsed.time_to_optimal_ms {
+                tto_feasible.push(t);
+            }
+        }
+        if let Some(p) = parsed.peak_rss_kb {
+            peak_kb_max = peak_kb_max.max(p);
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
@@ -368,6 +564,17 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         },
         ffd_ms_median: 0.0,
         total_ms_median: median_f64(&mut total_ms_samples),
+        peak_kb: peak_kb_max,
+        time_to_first_feasible_ms_median: if ttf_feasible.is_empty() {
+            None
+        } else {
+            Some(median_f64(&mut ttf_feasible))
+        },
+        time_to_optimal_ms_median: if tto_feasible.is_empty() {
+            None
+        } else {
+            Some(median_f64(&mut tto_feasible))
+        },
     }
 }
 
@@ -392,8 +599,12 @@ fn median_f64(values: &mut [f64]) -> f64 {
 fn write_header(out: &mut String) {
     out.push_str("# Solver bake-off feasibility bench\n\n");
     out.push_str("<!-- Regenerated by `mise run bench:bakeoff`. Do not hand-edit. -->\n\n");
-    out.push_str("| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) |\n");
-    out.push_str("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    out.push_str(
+        "| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) |\n",
+    );
+    out.push_str(
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+    );
 }
 
 fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &CellResult) {
@@ -401,8 +612,16 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         Some(s) => s.to_string(),
         None => "-".to_string(),
     };
+    let ttf = match cell.time_to_first_feasible_ms_median {
+        Some(v) => format!("{v:.0}"),
+        None => "-".to_string(),
+    };
+    let tto = match cell.time_to_optimal_ms_median {
+        Some(v) => format!("{v:.0}"),
+        None => "-".to_string(),
+    };
     out.push_str(&format!(
-        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {ffd:.2} | {total:.0} |\n",
+        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} |\n",
         backend = backend.label(),
         seeds = cell.seeds,
         n = cell.feasibility_count,
@@ -411,6 +630,7 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         expected = cell.placements_expected,
         ffd = cell.ffd_ms_median,
         total = cell.total_ms_median,
+        peak = cell.peak_kb,
     ));
 }
 
@@ -427,10 +647,18 @@ fn write_footer(out: &mut String) {
         "Refresh with `mise run bench:bakeoff` when a backend changes or a fixture is added. The\n",
     );
     out.push_str(
-        "bench is host-sensitive on wall-clock columns and host-stable on feasibility / hard-violation\n",
+        "bench is host-sensitive on wall-clock and Peak RSS columns and host-stable on feasibility / hard-violation\n",
     );
-    out.push_str("columns.\n\n");
-    out.push_str("See `docs/adr/0029-solver-feasibility-bake-off.md` for methodology.\n");
+    out.push_str(
+        "columns. Each cell runs in its own subprocess so Peak RSS reflects only that cell. Linux\n",
+    );
+    out.push_str(
+        "`ru_maxrss` is kilobytes; macOS is bytes (the bench normalises to kilobytes). Time to first\n",
+    );
+    out.push_str(
+        "feasible and Time to optimal are medians over feasible seeds; '-' marks no feasible seed.\n\n",
+    );
+    out.push_str("See `docs/adr/0029-solver-feasibility-bake-off.md` for methodology and `docs/adr/0034-bench-cell-subprocess-and-observability.md` for the cell-subprocess architecture.\n");
 }
 
 fn read_cpu() -> Option<String> {
@@ -442,23 +670,19 @@ fn read_cpu() -> Option<String> {
 }
 
 fn read_kernel() -> Option<String> {
-    std::process::Command::new("uname")
-        .arg("-r")
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout)
-                    .ok()
-                    .map(|s| s.trim().to_string())
-            } else {
-                None
-            }
-        })
+    Command::new("uname").arg("-r").output().ok().and_then(|o| {
+        if o.status.success() {
+            String::from_utf8(o.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        } else {
+            None
+        }
+    })
 }
 
 fn read_rustc() -> Option<String> {
-    std::process::Command::new("rustc")
+    Command::new("rustc")
         .arg("--version")
         .output()
         .ok()
@@ -474,8 +698,7 @@ fn read_rustc() -> Option<String> {
 }
 
 fn chrono_today() -> String {
-    // No chrono dep; shell-out keeps this in step with record_solver_bench.sh.
-    std::process::Command::new("date")
+    Command::new("date")
         .args(["-Idate"])
         .output()
         .ok()
@@ -503,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_reads_all_flags() {
+    fn parse_supervisor_args_reads_all_flags() {
         let raw = vec![
             "--budget".to_string(),
             "5s".to_string(),
@@ -514,7 +737,7 @@ mod tests {
             "--out".to_string(),
             "/tmp/out.md".to_string(),
         ];
-        let args = parse_args(raw).unwrap();
+        let args = parse_supervisor_args(raw).unwrap();
         assert_eq!(args.budget, Duration::from_secs(5));
         assert_eq!(args.seeds, 4);
         assert_eq!(
@@ -525,9 +748,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_rejects_unknown_flag() {
+    fn parse_supervisor_args_rejects_unknown_flag() {
         let raw = vec!["--unknown".to_string()];
-        assert!(parse_args(raw).is_err());
+        assert!(parse_supervisor_args(raw).is_err());
+    }
+
+    #[test]
+    fn parse_cell_args_reads_fixture_backend_budget_seeds() {
+        let raw = vec![
+            "--cell".to_string(),
+            "grundschule".to_string(),
+            "--backend".to_string(),
+            "lahc_rr".to_string(),
+            "--budget".to_string(),
+            "200ms".to_string(),
+            "--seeds".to_string(),
+            "3".to_string(),
+        ];
+        let args = parse_cell_args(raw).unwrap();
+        assert_eq!(args.fixture, "grundschule");
+        assert_eq!(args.backend, BenchBackend::LahcRr);
+        assert_eq!(args.budget, Duration::from_millis(200));
+        assert_eq!(args.seeds, 3);
     }
 
     #[test]
@@ -537,7 +779,41 @@ mod tests {
     }
 
     #[test]
-    fn write_row_emits_one_line_with_dash_for_no_feasible() {
+    fn write_header_includes_three_new_columns() {
+        let mut out = String::new();
+        write_header(&mut out);
+        assert!(out.contains("Peak RSS (kB)"), "missing peak header: {out}");
+        assert!(
+            out.contains("Time to first feasible"),
+            "missing ttf header: {out}"
+        );
+        assert!(out.contains("Time to optimal"), "missing tto header: {out}");
+    }
+
+    #[test]
+    fn write_row_renders_observability_columns() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 20,
+            hard_violations_median: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
+            soft_score_median: Some(0),
+            ffd_ms_median: 0.13,
+            total_ms_median: 60000.0,
+            peak_kb: 49152,
+            time_to_first_feasible_ms_median: Some(0.4),
+            time_to_optimal_ms_median: Some(1500.0),
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
+        assert!(out.contains("| 49152 |"), "missing peak: {out}");
+        assert!(out.contains("| 0 |"), "missing ttf rounded to 0 ms: {out}");
+        assert!(out.contains("| 1500 |"), "missing tto: {out}");
+    }
+
+    #[test]
+    fn write_row_renders_dash_when_no_feasible_seed() {
         let cell = CellResult {
             seeds: 20,
             feasibility_count: 0,
@@ -547,107 +823,36 @@ mod tests {
             soft_score_median: None,
             ffd_ms_median: 0.05,
             total_ms_median: 60050.0,
+            peak_kb: 49152,
+            time_to_first_feasible_ms_median: None,
+            time_to_optimal_ms_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
         assert!(out.contains("| 0/20 |"));
+        assert!(out.contains("| 49152 |"));
+        // Three dash-cells in a row: soft_score, ttf, tto.
         assert!(out.contains("| - |"));
-        assert!(out.contains("| 0.05 |"));
     }
 
     #[test]
-    fn write_row_renders_lahc_rr_backend_label() {
+    fn cell_result_round_trips_through_json() {
         let cell = CellResult {
-            seeds: 20,
-            feasibility_count: 20,
+            seeds: 4,
+            feasibility_count: 4,
             hard_violations_median: 0,
-            placements_total_median: 0,
-            placements_expected: 0,
-            soft_score_median: Some(10),
-            ffd_ms_median: 1.0,
-            total_ms_median: 60100.0,
-        };
-        let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::LahcRr, &cell);
-        assert!(out.contains("| lahc_rr |"));
-    }
-
-    #[test]
-    fn write_row_renders_lahc_rr_kempe_backend_label() {
-        let cell = CellResult {
-            seeds: 20,
-            feasibility_count: 20,
-            hard_violations_median: 0,
-            placements_total_median: 0,
-            placements_expected: 0,
-            soft_score_median: Some(10),
-            ffd_ms_median: 1.0,
-            total_ms_median: 60100.0,
-        };
-        let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
-        assert!(out.contains("| lahc_rr_kempe |"));
-    }
-
-    #[test]
-    fn write_row_renders_cpsat_backend_label() {
-        let cell = CellResult {
-            seeds: 20,
-            feasibility_count: 18,
-            hard_violations_median: 0,
-            placements_total_median: 0,
-            placements_expected: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
             soft_score_median: Some(15),
-            ffd_ms_median: 0.0,
-            total_ms_median: 60050.0,
-        };
-        let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::CpSat, &cell);
-        assert!(out.contains("| cpsat |"));
-    }
-
-    #[test]
-    fn write_row_renders_placements_column() {
-        let cell = CellResult {
-            seeds: 20,
-            feasibility_count: 20,
-            hard_violations_median: 0,
-            placements_total_median: 196,
-            placements_expected: 196,
-            soft_score_median: Some(10),
-            ffd_ms_median: 1.0,
-            total_ms_median: 60100.0,
-        };
-        let mut out = String::new();
-        write_row(&mut out, "zweizuegig", BenchBackend::LahcRr, &cell);
-        assert!(
-            out.contains("| 196/196 |"),
-            "expected `| 196/196 |` somewhere in row, got: {out}"
-        );
-    }
-
-    #[test]
-    fn write_row_renders_underflow_placement_count() {
-        let cell = CellResult {
-            seeds: 20,
-            feasibility_count: 0,
-            hard_violations_median: 0,
-            placements_total_median: 60,
-            placements_expected: 196,
-            soft_score_median: None,
             ffd_ms_median: 0.5,
             total_ms_median: 60000.0,
+            peak_kb: 12345,
+            time_to_first_feasible_ms_median: Some(2.5),
+            time_to_optimal_ms_median: Some(40.0),
         };
-        let mut out = String::new();
-        write_row(&mut out, "zweizuegig", BenchBackend::LahcRr, &cell);
-        assert!(
-            out.contains("| 60/196 |"),
-            "expected `| 60/196 |` somewhere in row, got: {out}"
-        );
-        assert!(
-            out.contains("| 0/20 |"),
-            "expected `| 0/20 |` (feasibility) somewhere in row, got: {out}"
-        );
+        let s = serde_json::to_string(&cell).unwrap();
+        let back: CellResult = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, cell);
     }
 
     #[test]
@@ -666,7 +871,7 @@ mod tests {
     fn cpsat_subprocess_command_args_match_module_invocation() {
         let cmd = build_cpsat_command(
             std::path::Path::new("/tmp/p.json"),
-            std::time::Duration::from_secs(60),
+            Duration::from_secs(60),
             7,
         );
         let argv: Vec<String> = cmd

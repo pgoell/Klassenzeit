@@ -21,9 +21,9 @@ pub use error::Error;
 pub use ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 pub use json::{error_envelope_json, score_solution_json, solve_json, solve_json_with_config};
 pub use score::score_solution;
-pub use solve::{solve, solve_with_config};
+pub use solve::{solve, solve_with_config, solve_with_config_stats};
 pub use types::{
     ConstraintWeights, Lesson, Placement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
-    SchoolClass, Solution, SolveConfig, Subject, Teacher, TeacherBlockedTime, TeacherQualification,
-    TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
+    SchoolClass, Solution, SolveConfig, SolveStats, Subject, Teacher, TeacherBlockedTime,
+    TeacherQualification, TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
 };

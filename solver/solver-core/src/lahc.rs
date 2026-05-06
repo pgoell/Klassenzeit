@@ -13,7 +13,7 @@ use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBloc
 use crate::index::Indexed;
 use crate::score::{gap_count, gap_count_after_insert, gap_count_after_remove};
 use crate::types::{
-    ConstraintWeights, Lesson, Placement, Problem, SolveConfig, Subject, TimeBlock,
+    ConstraintWeights, Lesson, Placement, Problem, SolveConfig, SolveStats, Subject, TimeBlock,
 };
 
 /// Length of the LAHC cost-history list. Burke & Bykov 2008 reports the
@@ -24,7 +24,11 @@ const LAHC_LIST_LEN: usize = 500;
 
 /// Run the LAHC loop over the placement set produced by greedy. Mutates
 /// `placements` and the partition / used-* state in place via `state`. The
-/// post-LAHC running total ends up in `state.soft_score`.
+/// post-LAHC running total ends up in `state.soft_score`. Records timing
+/// probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into `stats`
+/// against `solve_start` so the wall-clock origin is shared with
+/// `solve_with_config_stats`'s entry instead of LAHC's own start.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper threading stats + clock origin
 pub(crate) fn run(
     problem: &Problem,
     idx: &Indexed,
@@ -33,6 +37,8 @@ pub(crate) fn run(
     state: &mut crate::solve::GreedyState,
     pinned: &HashSet<LessonId>,
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    stats: &mut SolveStats,
+    solve_start: Instant,
 ) {
     let Some(deadline) = config.deadline else {
         return;
@@ -40,7 +46,6 @@ pub(crate) fn run(
     if placements.is_empty() {
         return;
     }
-    let start = Instant::now();
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
@@ -92,8 +97,16 @@ pub(crate) fn run(
         .map(|l| l.hours_per_week as usize)
         .sum();
 
+    // Track the running-best soft score so the time-to-optimal probe can
+    // capture the wall-clock of the last improvement. If FFD greedy already
+    // reached `soft_score == 0` and feasibility, ttf and tto are both already
+    // set by `solve_with_config_stats` before LAHC runs; the running_best
+    // initialiser still seeds correctly so a never-improving LAHC leaves them
+    // untouched.
+    let mut running_best = state.soft_score;
+
     let mut iter: u64 = 0;
-    while iter < max_iter && start.elapsed() < deadline {
+    while iter < max_iter && solve_start.elapsed() < deadline {
         let is_rr_iter = config
             .lahc_rr_period
             .is_some_and(|n| n > 0 && (iter as u32) % n == 0);
@@ -168,6 +181,16 @@ pub(crate) fn run(
 
         iter += 1;
         lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
+        if stats.time_to_first_feasible_ms.is_none()
+            && state.soft_score == 0
+            && placements.len() == placements_expected
+        {
+            stats.time_to_first_feasible_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
+        }
+        if state.soft_score < running_best {
+            running_best = state.soft_score;
+            stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
+        }
         if state.soft_score == 0 && placements.len() == placements_expected {
             break;
         }
@@ -2621,6 +2644,8 @@ mod tests {
             &mut state,
             &HashSet::new(),
             &HashMap::new(),
+            &mut SolveStats::default(),
+            Instant::now(),
         );
 
         assert_eq!(placements.len(), 1);
@@ -2755,6 +2780,8 @@ mod tests {
             &mut state,
             &HashSet::new(),
             &HashMap::new(),
+            &mut SolveStats::default(),
+            Instant::now(),
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
@@ -2929,6 +2956,8 @@ mod tests {
             &mut state,
             &HashSet::new(),
             &HashMap::new(),
+            &mut SolveStats::default(),
+            Instant::now(),
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
