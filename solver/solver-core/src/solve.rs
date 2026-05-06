@@ -246,7 +246,13 @@ pub fn solve_with_config(problem: &Problem, config: &SolveConfig) -> Result<Solu
         panic!("no-double-booking post-condition violated: {e}");
     }
 
-    solution.soft_score = state.soft_score;
+    // state.soft_score is the LAHC running slice (class_gap + teacher_gap
+    // + subject_pref). Solution.soft_score is the full weighted cost on
+    // the final placements, including prefer_home_room and
+    // class_day_balance, so consumers compare every backend on the same
+    // number.
+    solution.soft_score =
+        crate::score::score_solution(problem, &solution.placements, &config.weights);
     Ok(solution)
 }
 

@@ -341,10 +341,15 @@ pub struct Solution {
     pub placements: Vec<Placement>,
     /// Violations recorded during solving (e.g., unplaced hours, no qualified teacher).
     pub violations: Vec<Violation>,
-    /// Sum of weighted soft-constraint penalties across `placements`.
-    /// Populated by `solve_with_config` against the caller's
-    /// `ConstraintWeights`. Zero when both weights are zero or when the
-    /// schedule is fully compact.
+    /// Full weighted soft-constraint cost on the final placements,
+    /// computed by `score::score_solution(problem, placements, weights)`
+    /// at the end of every `solve_with_config`. The LAHC inner loop
+    /// optimises a faster slice (`class_gap + teacher_gap +
+    /// subject_pref`) for delta efficiency; this reported field is the
+    /// canonical objective so cross-backend bench cells (LAHC, cpsat)
+    /// compare on the same number. Zero when every active weight axis
+    /// contributes zero (e.g. zero weights, or a fully optimal plan
+    /// against the active weights).
     pub soft_score: u32,
 }
 

@@ -346,12 +346,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         let feasible = hard == 0 && placements_total == expected;
         if feasible {
             feasibility_count += 1;
-            let soft = solver_core::score_solution(
-                problem,
-                &solution.placements,
-                &solver_core::PRODUCTION_ACTIVE_WEIGHTS,
-            );
-            soft_score_feasible.push(soft);
+            soft_score_feasible.push(solution.soft_score);
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
