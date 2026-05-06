@@ -230,60 +230,17 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         }
     };
 
-    for (name, _build) in FIXTURES {
-        if !args.fixtures.iter().any(|f| f == name) {
-            continue;
-        }
-        for backend in &BenchBackend::ALL {
-            eprintln!("cell start: {} / {}", name, backend.label());
-            let cell = match spawn_cell(&exe, name, *backend, args.budget, args.seeds) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("cell error: {} / {}: {e}", name, backend.label());
-                    return ExitCode::FAILURE;
-                }
-            };
-            eprintln!(
-                "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} \
-                 soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} tto_med={} \
-                 worst_spread_med={} worst_home_med={} gaps_med={} late_med={} quality_med={}",
-                name,
-                backend.label(),
-                cell.feasibility_count,
-                cell.seeds,
-                cell.hard_violations_median,
-                cell.placements_total_median,
-                cell.placements_expected,
-                cell.soft_score_median
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.total_ms_median,
-                cell.peak_kb,
-                cell.time_to_first_feasible_ms_median
-                    .map(|v| format!("{:.0}", v))
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.time_to_optimal_ms_median
-                    .map(|v| format!("{:.0}", v))
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.worst_spread_median
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.worst_home_room_ratio_median
-                    .map(|v| format!("{v:.2}"))
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.total_interior_gaps_median
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.late_period_ratio_median
-                    .map(|v| format!("{v:.2}"))
-                    .unwrap_or_else(|| "-".to_string()),
-                cell.quality_pass_count_median
-                    .map(|v| format!("{v}/4"))
-                    .unwrap_or_else(|| "-".to_string()),
-            );
-            write_row(&mut markdown, name, *backend, &cell);
-        }
-    }
+    let plan: Vec<(&'static str, BenchBackend)> = FIXTURES
+        .iter()
+        .filter(|(name, _)| args.fixtures.iter().any(|f| f == name))
+        .flat_map(|(name, _)| BenchBackend::ALL.iter().map(move |b| (*name, *b)))
+        .collect();
+    let cells_attempted = plan.len();
+
+    let mut runner = |name: &str, backend: BenchBackend| -> Result<CellResult, String> {
+        spawn_cell(&exe, name, backend, args.budget, args.seeds)
+    };
+    let successes = render_cells(plan, &mut runner, &mut markdown);
 
     write_footer(&mut markdown);
 
@@ -292,7 +249,12 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         return ExitCode::FAILURE;
     }
     eprintln!("wrote {:?}", args.out);
-    ExitCode::SUCCESS
+
+    if cells_attempted == 0 || successes >= 1 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn spawn_cell(
@@ -328,6 +290,66 @@ fn spawn_cell(
     let stdout =
         std::str::from_utf8(&output.stdout).map_err(|e| format!("cell stdout utf-8: {e}"))?;
     serde_json::from_str(stdout.trim()).map_err(|e| format!("cell JSON: {e}; raw: {stdout}"))
+}
+
+fn render_cells<I, F>(plan: I, runner: &mut F, markdown: &mut String) -> usize
+where
+    I: IntoIterator<Item = (&'static str, BenchBackend)>,
+    F: FnMut(&str, BenchBackend) -> Result<CellResult, String>,
+{
+    let mut successes = 0usize;
+    for (name, backend) in plan {
+        eprintln!("cell start: {} / {}", name, backend.label());
+        match runner(name, backend) {
+            Ok(cell) => {
+                eprintln!(
+                    "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} \
+                     soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} tto_med={} \
+                     worst_spread_med={} worst_home_med={} gaps_med={} late_med={} quality_med={}",
+                    name,
+                    backend.label(),
+                    cell.feasibility_count,
+                    cell.seeds,
+                    cell.hard_violations_median,
+                    cell.placements_total_median,
+                    cell.placements_expected,
+                    cell.soft_score_median
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.total_ms_median,
+                    cell.peak_kb,
+                    cell.time_to_first_feasible_ms_median
+                        .map(|v| format!("{:.0}", v))
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.time_to_optimal_ms_median
+                        .map(|v| format!("{:.0}", v))
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.worst_spread_median
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.worst_home_room_ratio_median
+                        .map(|v| format!("{v:.2}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.total_interior_gaps_median
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.late_period_ratio_median
+                        .map(|v| format!("{v:.2}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    cell.quality_pass_count_median
+                        .map(|v| format!("{v}/4"))
+                        .unwrap_or_else(|| "-".to_string()),
+                );
+                write_row(markdown, name, backend, &cell);
+                successes += 1;
+            }
+            Err(reason) => {
+                eprintln!("cell error: {} / {}: {reason}", name, backend.label());
+                write_error_row(markdown, name, backend, &reason);
+            }
+        }
+    }
+    successes
 }
 
 fn run_cell_child(raw: Vec<String>) -> ExitCode {
@@ -764,6 +786,13 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
     ));
 }
 
+fn write_error_row(out: &mut String, fixture: &str, backend: BenchBackend, _reason: &str) {
+    out.push_str(&format!(
+        "| {fixture} | {backend} | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+        backend = backend.label(),
+    ));
+}
+
 fn write_footer(out: &mut String) {
     let cpu = read_cpu().unwrap_or_else(|| "unknown".to_string());
     let kernel = read_kernel().unwrap_or_else(|| "unknown".to_string());
@@ -803,6 +832,13 @@ fn write_footer(out: &mut String) {
     out.push_str(
         "subject has the axis enabled, and that case counts as pass for the composite Quality column.\n",
     );
+    out.push_str(
+        "Cells whose subprocess fails (panic, non-zero exit, JSON parse error) render `panic` in the\n",
+    );
+    out.push_str(
+        "Feasibility column with `-` in every other numeric column. The supervisor logs the underlying\n",
+    );
+    out.push_str("reason to stderr and continues to the next cell.\n\n");
     out.push_str(
         "Home-room ratio exempts subjects whose `room_subject_suitabilities` exclude the class's\n",
     );
@@ -1151,5 +1187,90 @@ mod tests {
             ]
         );
         assert_eq!(cmd.get_program(), "python3");
+    }
+
+    fn synthetic_cell_for_resilience_tests(seeds: u64) -> CellResult {
+        CellResult {
+            seeds,
+            feasibility_count: seeds,
+            hard_violations_median: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
+            soft_score_median: Some(0),
+            ffd_ms_median: 0.13,
+            total_ms_median: 60_000.0,
+            peak_kb: 49_152,
+            time_to_first_feasible_ms_median: Some(1.0),
+            time_to_optimal_ms_median: Some(2.0),
+            worst_spread_median: None,
+            worst_home_room_ratio_median: None,
+            total_interior_gaps_median: None,
+            late_period_ratio_median: None,
+            quality_pass_count_median: None,
+        }
+    }
+
+    #[test]
+    fn supervisor_renders_panic_row_and_continues_on_cell_error() {
+        let plan = vec![
+            ("grundschule", BenchBackend::Lahc),
+            ("grundschule", BenchBackend::LahcRr),
+            ("grundschule", BenchBackend::LahcRrKempe),
+        ];
+        let mut runner = |_name: &str, backend: BenchBackend| -> Result<CellResult, String> {
+            if matches!(backend, BenchBackend::LahcRr) {
+                Err("synthetic-panic: cell exited with non-zero".to_string())
+            } else {
+                Ok(synthetic_cell_for_resilience_tests(20))
+            }
+        };
+        let mut markdown = String::new();
+        let successes = render_cells(plan, &mut runner, &mut markdown);
+        assert_eq!(successes, 2, "two cells should have succeeded");
+        assert!(
+            markdown.contains("| grundschule | lahc | 20 | 20/20 |"),
+            "missing surviving lahc row: {markdown}"
+        );
+        assert!(
+            markdown.contains("| grundschule | lahc_rr_kempe | 20 | 20/20 |"),
+            "missing surviving lahc_rr_kempe row: {markdown}"
+        );
+        assert!(
+            markdown.contains("| grundschule | lahc_rr | - | panic |"),
+            "missing panic placeholder for failed cell: {markdown}"
+        );
+    }
+
+    #[test]
+    fn supervisor_returns_zero_successes_when_every_cell_panics() {
+        let plan = vec![
+            ("grundschule", BenchBackend::Lahc),
+            ("grundschule", BenchBackend::LahcRr),
+        ];
+        let mut runner = |_name: &str, _backend: BenchBackend| -> Result<CellResult, String> {
+            Err("everything is on fire".to_string())
+        };
+        let mut markdown = String::new();
+        let successes = render_cells(plan, &mut runner, &mut markdown);
+        assert_eq!(successes, 0);
+        let panic_row_count = markdown.matches("| panic |").count();
+        assert_eq!(
+            panic_row_count, 2,
+            "every plan entry should render a panic row: {markdown}"
+        );
+    }
+
+    #[test]
+    fn write_footer_documents_panic_token() {
+        let mut out = String::new();
+        write_footer(&mut out);
+        assert!(
+            out.contains("panic"),
+            "footer must document the panic token: {out}"
+        );
+        assert!(
+            out.contains("Feasibility"),
+            "footer must reference the Feasibility column: {out}"
+        );
     }
 }
