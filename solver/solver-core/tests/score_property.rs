@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use solver_core::{
     score_solution, solve_with_config, ConstraintWeights, Lesson, LessonId, Placement, Problem,
     Room, RoomId, SchoolClass, SchoolClassId, SolveConfig, Subject, SubjectId, Teacher, TeacherId,
-    TeacherQualification, TimeBlock, TimeBlockId,
+    TeacherQualification, TimeBlock, TimeBlockId, PRODUCTION_ACTIVE_WEIGHTS,
 };
 use uuid::Uuid;
 
@@ -228,4 +228,90 @@ proptest! {
         let expected = if position == 0 { weight } else { 0 };
         prop_assert_eq!(score_solution(&problem, &placements, &weights), expected);
     }
+}
+
+/// Hand-built problem that exercises the `class_day_balance` axis under
+/// `PRODUCTION_ACTIVE_WEIGHTS`. FFD-greedy packs the lesson's two hours
+/// onto a single day (best slice score: zero class_gap), leaving the
+/// second day empty. The slice score is therefore zero; the full
+/// `score_solution` adds a non-zero `class_day_balance` cost. Pin: this
+/// fixture is the regression for item 41.
+fn build_class_day_balance_problem() -> Problem {
+    let class_id = SchoolClassId(id_from(5000));
+    let teacher_id = TeacherId(id_from(2000));
+    let room_id = RoomId(id_from(3000));
+    let subject_id = SubjectId(id_from(4000));
+    let lesson_id = LessonId(id_from(6000));
+
+    let time_blocks: Vec<TimeBlock> = (0u8..2)
+        .flat_map(|d| {
+            (0u8..2).map(move |p| TimeBlock {
+                id: TimeBlockId(id_from(u32::from(d) * 100 + u32::from(p) + 1000)),
+                day_of_week: d,
+                position: p,
+            })
+        })
+        .collect();
+
+    Problem {
+        time_blocks,
+        teachers: vec![Teacher {
+            id: teacher_id,
+            max_hours_per_week: 30,
+        }],
+        rooms: vec![Room { id: room_id }],
+        subjects: vec![Subject {
+            id: subject_id,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        }],
+        school_classes: vec![SchoolClass {
+            id: class_id,
+            home_room_id: None,
+            max_lessons_per_day: None,
+        }],
+        lessons: vec![Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class_id],
+            subject_id,
+            teacher_id,
+            hours_per_week: 2,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        }],
+        teacher_qualifications: vec![TeacherQualification {
+            teacher_id,
+            subject_id,
+        }],
+        teacher_blocked_times: vec![],
+        room_blocked_times: vec![],
+        room_subject_suitabilities: vec![],
+        pinned_placements: vec![],
+    }
+}
+
+/// Item 41 contract: `solve_with_config` must report `solution.soft_score`
+/// as the full weighted cost (`score_solution(problem, placements,
+/// weights)`), not the LAHC running slice. Under `PRODUCTION_ACTIVE_WEIGHTS`
+/// the `class_day_balance` axis is non-zero on a one-day-packed plan; on
+/// master before the fix this assertion fails because the slice misses it.
+#[test]
+fn solve_soft_score_under_production_weights_equals_score_solution() {
+    let problem = build_class_day_balance_problem();
+    let cfg = SolveConfig {
+        weights: PRODUCTION_ACTIVE_WEIGHTS,
+        deadline: None,
+        ..SolveConfig::default()
+    };
+    let sol = solve_with_config(&problem, &cfg).expect("solve must succeed on the tiny fixture");
+    let recomputed = score_solution(&problem, &sol.placements, &PRODUCTION_ACTIVE_WEIGHTS);
+    assert_eq!(
+        sol.soft_score, recomputed,
+        "Solution.soft_score must equal score_solution(...) under PRODUCTION_ACTIVE_WEIGHTS; \
+         got slice={}, full={}",
+        sol.soft_score, recomputed,
+    );
 }
