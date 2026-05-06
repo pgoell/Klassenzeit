@@ -382,6 +382,7 @@ fn run_lahc_cell(
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
+    let mut quality_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
     let (lahc_rr_period, lahc_kempe_period) = match backend {
@@ -416,6 +417,7 @@ fn run_lahc_cell(
             if let Some(t) = stats.time_to_optimal_ms {
                 tto_feasible.push(t);
             }
+            quality_reports.push(quality::evaluate_quality(problem, &solution));
         }
         hard_violations_samples.push(hard);
         total_ms_samples.push(total_ms);
@@ -428,7 +430,7 @@ fn run_lahc_cell(
         total_interior_gaps_median,
         late_period_ratio_median,
         quality_pass_count_median,
-    ) = aggregate_quality_medians(&[]);
+    ) = aggregate_quality_medians(&quality_reports);
 
     CellResult {
         seeds,
@@ -496,6 +498,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
     let mut soft_score_feasible: Vec<u32> = Vec::with_capacity(seeds as usize);
     let mut ttf_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
     let mut tto_feasible: Vec<f64> = Vec::with_capacity(seeds as usize);
+    let mut quality_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
     let mut peak_kb_max: u64 = 0;
 
@@ -560,6 +563,15 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
             if let Some(t) = parsed.time_to_optimal_ms {
                 tto_feasible.push(t);
             }
+            let placements: Vec<solver_core::Placement> =
+                serde_json::from_value(parsed.placements.clone())
+                    .expect("cpsat placements deserialise into Vec<Placement>");
+            let solution = solver_core::Solution {
+                placements,
+                violations: vec![],
+                soft_score: parsed.soft_score,
+            };
+            quality_reports.push(quality::evaluate_quality(problem, &solution));
         }
         if let Some(p) = parsed.peak_rss_kb {
             peak_kb_max = peak_kb_max.max(p);
@@ -570,6 +582,14 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
     }
 
     let _ = std::fs::remove_file(&tmpfile);
+
+    let (
+        worst_spread_median,
+        worst_home_room_ratio_median,
+        total_interior_gaps_median,
+        late_period_ratio_median,
+        quality_pass_count_median,
+    ) = aggregate_quality_medians(&quality_reports);
 
     CellResult {
         seeds,
@@ -595,11 +615,11 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         } else {
             Some(median_f64(&mut tto_feasible))
         },
-        worst_spread_median: None,
-        worst_home_room_ratio_median: None,
-        total_interior_gaps_median: None,
-        late_period_ratio_median: None,
-        quality_pass_count_median: None,
+        worst_spread_median,
+        worst_home_room_ratio_median,
+        total_interior_gaps_median,
+        late_period_ratio_median,
+        quality_pass_count_median,
     }
 }
 
@@ -625,15 +645,43 @@ type QualityMedians = (
     Option<u32>,
 );
 
-/// Aggregate per-seed [`quality::QualityReport`]s into five median fields for
-/// [`CellResult`]. Returns all-`None` when `reports` is empty (no feasible
-/// seeds). Task 4 fills in the real implementation.
 fn aggregate_quality_medians(reports: &[quality::QualityReport]) -> QualityMedians {
-    let _ = reports.iter().map(quality::quality_pass_count).sum::<u32>();
-    // evaluate_quality is wired per seed in Task 4; the fn pointer keeps
-    // the item reachable so dead_code does not fire before Task 4 lands.
-    let _evaluate = quality::evaluate_quality as fn(_, _) -> _;
-    (None, None, None, None, None)
+    if reports.is_empty() {
+        return (None, None, None, None, None);
+    }
+    let mut spreads: Vec<u32> = reports.iter().map(|r| r.worst_spread).collect();
+    let worst_spread = Some(median_u32(&mut spreads));
+
+    let mut home_room_ratios: Vec<f64> = reports
+        .iter()
+        .filter_map(|r| r.worst_home_room_ratio)
+        .collect();
+    let worst_home_room_ratio = if home_room_ratios.is_empty() {
+        None
+    } else {
+        Some(median_f64(&mut home_room_ratios))
+    };
+
+    let mut gaps: Vec<u32> = reports.iter().map(|r| r.total_interior_gaps).collect();
+    let total_interior_gaps = Some(median_u32(&mut gaps));
+
+    let mut late: Vec<f64> = reports.iter().filter_map(|r| r.late_period_ratio).collect();
+    let late_period_ratio = if late.is_empty() {
+        None
+    } else {
+        Some(median_f64(&mut late))
+    };
+
+    let mut pass_counts: Vec<u32> = reports.iter().map(quality::quality_pass_count).collect();
+    let quality_pass_count = Some(median_u32(&mut pass_counts));
+
+    (
+        worst_spread,
+        worst_home_room_ratio,
+        total_interior_gaps,
+        late_period_ratio,
+        quality_pass_count,
+    )
 }
 
 fn median_f64(values: &mut [f64]) -> f64 {
