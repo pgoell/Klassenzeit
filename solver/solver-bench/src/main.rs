@@ -10,6 +10,8 @@
 //!
 //! ADR: docs/adr/0034-bench-cell-subprocess-and-observability.md
 
+mod quality;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -88,6 +90,11 @@ struct CellResult {
     peak_kb: u64,
     time_to_first_feasible_ms_median: Option<f64>,
     time_to_optimal_ms_median: Option<f64>,
+    worst_spread_median: Option<u32>,
+    worst_home_room_ratio_median: Option<f64>,
+    total_interior_gaps_median: Option<u32>,
+    late_period_ratio_median: Option<f64>,
+    quality_pass_count_median: Option<u32>,
 }
 
 struct SupervisorArgs {
@@ -415,6 +422,14 @@ fn run_lahc_cell(
         placements_total_samples.push(placements_total);
     }
 
+    let (
+        worst_spread_median,
+        worst_home_room_ratio_median,
+        total_interior_gaps_median,
+        late_period_ratio_median,
+        quality_pass_count_median,
+    ) = aggregate_quality_medians(&[]);
+
     CellResult {
         seeds,
         feasibility_count,
@@ -439,6 +454,11 @@ fn run_lahc_cell(
         } else {
             Some(median_f64(&mut tto_feasible))
         },
+        worst_spread_median,
+        worst_home_room_ratio_median,
+        total_interior_gaps_median,
+        late_period_ratio_median,
+        quality_pass_count_median,
     }
 }
 
@@ -575,6 +595,11 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         } else {
             Some(median_f64(&mut tto_feasible))
         },
+        worst_spread_median: None,
+        worst_home_room_ratio_median: None,
+        total_interior_gaps_median: None,
+        late_period_ratio_median: None,
+        quality_pass_count_median: None,
     }
 }
 
@@ -588,6 +613,27 @@ fn median_u64(values: &mut [u64]) -> u64 {
     values.sort_unstable();
     let mid = values.len() / 2;
     values[mid]
+}
+
+/// Five-tuple returned by [`aggregate_quality_medians`]: worst spread, worst
+/// home-room ratio, total interior gaps, late-period ratio, quality pass count.
+type QualityMedians = (
+    Option<u32>,
+    Option<f64>,
+    Option<u32>,
+    Option<f64>,
+    Option<u32>,
+);
+
+/// Aggregate per-seed [`quality::QualityReport`]s into five median fields for
+/// [`CellResult`]. Returns all-`None` when `reports` is empty (no feasible
+/// seeds). Task 4 fills in the real implementation.
+fn aggregate_quality_medians(reports: &[quality::QualityReport]) -> QualityMedians {
+    let _ = reports.iter().map(quality::quality_pass_count).sum::<u32>();
+    // evaluate_quality is wired per seed in Task 4; the fn pointer keeps
+    // the item reachable so dead_code does not fire before Task 4 lands.
+    let _evaluate = quality::evaluate_quality as fn(_, _) -> _;
+    (None, None, None, None, None)
 }
 
 fn median_f64(values: &mut [f64]) -> f64 {
@@ -804,6 +850,11 @@ mod tests {
             peak_kb: 49152,
             time_to_first_feasible_ms_median: Some(0.4),
             time_to_optimal_ms_median: Some(1500.0),
+            worst_spread_median: None,
+            worst_home_room_ratio_median: None,
+            total_interior_gaps_median: None,
+            late_period_ratio_median: None,
+            quality_pass_count_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
@@ -826,6 +877,11 @@ mod tests {
             peak_kb: 49152,
             time_to_first_feasible_ms_median: None,
             time_to_optimal_ms_median: None,
+            worst_spread_median: None,
+            worst_home_room_ratio_median: None,
+            total_interior_gaps_median: None,
+            late_period_ratio_median: None,
+            quality_pass_count_median: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
@@ -849,10 +905,104 @@ mod tests {
             peak_kb: 12345,
             time_to_first_feasible_ms_median: Some(2.5),
             time_to_optimal_ms_median: Some(40.0),
+            worst_spread_median: Some(2),
+            worst_home_room_ratio_median: Some(0.75),
+            total_interior_gaps_median: Some(1),
+            late_period_ratio_median: Some(0.6),
+            quality_pass_count_median: Some(4),
         };
         let s = serde_json::to_string(&cell).unwrap();
         let back: CellResult = serde_json::from_str(&s).unwrap();
         assert_eq!(back, cell);
+    }
+
+    #[test]
+    fn write_header_includes_five_quality_columns() {
+        let mut out = String::new();
+        write_header(&mut out);
+        assert!(
+            out.contains("Worst spread (median)"),
+            "missing worst-spread header: {out}"
+        );
+        assert!(
+            out.contains("Worst home-room ratio (median)"),
+            "missing home-room header: {out}"
+        );
+        assert!(
+            out.contains("Total interior gaps (median)"),
+            "missing gaps header: {out}"
+        );
+        assert!(
+            out.contains("Late-period ratio (median)"),
+            "missing late-period header: {out}"
+        );
+        assert!(
+            out.contains("Quality (pass / 4)"),
+            "missing quality column header: {out}"
+        );
+    }
+
+    #[test]
+    fn write_row_renders_quality_columns() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 20,
+            hard_violations_median: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
+            soft_score_median: Some(0),
+            ffd_ms_median: 0.13,
+            total_ms_median: 60000.0,
+            peak_kb: 49152,
+            time_to_first_feasible_ms_median: Some(0.4),
+            time_to_optimal_ms_median: Some(1500.0),
+            worst_spread_median: Some(2),
+            worst_home_room_ratio_median: Some(0.75),
+            total_interior_gaps_median: Some(1),
+            late_period_ratio_median: Some(0.6),
+            quality_pass_count_median: Some(4),
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
+        assert!(out.contains("| 2 |"), "missing worst spread: {out}");
+        assert!(out.contains("| 0.75 |"), "missing home-room ratio: {out}");
+        assert!(out.contains("| 1 |"), "missing interior gaps: {out}");
+        assert!(
+            out.contains("| 0.60 |") || out.contains("| 0.6 |"),
+            "missing late-period: {out}"
+        );
+        assert!(out.contains("| 4/4 |"), "missing quality pass count: {out}");
+    }
+
+    #[test]
+    fn write_row_renders_dash_when_quality_fields_are_none() {
+        let cell = CellResult {
+            seeds: 20,
+            feasibility_count: 0,
+            hard_violations_median: 1,
+            placements_total_median: 0,
+            placements_expected: 0,
+            soft_score_median: None,
+            ffd_ms_median: 0.05,
+            total_ms_median: 60050.0,
+            peak_kb: 49152,
+            time_to_first_feasible_ms_median: None,
+            time_to_optimal_ms_median: None,
+            worst_spread_median: None,
+            worst_home_room_ratio_median: None,
+            total_interior_gaps_median: None,
+            late_period_ratio_median: None,
+            quality_pass_count_median: None,
+        };
+        let mut out = String::new();
+        write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
+        // Five dash-cells appended at the right end (worst spread, home-room
+        // ratio, interior gaps, late-period, quality).
+        let dash_count = out.matches("| - |").count();
+        assert!(
+            dash_count >= 5,
+            "expected at least 5 dashes for quality cells: {out}"
+        );
     }
 
     #[test]
