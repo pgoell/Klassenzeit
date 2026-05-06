@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import resource
 import sys
 from collections import defaultdict
 from typing import Any
@@ -22,6 +23,23 @@ from klassenzeit_solver._rust import score_solution_json
 
 # ``AnchorKey = (lesson_id, day_of_week, start_position, room_id)``.
 AnchorKey = tuple[str, int, int, str]
+
+
+class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
+    """Records ``solver.WallTime() * 1000`` on the first feasible solution."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_ms: float | None = None
+
+    def on_solution_callback(self) -> None:
+        if self.first_ms is None:
+            self.first_ms = self.WallTime() * 1000.0
+
+
+def _read_peak_rss_kb() -> int:
+    raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return raw // 1024 if sys.platform == "darwin" else raw
 
 
 def solve_cpsat_json(
@@ -42,16 +60,23 @@ def solve_cpsat_json(
     solver.parameters.log_search_progress = False
     if deadline_ms is not None:
         solver.parameters.max_time_in_seconds = deadline_ms / 1000.0
-    status = solver.solve(model)
+    callback = _FirstSolutionCallback()
+    status = solver.solve(model, callback)
+    peak_rss_kb = _read_peak_rss_kb()
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         placements = _extract_placements(solver, anchor_vars, meta)
         soft_score = score_solution_json(problem_json, json.dumps(placements))
+        ttf = callback.first_ms
+        tto = solver.WallTime() * 1000.0 if status == cp_model.OPTIMAL else None
         return json.dumps(
             {
                 "placements": placements,
                 "violations": [],
                 "soft_score": int(soft_score),
+                "peak_rss_kb": peak_rss_kb,
+                "time_to_first_feasible_ms": ttf,
+                "time_to_optimal_ms": tto,
             }
         )
     if status in (cp_model.INFEASIBLE, cp_model.UNKNOWN):
@@ -68,7 +93,16 @@ def solve_cpsat_json(
                         "reason": reason,
                     }
                 )
-        return json.dumps({"placements": [], "violations": violations, "soft_score": 0})
+        return json.dumps(
+            {
+                "placements": [],
+                "violations": violations,
+                "soft_score": 0,
+                "peak_rss_kb": peak_rss_kb,
+                "time_to_first_feasible_ms": None,
+                "time_to_optimal_ms": None,
+            }
+        )
     if status == cp_model.MODEL_INVALID:
         raise RuntimeError(
             f"cpsat: model invalid - bug in cpsat.py (status={solver.status_name(status)})"

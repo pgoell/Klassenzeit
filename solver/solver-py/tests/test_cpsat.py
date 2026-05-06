@@ -222,3 +222,28 @@ def test_solve_cpsat_json_multi_class_lesson_group_co_places_at_same_slot() -> N
     assert len(times) == 1, f"placements not co-placed: {times}"
     rooms = {p["room_id"] for p in sol["placements"]}
     assert len(rooms) == 3, f"placements share rooms: {rooms}"
+
+
+def test_solve_cpsat_json_emits_observability_fields_when_optimal() -> None:
+    out = solve_cpsat_json(_cpsat_trivial_one_lesson_problem(), deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["violations"] == []
+    assert "peak_rss_kb" in sol
+    assert isinstance(sol["peak_rss_kb"], int)
+    assert sol["peak_rss_kb"] > 0
+    assert isinstance(sol["time_to_first_feasible_ms"], float)
+    assert sol["time_to_first_feasible_ms"] >= 0.0
+    assert isinstance(sol["time_to_optimal_ms"], float)
+    assert sol["time_to_optimal_ms"] >= 0.0
+    assert sol["time_to_first_feasible_ms"] <= sol["time_to_optimal_ms"] + 1e-6
+
+
+def test_solve_cpsat_json_omits_tto_when_not_optimal() -> None:
+    out = solve_cpsat_json(_cpsat_infeasible_problem(), deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["placements"] == []
+    assert "peak_rss_kb" in sol
+    assert isinstance(sol["peak_rss_kb"], int)
+    assert sol["peak_rss_kb"] > 0
+    assert sol["time_to_first_feasible_ms"] is None
+    assert sol["time_to_optimal_ms"] is None
