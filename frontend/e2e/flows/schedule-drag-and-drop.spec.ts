@@ -40,7 +40,9 @@ test.describe("Schedule drag-and-drop", () => {
 
     // Run the per-class solver from the empty-state CTA so a populated grid renders.
     await page.getByRole("button", { name: "Generate schedule", exact: true }).click();
-    await expect(page.locator(".kz-ws-grid")).toBeVisible();
+    // Same solver-latency reasoning as in grundschule-smoke.spec.ts: LAHC at
+    // KZ_SOLVE_DEADLINE_MS=2000 means the grid takes up to ~3 s to mount.
+    await expect(page.locator(".kz-ws-grid")).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-variant="period"]').first()).toBeVisible();
 
     // Pick the first occupied placement card and the first empty slot in the grid.
