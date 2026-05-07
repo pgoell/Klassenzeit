@@ -11,7 +11,7 @@ use solver_core::types::{
     ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
     Subject, Teacher, TeacherQualification, TimeBlock,
 };
-use solver_core::validate::validate_no_double_booking;
+use solver_core::validate::{validate_daily_caps, validate_no_double_booking};
 use solver_core::{score_solution, solve_with_config, solve_with_config_stats};
 use uuid::Uuid;
 
@@ -433,6 +433,14 @@ proptest! {
             .expect("solve_with_config should not error on generated problem");
         validate_no_double_booking(&p, &solution.placements)
             .expect("validate_no_double_booking must pass on lahc_rr_kempe output");
+    }
+
+    #[test]
+    fn lahc_rr_kempe_respects_daily_caps(p in lahc_small_problem()) {
+        let cfg = lahc_rr_kempe_cfg(0);
+        let solution = solve_with_config(&p, &cfg).expect("lahc_rr_kempe must succeed");
+        validate_daily_caps(&p, &solution.placements)
+            .expect("validate_daily_caps must pass on lahc_rr_kempe output");
     }
 
     /// Item 51 acceptance #1: every backend's reported `Solution.soft_score`

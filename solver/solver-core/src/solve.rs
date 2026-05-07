@@ -291,18 +291,7 @@ pub fn solve_with_config_stats(
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
     validate_no_room_hopping(problem, &solution.placements)?;
     validate_no_double_booking(problem, &solution.placements)?;
-
-    // Debug-only post-condition: daily caps (ADR 0033) are enforced as
-    // legality pruning, so a violation here means the pruning has a hole.
-    // Loud in dev/tests, free in release.
-    #[cfg(debug_assertions)]
-    if let Err(e) = validate_daily_caps(problem, &solution.placements) {
-        panic!("daily-cap post-condition violated: {e}");
-    }
-    #[cfg(debug_assertions)]
-    if let Err(e) = validate_no_double_booking(problem, &solution.placements) {
-        panic!("no-double-booking post-condition violated: {e}");
-    }
+    validate_daily_caps(problem, &solution.placements)?;
 
     // state.search_score_slice is the LAHC running slice (class_gap +
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted
