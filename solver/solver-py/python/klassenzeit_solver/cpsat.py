@@ -537,6 +537,113 @@ def _objective_home_room_term(
     return cp_model.LinearExpr.sum(terms) if terms else 0
 
 
+def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-day inner loops; splitting hurts readability)
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+    scope_kind: str,
+) -> dict[tuple[str, int, int], cp_model.IntVar]:
+    """Build per-(entity, day, position) 0-1 presence indicators.
+
+    For each (entity, day, position) where entity is a class id (when
+    scope_kind == 'class') or a teacher id (when scope_kind == 'teacher'),
+    build present[entity, day, p] = OR over anchors covering (day, p) in
+    the entity's scope. OR-semantics (via add_max_equality) is required
+    for class scope where lesson-group co-placement allows multiple
+    anchors to cover the same (class, day, p); score_solution dedups
+    positions per (class, day) before counting gaps so the CP-SAT
+    presence indicator must mirror that 0-1 coverage view rather than a
+    raw sum. Returned mapping is keyed by (entity_id_str, day, position).
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    positions_per_day = lookups["positions_per_day"]
+    if scope_kind == "class":
+        entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
+    elif scope_kind == "teacher":
+        entity_ids = {t["id"] for t in problem["teachers"]}
+    else:  # pragma: no cover - guarded by callers
+        raise ValueError(f"unknown scope_kind: {scope_kind}")
+
+    coverage: dict[tuple[str, int, int], list[cp_model.IntVar]] = {}
+    for (l_id, day, start_pos, _r_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        if scope_kind == "class":
+            owners: list[str] = list(lesson["school_class_ids"])
+        else:
+            owners = [lesson["teacher_id"]]
+        for offset in range(n):
+            p = start_pos + offset
+            for owner in owners:
+                coverage.setdefault((owner, day, p), []).append(var)
+
+    presence: dict[tuple[str, int, int], cp_model.IntVar] = {}
+    for entity_id in entity_ids:
+        for day, positions in positions_per_day.items():
+            for pos in positions:
+                key = (entity_id, day, pos)
+                covering = coverage.get(key, [])
+                pres = model.new_int_var(0, 1, f"present_{scope_kind}_{entity_id}_{day}_{pos}")
+                if covering:
+                    # OR-semantics, not sum: lesson-group co-placement allows
+                    # multiple anchors to cover (class, day, pos) at once,
+                    # while score_solution dedups per (class, day) before
+                    # counting gaps. add_max_equality on 0-1 vars yields the
+                    # 0-1 "is this slot covered" indicator gap counting needs.
+                    model.add_max_equality(pres, covering)
+                else:
+                    model.add(pres == 0)
+                presence[key] = pres
+    return presence
+
+
+def _objective_gap_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+    scope_kind: str,
+    weight: int,
+) -> cp_model.LinearExpr | int:
+    """Build per-(entity, day, position) gap indicators and weight the sum.
+
+    For each (entity, day, position) presence indicator, build
+    has_left/has_right/gap channeling and return weight * sum(gap[...]).
+    """
+    presence = _build_per_slot_presence(model, problem, anchor_vars, lookups, scope_kind)
+    positions_per_day = lookups["positions_per_day"]
+    if scope_kind == "class":
+        entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
+    else:
+        entity_ids = {t["id"] for t in problem["teachers"]}
+
+    gap_vars: list[cp_model.IntVar] = []
+    for entity_id in entity_ids:
+        for day, positions in positions_per_day.items():
+            sorted_positions = sorted(positions)
+            for idx, pos in enumerate(sorted_positions):
+                pres_p = presence[(entity_id, day, pos)]
+                left_neighbours = [presence[(entity_id, day, q)] for q in sorted_positions[:idx]]
+                right_neighbours = [
+                    presence[(entity_id, day, q)] for q in sorted_positions[idx + 1 :]
+                ]
+                if not left_neighbours or not right_neighbours:
+                    # No interior position can have both has_left and has_right.
+                    continue
+                has_left = model.new_bool_var(f"hl_{scope_kind}_{entity_id}_{day}_{pos}")
+                has_right = model.new_bool_var(f"hr_{scope_kind}_{entity_id}_{day}_{pos}")
+                model.add_max_equality(has_left, left_neighbours)
+                model.add_max_equality(has_right, right_neighbours)
+                gap = model.new_bool_var(f"gap_{scope_kind}_{entity_id}_{day}_{pos}")
+                model.add(gap >= has_left + has_right + (1 - pres_p) - 2)
+                model.add(gap <= has_left)
+                model.add(gap <= has_right)
+                model.add(gap <= 1 - pres_p)
+                gap_vars.append(gap)
+    return weight * cp_model.LinearExpr.sum(gap_vars) if gap_vars else 0
+
+
 def _emit_objective(
     model: cp_model.CpModel,
     problem: dict[str, Any],
@@ -554,7 +661,15 @@ def _emit_objective(
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
     summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
-    model.minimize(summand_subject_pref + summand_home_room)
+    summand_class_gap = _objective_gap_term(
+        model, problem, anchor_vars, lookups, scope_kind="class", weight=_W_CLASS_GAP
+    )
+    summand_teacher_gap = _objective_gap_term(
+        model, problem, anchor_vars, lookups, scope_kind="teacher", weight=_W_TEACHER_GAP
+    )
+    model.minimize(
+        summand_subject_pref + summand_home_room + summand_class_gap + summand_teacher_gap
+    )
 
 
 def _extract_placements(

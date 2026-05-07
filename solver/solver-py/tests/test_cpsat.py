@@ -401,3 +401,68 @@ def test_cpsat_objective_value_equals_score_solution_on_home_room_problem() -> N
     # Witness: every room is one class's home and the other's mismatch.
     # 2 placements * 1 mismatched class * weight 5 = 10.
     assert out["model_objective_value"] == 10
+
+
+def _cpsat_forced_class_gap_problem() -> str:
+    """Three TBs on day 0 (positions 0, 1, 2), one teacher, one room, one
+    class. Two single-hour lessons of the same class with the same
+    teacher. Each lesson has hours_per_week=1, preferred_block_size=1.
+
+    But TB at position 1 is teacher-blocked. Both placements must use
+    positions 0 and 2 with a forced gap at position 1. score_solution
+    reports class_gap=1 (* 10) + teacher_gap=1 (* 10) = 20.
+    """
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10), "day_of_week": 0, "position": 0},
+                {"id": _cpsat_uuid(11), "day_of_week": 0, "position": 1},
+                {"id": _cpsat_uuid(12), "day_of_week": 0, "position": 2},
+            ],
+            "teachers": [{"id": _cpsat_uuid(20), "max_hours_per_week": 5}],
+            "rooms": [{"id": _cpsat_uuid(30)}],
+            "subjects": [{"id": _cpsat_uuid(40)}],
+            "school_classes": [{"id": _cpsat_uuid(50)}],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60),
+                    "school_class_ids": [_cpsat_uuid(50)],
+                    "subject_id": _cpsat_uuid(40),
+                    "teacher_id": _cpsat_uuid(20),
+                    "hours_per_week": 1,
+                    "preferred_block_size": 1,
+                },
+                {
+                    "id": _cpsat_uuid(61),
+                    "school_class_ids": [_cpsat_uuid(50)],
+                    "subject_id": _cpsat_uuid(40),
+                    "teacher_id": _cpsat_uuid(20),
+                    "hours_per_week": 1,
+                    "preferred_block_size": 1,
+                },
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": _cpsat_uuid(20), "subject_id": _cpsat_uuid(40)}
+            ],
+            "teacher_blocked_times": [
+                {"teacher_id": _cpsat_uuid(20), "time_block_id": _cpsat_uuid(11)}
+            ],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> None:
+    """class_gap and teacher_gap axes: forced gap at position 1; class
+    contributes 1 gap-hour (weight 10), teacher contributes 1 gap-hour
+    (weight 10); total = 20.
+    """
+    problem_json = _cpsat_forced_class_gap_problem()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    assert out["model_objective_value"] is not None
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["model_objective_value"] == canonical
+    assert out["model_objective_value"] == 20
