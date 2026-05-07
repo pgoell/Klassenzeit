@@ -32,7 +32,7 @@ use solver_core::{
     ids::{RoomId, TimeBlockId},
     solve_with_config,
     test_fixtures::{dreizuegig_fixture, grundschule_fixture, zweizuegig_fixture},
-    types::{ConstraintWeights, Problem, SolveConfig},
+    types::{Problem, SolveConfig, PRODUCTION_ACTIVE_WEIGHTS},
 };
 
 #[path = "percentile.rs"]
@@ -49,22 +49,14 @@ const LAHC_SEED: u64 = 42;
 
 fn bench_greedy_cfg() -> SolveConfig {
     SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 1,
-            teacher_gap: 1,
-            ..ConstraintWeights::default()
-        },
+        weights: PRODUCTION_ACTIVE_WEIGHTS,
         ..SolveConfig::default()
     }
 }
 
 fn bench_lahc_cfg() -> SolveConfig {
     SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 1,
-            teacher_gap: 1,
-            ..ConstraintWeights::default()
-        },
+        weights: PRODUCTION_ACTIVE_WEIGHTS,
         deadline: Some(LAHC_DEADLINE),
         seed: LAHC_SEED,
         ..SolveConfig::default()
