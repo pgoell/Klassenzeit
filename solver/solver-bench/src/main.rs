@@ -113,6 +113,10 @@ struct CellResult {
     avoid_first_units_median: Option<u32>,
     avoid_last_units_median: Option<u32>,
     prefer_late_units_median: Option<u32>,
+    #[serde(default)]
+    rr_k: Option<u32>,
+    #[serde(default)]
+    rr_period: Option<u32>,
 }
 
 struct SupervisorArgs {
@@ -120,6 +124,10 @@ struct SupervisorArgs {
     seeds: u64,
     fixtures: Vec<String>,
     out: PathBuf,
+    backends: Option<Vec<BenchBackend>>,
+    rr_k_values: Option<Vec<u32>>,
+    rr_period_values: Option<Vec<u32>>,
+    append: bool,
 }
 
 fn default_supervisor_args() -> SupervisorArgs {
@@ -128,7 +136,24 @@ fn default_supervisor_args() -> SupervisorArgs {
         seeds: 20,
         fixtures: FIXTURES.iter().map(|(n, _)| (*n).to_string()).collect(),
         out: PathBuf::from("solver/solver-core/benches/BENCH_RESULTS.md"),
+        backends: None,
+        rr_k_values: None,
+        rr_period_values: None,
+        append: false,
     }
+}
+
+fn parse_u32_csv(label: &str, value: &str) -> Result<Vec<u32>, String> {
+    if value.is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+    value
+        .split(',')
+        .map(|s| {
+            s.parse::<u32>()
+                .map_err(|e| format!("{label} entry '{s}': {e}"))
+        })
+        .collect()
 }
 
 fn parse_duration(s: &str) -> Result<Duration, String> {
@@ -168,6 +193,26 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
                 let v = iter.next().ok_or("--out needs a value")?;
                 args.out = PathBuf::from(v);
             }
+            "--backends" => {
+                let v = iter.next().ok_or("--backends needs a value")?;
+                if v.is_empty() {
+                    return Err("--backends must not be empty".to_string());
+                }
+                let parsed: Result<Vec<BenchBackend>, String> =
+                    v.split(',').map(BenchBackend::parse).collect();
+                args.backends = Some(parsed?);
+            }
+            "--rr-k" => {
+                let v = iter.next().ok_or("--rr-k needs a value")?;
+                args.rr_k_values = Some(parse_u32_csv("--rr-k", &v)?);
+            }
+            "--rr-period" => {
+                let v = iter.next().ok_or("--rr-period needs a value")?;
+                args.rr_period_values = Some(parse_u32_csv("--rr-period", &v)?);
+            }
+            "--append" => {
+                args.append = true;
+            }
             other => return Err(format!("unknown flag '{other}'")),
         }
     }
@@ -179,6 +224,8 @@ struct CellArgs {
     backend: BenchBackend,
     budget: Duration,
     seeds: u64,
+    rr_k: Option<u32>,
+    rr_period: Option<u32>,
 }
 
 fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
@@ -186,6 +233,8 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
     let mut backend: Option<BenchBackend> = None;
     let mut budget: Option<Duration> = None;
     let mut seeds: Option<u64> = None;
+    let mut rr_k: Option<u32> = None;
+    let mut rr_period: Option<u32> = None;
     let mut iter = raw.into_iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
@@ -210,6 +259,22 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
                         .map_err(|e| format!("--seeds must be a positive integer: {e}"))?,
                 );
             }
+            "--rr-k" => {
+                rr_k = Some(
+                    iter.next()
+                        .ok_or("--rr-k needs a value")?
+                        .parse::<u32>()
+                        .map_err(|e| format!("--rr-k must be a positive integer: {e}"))?,
+                );
+            }
+            "--rr-period" => {
+                rr_period = Some(
+                    iter.next()
+                        .ok_or("--rr-period needs a value")?
+                        .parse::<u32>()
+                        .map_err(|e| format!("--rr-period must be a positive integer: {e}"))?,
+                );
+            }
             other => return Err(format!("unknown cell flag '{other}'")),
         }
     }
@@ -218,6 +283,8 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
         backend: backend.ok_or("--backend <name> required")?,
         budget: budget.ok_or("--budget <dur> required")?,
         seeds: seeds.ok_or("--seeds <n> required")?,
+        rr_k,
+        rr_period,
     })
 }
 
@@ -229,6 +296,61 @@ fn main() -> ExitCode {
     run_supervisor(raw)
 }
 
+/// One unit of work scheduled by the supervisor: a (fixture, backend) pair plus
+/// optional `(rr_k, rr_period)` overrides. RR backends with a sweep grid expand
+/// to one CellSpec per (k, period) pair; non-RR backends always produce one
+/// CellSpec with `rr_k = rr_period = None`.
+#[derive(Debug, Clone)]
+struct CellSpec {
+    fixture: &'static str,
+    backend: BenchBackend,
+    rr_k: Option<u32>,
+    rr_period: Option<u32>,
+}
+
+fn build_plan(
+    fixtures: &[String],
+    backends: &[BenchBackend],
+    rr_k_values: Option<&[u32]>,
+    rr_period_values: Option<&[u32]>,
+) -> Vec<CellSpec> {
+    let mut plan: Vec<CellSpec> = Vec::new();
+    for (name, _) in FIXTURES.iter() {
+        if !fixtures.iter().any(|f| f == name) {
+            continue;
+        }
+        for backend in backends {
+            match backend {
+                BenchBackend::LahcRr | BenchBackend::LahcRrKempe => {
+                    let ks: Vec<u32> = rr_k_values.map(|v| v.to_vec()).unwrap_or_else(|| vec![5]);
+                    let ps: Vec<u32> = rr_period_values
+                        .map(|v| v.to_vec())
+                        .unwrap_or_else(|| vec![25]);
+                    for k in &ks {
+                        for p in &ps {
+                            plan.push(CellSpec {
+                                fixture: name,
+                                backend: *backend,
+                                rr_k: Some(*k),
+                                rr_period: Some(*p),
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    plan.push(CellSpec {
+                        fixture: name,
+                        backend: *backend,
+                        rr_k: None,
+                        rr_period: None,
+                    });
+                }
+            }
+        }
+    }
+    plan
+}
+
 fn run_supervisor(raw: Vec<String>) -> ExitCode {
     let args = match parse_supervisor_args(raw) {
         Ok(a) => a,
@@ -237,10 +359,6 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut markdown = String::new();
-    write_title_and_intro(&mut markdown);
-    write_backend_objectives_section(&mut markdown, &BenchBackend::ALL);
-    write_table_header(&mut markdown);
 
     let exe = match env::current_exe() {
         Ok(p) => p,
@@ -250,21 +368,49 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         }
     };
 
-    let plan: Vec<(&'static str, BenchBackend)> = FIXTURES
-        .iter()
-        .filter(|(name, _)| args.fixtures.iter().any(|f| f == name))
-        .flat_map(|(name, _)| BenchBackend::ALL.iter().map(move |b| (*name, *b)))
-        .collect();
+    let backends_owned: Vec<BenchBackend> = args
+        .backends
+        .clone()
+        .unwrap_or_else(|| BenchBackend::ALL.to_vec());
+    let sweep_mode = args.rr_k_values.is_some() && args.rr_period_values.is_some();
+
+    let plan = build_plan(
+        &args.fixtures,
+        &backends_owned,
+        args.rr_k_values.as_deref(),
+        args.rr_period_values.as_deref(),
+    );
     let cells_attempted = plan.len();
 
-    let mut runner = |name: &str, backend: BenchBackend| -> Result<CellResult, String> {
-        spawn_cell(&exe, name, backend, args.budget, args.seeds)
+    let mut markdown = String::new();
+    if !args.append {
+        write_title_and_intro(&mut markdown);
+        write_backend_objectives_section(&mut markdown, &BenchBackend::ALL);
+    } else {
+        markdown.push_str(&format!("\n## RR sweep {}\n\n", today_yyyy_mm_dd()));
+    }
+    write_table_header(&mut markdown);
+
+    let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
+    let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+        spawn_cell(&exe, spec, args.budget, args.seeds)
     };
-    let successes = render_cells(plan, &mut runner, &mut markdown);
+    let successes = render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
 
-    write_footer(&mut markdown);
+    if sweep_mode {
+        write_pareto_and_recommendation(&mut markdown, &args.fixtures, &all_results);
+    }
 
-    if let Err(e) = fs::write(&args.out, &markdown) {
+    if !args.append {
+        write_footer(&mut markdown);
+    }
+
+    let write_result = if args.append && args.out.exists() {
+        fs::read_to_string(&args.out).and_then(|prior| fs::write(&args.out, prior + &markdown))
+    } else {
+        fs::write(&args.out, &markdown)
+    };
+    if let Err(e) = write_result {
         eprintln!("solver-bench: failed to write {:?}: {e}", args.out);
         return ExitCode::FAILURE;
     }
@@ -279,8 +425,7 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
 
 fn spawn_cell(
     exe: &Path,
-    fixture: &str,
-    backend: BenchBackend,
+    spec: &CellSpec,
     budget: Duration,
     seeds: u64,
 ) -> Result<CellResult, String> {
@@ -291,15 +436,20 @@ fn spawn_cell(
     };
     let mut cmd = Command::new(exe);
     cmd.arg("--cell")
-        .arg(fixture)
+        .arg(spec.fixture)
         .arg("--backend")
-        .arg(backend.label())
+        .arg(spec.backend.label())
         .arg("--budget")
         .arg(&budget_str)
         .arg("--seeds")
-        .arg(seeds.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .arg(seeds.to_string());
+    if let Some(k) = spec.rr_k {
+        cmd.arg("--rr-k").arg(k.to_string());
+    }
+    if let Some(p) = spec.rr_period {
+        cmd.arg("--rr-period").arg(p.to_string());
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
     let child = cmd.spawn().map_err(|e| format!("spawn cell: {e}"))?;
     let output = child
         .wait_with_output()
@@ -312,22 +462,26 @@ fn spawn_cell(
     serde_json::from_str(stdout.trim()).map_err(|e| format!("cell JSON: {e}; raw: {stdout}"))
 }
 
-fn render_cells<I, F>(plan: I, runner: &mut F, markdown: &mut String) -> usize
+fn render_cells_with_specs<F>(
+    plan: &[CellSpec],
+    runner: &mut F,
+    markdown: &mut String,
+    all_results: &mut Vec<(CellSpec, CellResult)>,
+) -> usize
 where
-    I: IntoIterator<Item = (&'static str, BenchBackend)>,
-    F: FnMut(&str, BenchBackend) -> Result<CellResult, String>,
+    F: FnMut(&CellSpec) -> Result<CellResult, String>,
 {
     let mut successes = 0usize;
-    for (name, backend) in plan {
-        eprintln!("cell start: {} / {}", name, backend.label());
-        match runner(name, backend) {
+    for spec in plan {
+        eprintln!("cell start: {} / {}", spec.fixture, spec.backend.label());
+        match runner(spec) {
             Ok(cell) => {
                 eprintln!(
                     "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} \
                      soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} tto_med={} \
                      worst_spread_med={} worst_home_med={} gaps_med={} late_med={} quality_med={}",
-                    name,
-                    backend.label(),
+                    spec.fixture,
+                    spec.backend.label(),
                     cell.feasibility_count,
                     cell.seeds,
                     cell.hard_violations_median,
@@ -360,12 +514,17 @@ where
                         .map(|v| format!("{v}/4"))
                         .unwrap_or_else(|| "-".to_string()),
                 );
-                write_row(markdown, name, backend, &cell);
+                write_row(markdown, spec.fixture, spec.backend, &cell);
+                all_results.push((spec.clone(), cell));
                 successes += 1;
             }
             Err(reason) => {
-                eprintln!("cell error: {} / {}: {reason}", name, backend.label());
-                write_error_row(markdown, name, backend, &reason);
+                eprintln!(
+                    "cell error: {} / {}: {reason}",
+                    spec.fixture,
+                    spec.backend.label()
+                );
+                write_error_row(markdown, spec.fixture, spec.backend, &reason);
             }
         }
     }
@@ -391,7 +550,15 @@ fn run_cell_child(raw: Vec<String>) -> ExitCode {
     let expected = placements_expected_for_problem(&problem);
     let cell = match args.backend {
         BenchBackend::CpSat => run_cpsat_cell(&problem, expected, args.budget, args.seeds),
-        _ => run_lahc_cell(args.backend, &problem, expected, args.budget, args.seeds),
+        _ => run_lahc_cell(
+            args.backend,
+            &problem,
+            expected,
+            args.budget,
+            args.seeds,
+            args.rr_k,
+            args.rr_period,
+        ),
     };
     let json = serde_json::to_string(&cell).expect("serialise CellResult");
     let mut stdout = std::io::stdout().lock();
@@ -422,6 +589,8 @@ fn run_lahc_cell(
     expected: u64,
     budget: Duration,
     seeds: u64,
+    rr_k_override: Option<u32>,
+    rr_period_override: Option<u32>,
 ) -> CellResult {
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
@@ -444,13 +613,20 @@ fn run_lahc_cell(
     let mut component_reports: Vec<quality::QualityReport> = Vec::with_capacity(seeds as usize);
     let mut feasibility_count: u64 = 0;
 
-    let (lahc_rr_period, lahc_kempe_period) = match backend {
+    let (dispatch_rr_period, lahc_kempe_period) = match backend {
         BenchBackend::Lahc => (None, None),
         BenchBackend::LahcRr => (Some(25u32), None),
         BenchBackend::LahcKempe => (None, Some(23u32)),
         BenchBackend::LahcRrKempe => (Some(25u32), Some(23u32)),
         BenchBackend::CpSat => unreachable!("cpsat dispatched above"),
     };
+    // RR-period override only applies on RR-enabled backends (where the dispatch
+    // returns Some(_)); on non-RR backends the override is ignored.
+    let lahc_rr_period = match dispatch_rr_period {
+        Some(_) => rr_period_override.or(dispatch_rr_period),
+        None => None,
+    };
+    let lahc_rr_k = rr_k_override.unwrap_or(SolveConfig::default().lahc_rr_k);
 
     for seed in 1..=seeds {
         let cfg = SolveConfig {
@@ -459,6 +635,7 @@ fn run_lahc_cell(
             seed,
             lahc_rr_period,
             lahc_kempe_period,
+            lahc_rr_k,
             ..SolveConfig::default()
         };
         let start = Instant::now();
@@ -547,6 +724,12 @@ fn run_lahc_cell(
         avoid_first_units_median,
         avoid_last_units_median,
         prefer_late_units_median,
+        rr_k: if dispatch_rr_period.is_some() {
+            Some(lahc_rr_k)
+        } else {
+            None
+        },
+        rr_period: lahc_rr_period,
     }
 }
 
@@ -733,6 +916,8 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         avoid_first_units_median,
         avoid_last_units_median,
         prefer_late_units_median,
+        rr_k: None,
+        rr_period: None,
     }
 }
 
@@ -892,10 +1077,10 @@ fn write_title_and_intro(out: &mut String) {
 
 fn write_table_header(out: &mut String) {
     out.push_str(
-        "| Fixture | Backend | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+        "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
     );
     out.push_str(
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
     );
 }
 
@@ -948,8 +1133,16 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         Some(v) => format!("{v}/4"),
         None => "-".to_string(),
     };
+    let rr_k_col = match cell.rr_k {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let rr_period_col = match cell.rr_period {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
     out.push_str(&format!(
-        "| {fixture} | {backend} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+        "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
         backend = backend.label(),
         seeds = cell.seeds,
         n = cell.feasibility_count,
@@ -964,7 +1157,7 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
 
 fn write_error_row(out: &mut String, fixture: &str, backend: BenchBackend, _reason: &str) {
     out.push_str(&format!(
-        "| {fixture} | {backend} | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+        "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
         backend = backend.label(),
     ));
 }
@@ -1026,6 +1219,169 @@ fn write_footer(out: &mut String) {
     );
     out.push_str("ORM rows, Rust on the in-memory `Solution`).\n\n");
     out.push_str("See `docs/adr/0029-solver-feasibility-bake-off.md` for methodology and `docs/adr/0034-bench-cell-subprocess-and-observability.md` for the cell-subprocess architecture.\n");
+}
+
+/// One point on the (period, K) sweep grid; ordered by `(period, k)` so the
+/// helpers can break ties deterministically by smallest period, then smallest K.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SweepTuple {
+    period: u32,
+    k: u32,
+}
+
+/// Return non-dominated `(k, period)` tuples for one fixture's RR cells.
+/// Domination on a single fixture: A dominates B iff
+/// `(A.feasibility > B.feasibility AND A.soft <= B.soft)`
+/// OR `(A.feasibility >= B.feasibility AND A.soft < B.soft)`.
+/// Cells without an `rr_k` / `rr_period` are skipped. Cells with no
+/// `soft_score_median` (zero feasible seeds) get treated as "infinitely soft":
+/// any feasible cell with feasibility >= dominates it.
+fn sweep_pareto_non_dominated(cells: &[&CellResult]) -> Vec<SweepTuple> {
+    let candidates: Vec<(SweepTuple, u64, Option<u32>)> = cells
+        .iter()
+        .filter_map(|c| match (c.rr_k, c.rr_period) {
+            (Some(k), Some(period)) => Some((
+                SweepTuple { period, k },
+                c.feasibility_count,
+                c.soft_score_median,
+            )),
+            _ => None,
+        })
+        .collect();
+    let dominates =
+        |(a_feas, a_soft): (u64, Option<u32>), (b_feas, b_soft): (u64, Option<u32>)| -> bool {
+            // Treat None as +inf for soft score.
+            let cmp_soft_le = match (a_soft, b_soft) {
+                (Some(a), Some(b)) => a <= b,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => true,
+            };
+            let cmp_soft_lt = match (a_soft, b_soft) {
+                (Some(a), Some(b)) => a < b,
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
+            (a_feas > b_feas && cmp_soft_le) || (a_feas >= b_feas && cmp_soft_lt)
+        };
+    let mut frontier: Vec<SweepTuple> = Vec::new();
+    for (i, (tup_a, feas_a, soft_a)) in candidates.iter().enumerate() {
+        let dominated = candidates
+            .iter()
+            .enumerate()
+            .any(|(j, (_, feas_b, soft_b))| {
+                i != j && dominates((*feas_b, *soft_b), (*feas_a, *soft_a))
+            });
+        if !dominated && !frontier.contains(tup_a) {
+            frontier.push(*tup_a);
+        }
+    }
+    frontier.sort();
+    frontier
+}
+
+/// Recommend a `(k, period)` across all fixtures' RR cells.
+/// Algorithm: per (k, period), mean of `soft_score_median` across feasible cells
+/// (only cells where the cell has feasibility_count > 0 and a soft_score_median).
+/// A (k, period) is eligible only if it appears feasible on every fixture.
+/// Pick min mean; ties broken by smallest period, then smallest K.
+fn sweep_recommend(rr_cells: &[(&str, &CellResult)], fixture_count: usize) -> Option<SweepTuple> {
+    use std::collections::BTreeMap;
+    // (period, k) -> Vec<(fixture, soft)>
+    let mut grouped: BTreeMap<SweepTuple, Vec<(String, u32)>> = BTreeMap::new();
+    for (fixture, cell) in rr_cells {
+        let (k, period) = match (cell.rr_k, cell.rr_period) {
+            (Some(k), Some(p)) => (k, p),
+            _ => continue,
+        };
+        if cell.feasibility_count == 0 {
+            continue;
+        }
+        let soft = match cell.soft_score_median {
+            Some(s) => s,
+            None => continue,
+        };
+        grouped
+            .entry(SweepTuple { period, k })
+            .or_default()
+            .push((fixture.to_string(), soft));
+    }
+    let mut best: Option<(f64, SweepTuple)> = None;
+    for (tup, samples) in grouped {
+        // Distinct fixtures with feasibility for this tuple.
+        let mut distinct: Vec<&String> = samples.iter().map(|(f, _)| f).collect();
+        distinct.sort();
+        distinct.dedup();
+        if distinct.len() < fixture_count {
+            continue;
+        }
+        let sum: u64 = samples.iter().map(|(_, s)| u64::from(*s)).sum();
+        let mean = sum as f64 / samples.len() as f64;
+        let candidate = (mean, tup);
+        match best {
+            None => best = Some(candidate),
+            Some((m, t)) => {
+                if mean < m || (mean == m && tup < t) {
+                    best = Some(candidate);
+                }
+            }
+        }
+    }
+    best.map(|(_, t)| t)
+}
+
+fn write_pareto_and_recommendation(
+    out: &mut String,
+    fixtures: &[String],
+    all_results: &[(CellSpec, CellResult)],
+) {
+    out.push_str("\n## Pareto frontier\n");
+    for fixture in fixtures {
+        let cells: Vec<&CellResult> = all_results
+            .iter()
+            .filter(|(spec, _)| spec.fixture == fixture)
+            .filter(|(spec, _)| {
+                matches!(
+                    spec.backend,
+                    BenchBackend::LahcRr | BenchBackend::LahcRrKempe
+                )
+            })
+            .map(|(_, c)| c)
+            .collect();
+        let frontier = sweep_pareto_non_dominated(&cells);
+        out.push_str(&format!("\n### {fixture}\n"));
+        if frontier.is_empty() {
+            out.push_str("- (no feasible cells)\n");
+        } else {
+            for t in &frontier {
+                out.push_str(&format!("- (K={}, period={})\n", t.k, t.period));
+            }
+        }
+    }
+    out.push_str("\n## Recommendation\n\n");
+    let rr_cells: Vec<(&str, &CellResult)> = all_results
+        .iter()
+        .filter(|(spec, _)| {
+            matches!(
+                spec.backend,
+                BenchBackend::LahcRr | BenchBackend::LahcRrKempe
+            )
+        })
+        .map(|(spec, c)| (spec.fixture, c))
+        .collect();
+    match sweep_recommend(&rr_cells, fixtures.len()) {
+        Some(t) => out.push_str(&format!(
+            "Default `lahc_rr_k = {}, lahc_rr_period = Some({})` (minimises mean soft_score_median across feasible fixtures; tie-break: smallest period, then smallest K).\n",
+            t.k, t.period,
+        )),
+        None => out.push_str("No clear winner; defaults unchanged.\n"),
+    }
+}
+
+/// Today's date as `YYYY-MM-DD`. Reuses `chrono_today` (calls `date -Idate`),
+/// falls back to a hardcoded string when `date` is unavailable.
+fn today_yyyy_mm_dd() -> String {
+    chrono_today()
 }
 
 fn read_cpu() -> Option<String> {
@@ -1185,6 +1541,8 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
@@ -1221,6 +1579,8 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
@@ -1258,6 +1618,8 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
         };
         let s = serde_json::to_string(&cell).unwrap();
         let back: CellResult = serde_json::from_str(&s).unwrap();
@@ -1318,6 +1680,8 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
@@ -1359,6 +1723,8 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
@@ -1437,36 +1803,53 @@ mod tests {
             avoid_first_units_median: None,
             avoid_last_units_median: None,
             prefer_late_units_median: None,
+            rr_k: None,
+            rr_period: None,
+        }
+    }
+
+    fn resilience_spec(fixture: &'static str, backend: BenchBackend) -> CellSpec {
+        let (rr_k, rr_period) = match backend {
+            BenchBackend::LahcRr | BenchBackend::LahcRrKempe => (Some(5u32), Some(25u32)),
+            _ => (None, None),
+        };
+        CellSpec {
+            fixture,
+            backend,
+            rr_k,
+            rr_period,
         }
     }
 
     #[test]
     fn supervisor_renders_panic_row_and_continues_on_cell_error() {
         let plan = vec![
-            ("grundschule", BenchBackend::Lahc),
-            ("grundschule", BenchBackend::LahcRr),
-            ("grundschule", BenchBackend::LahcRrKempe),
+            resilience_spec("grundschule", BenchBackend::Lahc),
+            resilience_spec("grundschule", BenchBackend::LahcRr),
+            resilience_spec("grundschule", BenchBackend::LahcRrKempe),
         ];
-        let mut runner = |_name: &str, backend: BenchBackend| -> Result<CellResult, String> {
-            if matches!(backend, BenchBackend::LahcRr) {
+        let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+            if matches!(spec.backend, BenchBackend::LahcRr) {
                 Err("synthetic-panic: cell exited with non-zero".to_string())
             } else {
                 Ok(synthetic_cell_for_resilience_tests(20))
             }
         };
         let mut markdown = String::new();
-        let successes = render_cells(plan, &mut runner, &mut markdown);
+        let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
+        let successes =
+            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
         assert_eq!(successes, 2, "two cells should have succeeded");
         assert!(
-            markdown.contains("| grundschule | lahc | 20 | 20/20 |"),
+            markdown.contains("| grundschule | lahc | - | - | 20 | 20/20 |"),
             "missing surviving lahc row: {markdown}"
         );
         assert!(
-            markdown.contains("| grundschule | lahc_rr_kempe | 20 | 20/20 |"),
+            markdown.contains("| grundschule | lahc_rr_kempe | - | - | 20 | 20/20 |"),
             "missing surviving lahc_rr_kempe row: {markdown}"
         );
         assert!(
-            markdown.contains("| grundschule | lahc_rr | - | panic |"),
+            markdown.contains("| grundschule | lahc_rr | - | - | - | panic |"),
             "missing panic placeholder for failed cell: {markdown}"
         );
     }
@@ -1474,14 +1857,16 @@ mod tests {
     #[test]
     fn supervisor_returns_zero_successes_when_every_cell_panics() {
         let plan = vec![
-            ("grundschule", BenchBackend::Lahc),
-            ("grundschule", BenchBackend::LahcRr),
+            resilience_spec("grundschule", BenchBackend::Lahc),
+            resilience_spec("grundschule", BenchBackend::LahcRr),
         ];
-        let mut runner = |_name: &str, _backend: BenchBackend| -> Result<CellResult, String> {
+        let mut runner = |_spec: &CellSpec| -> Result<CellResult, String> {
             Err("everything is on fire".to_string())
         };
         let mut markdown = String::new();
-        let successes = render_cells(plan, &mut runner, &mut markdown);
+        let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
+        let successes =
+            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
         assert_eq!(successes, 0);
         let panic_row_count = markdown.matches("| panic |").count();
         assert_eq!(
@@ -1532,6 +1917,8 @@ mod tests {
             avoid_first_units_median: Some(6),
             avoid_last_units_median: Some(7),
             prefer_late_units_median: Some(8),
+            rr_k: None,
+            rr_period: None,
         };
         let json = serde_json::to_string(&cell).expect("serialise");
         let parsed: CellResult = serde_json::from_str(&json).expect("parse");
@@ -1598,6 +1985,81 @@ mod tests {
             medians,
             (None, None, None, None, None, None, None, None, None)
         );
+    }
+
+    fn sweep_test_cell(k: u32, period: u32, feasibility_count: u64, soft: u32) -> CellResult {
+        CellResult {
+            seeds: 4,
+            feasibility_count,
+            hard_violations_median: 0,
+            placements_total_median: 45,
+            placements_expected: 45,
+            soft_score_median: if feasibility_count == 0 {
+                None
+            } else {
+                Some(soft)
+            },
+            ffd_ms_median: 0.0,
+            total_ms_median: 0.0,
+            peak_kb: 0,
+            time_to_first_feasible_ms_median: None,
+            time_to_optimal_ms_median: None,
+            worst_spread_median: None,
+            worst_home_room_ratio_median: None,
+            total_interior_gaps_median: None,
+            late_period_ratio_median: None,
+            quality_pass_count_median: None,
+            unplaced_hours_median: None,
+            class_gap_hours_median: None,
+            teacher_gap_hours_median: None,
+            class_day_balance_cost_median: None,
+            home_room_misses_median: None,
+            prefer_early_units_median: None,
+            avoid_first_units_median: None,
+            avoid_last_units_median: None,
+            prefer_late_units_median: None,
+            rr_k: Some(k),
+            rr_period: Some(period),
+        }
+    }
+
+    #[test]
+    fn sweep_pareto_filters_strictly_worse_tuples() {
+        let cells = [
+            sweep_test_cell(3, 10, 4, 100),
+            sweep_test_cell(5, 25, 4, 80),
+            sweep_test_cell(8, 50, 3, 60),
+        ];
+        let refs: Vec<&CellResult> = cells.iter().collect();
+        let frontier = sweep_pareto_non_dominated(&refs);
+        assert!(frontier.contains(&SweepTuple { period: 25, k: 5 }));
+        assert!(frontier.contains(&SweepTuple { period: 50, k: 8 }));
+        assert!(!frontier.contains(&SweepTuple { period: 10, k: 3 }));
+    }
+
+    #[test]
+    fn sweep_recommend_picks_lowest_mean_then_smallest_period_then_smallest_k() {
+        let cells = [
+            sweep_test_cell(5, 25, 4, 100),
+            sweep_test_cell(5, 25, 4, 80),
+            sweep_test_cell(3, 10, 4, 100),
+            sweep_test_cell(3, 10, 4, 80),
+        ];
+        let pairs: [(&str, &CellResult); 4] = [
+            ("a", &cells[0]),
+            ("b", &cells[1]),
+            ("a", &cells[2]),
+            ("b", &cells[3]),
+        ];
+        let pick = sweep_recommend(&pairs, 2).unwrap();
+        assert_eq!(pick, SweepTuple { period: 10, k: 3 });
+    }
+
+    #[test]
+    fn sweep_recommend_returns_none_when_no_tuple_feasible_on_every_fixture() {
+        let cells = [sweep_test_cell(5, 25, 4, 100), sweep_test_cell(8, 50, 0, 0)];
+        let pairs: [(&str, &CellResult); 2] = [("a", &cells[0]), ("b", &cells[1])];
+        assert!(sweep_recommend(&pairs, 2).is_none());
     }
 
     #[test]
