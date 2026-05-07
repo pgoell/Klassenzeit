@@ -435,6 +435,27 @@ proptest! {
             .expect("validate_no_double_booking must pass on lahc_rr_kempe output");
     }
 
+    /// Item 51 acceptance #1: every backend's reported `Solution.soft_score`
+    /// must equal `score_solution(problem, placements, weights)` on its
+    /// returned placements. This is the property-test form of the
+    /// `debug_assert_eq!` at the tail of `solve_with_config_stats`; named
+    /// for grep-discoverability.
+    #[test]
+    fn solve_with_config_stats_solution_soft_score_equals_score_solution(
+        problem in lahc_small_problem(),
+        seed in any::<u64>(),
+    ) {
+        let config = SolveConfig {
+            seed,
+            max_iterations: Some(64),
+            deadline: None,
+            ..SolveConfig::default()
+        };
+        let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
+        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        prop_assert_eq!(solution.soft_score, canonical);
+    }
+
     #[test]
     fn lahc_stats_ttf_le_tto_le_total(problem in lahc_small_problem(), seed in 0u64..1024) {
         // The probes' invariants under any (problem, seed):

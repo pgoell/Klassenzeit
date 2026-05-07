@@ -295,6 +295,12 @@ pub fn solve_with_config_stats(
     // number.
     solution.soft_score =
         crate::score::score_solution(problem, &solution.placements, &config.weights);
+    debug_assert_eq!(
+        solution.soft_score,
+        crate::score::score_solution(problem, &solution.placements, &config.weights),
+        "Solution.soft_score must equal score_solution(problem, placements, weights) for every backend; \
+         see docs/superpowers/specs/2026-05-07-item-51-backend-objective-parity-design.md (item 51)",
+    );
     Ok((solution, stats))
 }
 

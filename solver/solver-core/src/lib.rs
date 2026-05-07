@@ -21,7 +21,9 @@ pub mod validate;
 pub use error::Error;
 pub use ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 pub use json::{error_envelope_json, score_solution_json, solve_json, solve_json_with_config};
-pub use quality::{quality_report, QualityReport};
+pub use quality::{
+    backend_objective, quality_report, BackendObjective, QualityComponent, QualityReport,
+};
 pub use score::score_solution;
 pub use solve::{solve, solve_with_config, solve_with_config_stats};
 pub use types::{
