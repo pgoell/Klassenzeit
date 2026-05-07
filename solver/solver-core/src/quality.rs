@@ -378,10 +378,12 @@ fn build_backend_objectives() -> Vec<BackendObjective> {
     let lahc_skipped: BTreeSet<QualityComponent> = BTreeSet::new();
     let lahc_notes = "LAHC accepts and exits on the full canonical (see lahc::run); \
                       FFD greedy ranks windows by slice + home_room + class_day_balance (item 54).";
-    let cpsat_optimised: BTreeSet<QualityComponent> = BTreeSet::new();
-    let cpsat_skipped: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
-    let cpsat_notes = "Today minimises 0 (cpsat.py); item 48 ports the \
-                       canonical objective into the CP-SAT model.";
+    let cpsat_optimised: BTreeSet<QualityComponent> =
+        QualityComponent::ALL.iter().copied().collect();
+    let cpsat_skipped: BTreeSet<QualityComponent> = BTreeSet::new();
+    let cpsat_notes = "CP-SAT minimises the canonical objective end-to-end (cpsat.py): \
+                       subject_preference plus home_room plus class_gap plus teacher_gap \
+                       plus class_day_balance, weights from PRODUCTION_ACTIVE_WEIGHTS.";
     vec![
         BackendObjective {
             name: "lahc",
@@ -691,17 +693,15 @@ mod tests {
 
     #[test]
     fn backend_objective_cpsat_partitions_quality_components() {
-        use std::collections::BTreeSet;
-        let all: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
         let bo = backend_objective("cpsat").expect("registered");
-        let union: BTreeSet<QualityComponent> =
-            bo.optimised.union(&bo.declared_skipped).copied().collect();
-        assert_eq!(union, all);
-        let intersection: BTreeSet<QualityComponent> = bo
-            .optimised
-            .intersection(&bo.declared_skipped)
-            .copied()
-            .collect();
-        assert!(intersection.is_empty());
+        assert_eq!(
+            bo.optimised.len(),
+            QualityComponent::ALL.len(),
+            "cpsat: post-port objective optimises every QualityComponent",
+        );
+        assert!(
+            bo.declared_skipped.is_empty(),
+            "cpsat: post-port objective skips no QualityComponent",
+        );
     }
 }
