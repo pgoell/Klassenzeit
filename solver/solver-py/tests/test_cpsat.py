@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from klassenzeit_solver import solve_cpsat_json
+from klassenzeit_solver import score_solution_json, solve_cpsat_json
 
 
 def _cpsat_uuid(n: int) -> str:
@@ -247,3 +247,21 @@ def test_solve_cpsat_json_omits_tto_when_not_optimal() -> None:
     assert sol["peak_rss_kb"] > 0
     assert sol["time_to_first_feasible_ms"] is None
     assert sol["time_to_optimal_ms"] is None
+
+
+def test_solve_cpsat_json_reported_soft_score_equals_canonical_score() -> None:
+    """Item 51 acceptance #1 (CP-SAT): the reported `soft_score` on a
+    returned solution must equal `score_solution_json(problem, placements)`.
+
+    Tautological today (cpsat.py computes `soft_score` via
+    `score_solution_json`), but the test is a regression guard against any
+    future swap of the post-solve scorer for an internal CP-SAT objective
+    expression. Item 48 ports the canonical objective into the model itself;
+    even after that lands, this assertion still holds because the *reported*
+    score on the returned placements is a function of the placements alone.
+    """
+    problem_json = _cpsat_doppelstunde_problem()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["soft_score"] == canonical
