@@ -615,9 +615,9 @@ fn run_lahc_cell(
 
     let (dispatch_rr_period, lahc_kempe_period) = match backend {
         BenchBackend::Lahc => (None, None),
-        BenchBackend::LahcRr => (Some(25u32), None),
+        BenchBackend::LahcRr => (Some(50u32), None),
         BenchBackend::LahcKempe => (None, Some(23u32)),
-        BenchBackend::LahcRrKempe => (Some(25u32), Some(23u32)),
+        BenchBackend::LahcRrKempe => (Some(50u32), Some(23u32)),
         BenchBackend::CpSat => unreachable!("cpsat dispatched above"),
     };
     // RR-period override only applies on RR-enabled backends (where the dispatch
