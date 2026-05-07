@@ -52,6 +52,7 @@
       "Bash(cargo nextest *)",
       "Bash(cargo fmt:*)",
       "Bash(cargo build:*)",
+      "Bash(cargo bench *)",
       "Bash(cog verify)",
       "Bash(uv run alembic heads)",
       "Bash(uv run alembic history *)",
