@@ -29,8 +29,8 @@ Every `/autopilot` run must call the `Skill` tool, not read a skill file, not re
 | 4 | `superpowers:writing-plans` | Structure the implementation plan |
 | 5 | `superpowers:test-driven-development` | Enforce red-green-refactor per chunk |
 | 5 | `superpowers:subagent-driven-development` | Always. Dispatch every plan task to a fresh subagent (sequentially if they share state, in parallel when they don't), so the main session keeps context lean. |
-| 6 | `claude-md-management:revise-claude-md` | Capture session learnings into CLAUDE.md files |
-| 6 | `claude-md-management:claude-md-improver` | Audit the CLAUDE.md files after revision |
+| 6 | `agent-system-management:capturing-session-learnings` | Capture session learnings into CLAUDE.md files |
+| 6 | `agent-system-management:improving-instructions` | Audit the CLAUDE.md files after revision |
 | 6 | `fewer-permission-prompts` | Scan the transcript, tighten `.claude/settings.json` |
 
 If a listed skill is unavailable in the current environment, say so explicitly in the end-of-turn summary and skip only that entry. Never silently drop a row.
@@ -125,7 +125,7 @@ Then:
 
 ### 6. Finalize docs + improvement pass
 
-**First actions, in order:** invoke `claude-md-management:revise-claude-md`, then `claude-md-management:claude-md-improver`, then `fewer-permission-prompts`. All three via the `Skill` tool. The revisions those passes produce are the canonical CLAUDE.md and settings changes for this run; do not hand-edit those files instead of running the skills.
+**First actions, in order:** invoke `agent-system-management:capturing-session-learnings`, then `agent-system-management:improving-instructions`, then `fewer-permission-prompts`. All three via the `Skill` tool. The revisions those passes produce are the canonical CLAUDE.md and settings changes for this run; do not hand-edit those files instead of running the skills.
 
 **Autonomous mode: apply every skill's proposed edits directly. Do not pause to ask the user for approval; running `/autopilot` is the approval.** If a skill's default behavior is to ask ("Apply these changes? y/n"), answer for the user and proceed. Briefly report the edits in the end-of-turn summary so the user can see what landed without having blocked on it.
 
