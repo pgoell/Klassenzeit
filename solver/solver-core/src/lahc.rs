@@ -24,9 +24,9 @@ const LAHC_LIST_LEN: usize = 500;
 
 /// Run the LAHC loop over the placement set produced by greedy. Mutates
 /// `placements` and the partition / used-* state in place via `state`. The
-/// post-LAHC running total ends up in `state.soft_score`. Records timing
-/// probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into `stats`
-/// against `solve_start` so the wall-clock origin is shared with
+/// post-LAHC running total ends up in `state.search_score_slice`. Records
+/// timing probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into
+/// `stats` against `solve_start` so the wall-clock origin is shared with
 /// `solve_with_config_stats`'s entry instead of LAHC's own start.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper threading stats + clock origin
 pub(crate) fn run(
@@ -49,7 +49,7 @@ pub(crate) fn run(
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
-    let mut lahc_list = vec![state.soft_score; LAHC_LIST_LEN];
+    let mut lahc_list = vec![state.search_score_slice; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
@@ -94,8 +94,9 @@ pub(crate) fn run(
         .collect();
     // Sum of `hours_per_week` across all lessons is the placement-count floor:
     // every lesson-hour materialises as one `Placement`. The LAHC loop can exit
-    // early once this floor is reached AND `state.soft_score == 0`, since no
-    // further iteration can improve a feasible objective-floor incumbent.
+    // early once this floor is reached AND `state.search_score_slice == 0`,
+    // since no further iteration can improve a feasible objective-floor
+    // incumbent.
     let placements_expected: usize = problem
         .lessons
         .iter()
@@ -104,11 +105,11 @@ pub(crate) fn run(
 
     // Track the running-best soft score so the time-to-optimal probe can
     // capture the wall-clock of the last improvement. If FFD greedy already
-    // reached `soft_score == 0` and feasibility, ttf and tto are both already
-    // set by `solve_with_config_stats` before LAHC runs; the running_best
-    // initialiser still seeds correctly so a never-improving LAHC leaves them
-    // untouched.
-    let mut running_best = state.soft_score;
+    // reached `search_score_slice == 0` and feasibility, ttf and tto are both
+    // already set by `solve_with_config_stats` before LAHC runs; the
+    // running_best initialiser still seeds correctly so a never-improving
+    // LAHC leaves them untouched.
+    let mut running_best = state.search_score_slice;
 
     let mut iter: u64 = 0;
     while iter < max_iter && solve_start.elapsed() < deadline {
@@ -186,18 +187,18 @@ pub(crate) fn run(
         }
 
         iter += 1;
-        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
+        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.search_score_slice;
         if stats.time_to_first_feasible_ms.is_none()
-            && state.soft_score == 0
+            && state.search_score_slice == 0
             && placements.len() == placements_expected
         {
             stats.time_to_first_feasible_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.soft_score < running_best {
-            running_best = state.soft_score;
+        if state.search_score_slice < running_best {
+            running_best = state.search_score_slice;
             stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.soft_score == 0 && placements.len() == placements_expected {
+        if state.search_score_slice == 0 && placements.len() == placements_expected {
             break;
         }
     }
@@ -368,17 +369,17 @@ fn try_change_move(
         weights,
     ) + subject_pref_delta;
 
-    let new_score_signed = i64::from(state.soft_score) + delta;
+    let new_score_signed = i64::from(state.search_score_slice) + delta;
     debug_assert!(
         new_score_signed >= 0,
         "running score must remain non-negative; current_score={} delta={}",
-        state.soft_score,
+        state.search_score_slice,
         delta
     );
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
 
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let accept = new_score <= state.soft_score || new_score <= prior;
+    let accept = new_score <= state.search_score_slice || new_score <= prior;
     if !accept {
         return false;
     }
@@ -395,7 +396,7 @@ fn try_change_move(
         placements,
         state,
     );
-    state.soft_score = new_score;
+    state.search_score_slice = new_score;
     true
 }
 
@@ -848,7 +849,7 @@ fn rr_attempt(
     let chosen_count = anchors.len().min(RR_K);
     let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
-    let pre_score = state.soft_score;
+    let pre_slice = state.search_score_slice;
     let pre_count = placements.len();
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
     for (lesson_id, day) in &chosen {
@@ -957,7 +958,7 @@ fn rr_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -967,22 +968,23 @@ fn rr_attempt(
         return false;
     }
 
-    // `try_place_block` accumulates against `state.soft_score`, but `rr_ruin_block`
-    // does not subtract the removed placement's gap contribution from soft_score.
-    // For a successful recreate, the post-recreate `state.soft_score` therefore
-    // drifts; subsequent Change moves operate on a stale score and the
-    // non-negative-delta invariant inside `try_change_move` can fail. Recompute
-    // exactly here so the LAHC gate decides on correct numbers and downstream
-    // moves see a consistent score. Use the slice-only helper rather than
+    // `try_place_block` accumulates against `state.search_score_slice`, but
+    // `rr_ruin_block` does not subtract the removed placement's gap
+    // contribution from the slice. For a successful recreate, the
+    // post-recreate `state.search_score_slice` therefore drifts; subsequent
+    // Change moves operate on a stale score and the non-negative-delta
+    // invariant inside `try_change_move` can fail. Recompute exactly here so
+    // the LAHC gate decides on correct numbers and downstream moves see a
+    // consistent score. Use the slice-only helper rather than
     // `score::score_solution` because greedy / Change / Kempe maintain the
-    // class_gap + teacher_gap + subj_pref slice; including class_day_balance or
-    // home_room here contaminates `state.soft_score` and downstream Change-move
-    // deltas (slice-only) drive it negative over time.
+    // class_gap + teacher_gap + subj_pref slice; including class_day_balance
+    // or home_room here contaminates `state.search_score_slice` and
+    // downstream Change-move deltas (slice-only) drive it negative over time.
     let new_score =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
-    state.soft_score = new_score;
+    state.search_score_slice = new_score;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    let lahc_ok = new_score <= pre_slice || new_score <= prior;
     if !lahc_ok {
         rr_rollback(
             &recreated_rows,
@@ -992,7 +994,7 @@ fn rr_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -1660,7 +1662,7 @@ fn kempe_attempt(
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
-    let pre_score = state.soft_score;
+    let pre_slice = state.search_score_slice;
 
     // Seed pick: rr_collect_anchors filters (lesson, day) where FFD packed
     // multiple N=1 blocks of the same lesson on one day. See its doc
@@ -1795,7 +1797,7 @@ fn kempe_attempt(
                     placements,
                     state,
                 );
-                state.soft_score = pre_score;
+                state.search_score_slice = pre_slice;
                 return false;
             }
         };
@@ -1823,7 +1825,7 @@ fn kempe_attempt(
                     placements,
                     state,
                 );
-                state.soft_score = pre_score;
+                state.search_score_slice = pre_slice;
                 return false;
             }
         };
@@ -1955,17 +1957,17 @@ fn kempe_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
         return false;
     }
 
     let gap_delta = kempe_post_score_delta(&partition_snapshot, state, weights);
     let subject_pref_delta = i64::from(added_subject_pref) - i64::from(removed_subject_pref);
     let total_delta = gap_delta + subject_pref_delta;
-    let new_score_signed = i64::from(pre_score) + total_delta;
+    let new_score_signed = i64::from(pre_slice) + total_delta;
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    let lahc_ok = new_score <= pre_slice || new_score <= prior;
     if !lahc_ok {
         kempe_rollback(
             &recreated_in_order,
@@ -1976,10 +1978,10 @@ fn kempe_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
         return false;
     }
-    state.soft_score = new_score;
+    state.search_score_slice = new_score;
     true
 }
 
@@ -2104,9 +2106,10 @@ fn kempe_rollback(
 
 /// Recompute the running-score slice (`class_gap + teacher_gap + subject_pref`)
 /// from `placements`. Matches the slice greedy / Change / Kempe maintain on
-/// `state.soft_score`. R&R uses this after a successful recreate because
-/// `rr_ruin_block` does not decrement the removed contribution and a fresh
-/// `score::score_solution` would over-count by `class_day_balance + home_room`.
+/// `state.search_score_slice`. R&R uses this after a successful recreate
+/// because `rr_ruin_block` does not decrement the removed contribution and a
+/// fresh `score::score_solution` would over-count by
+/// `class_day_balance + home_room`.
 fn running_slice_from_placements(
     problem: &Problem,
     placements: &[Placement],
@@ -2664,7 +2667,7 @@ mod tests {
         state.used_teacher.insert((teacher, tb_zero));
         state.used_class.insert((class, tb_zero));
         state.used_room.insert((room, tb_zero));
-        state.soft_score = 1; // avoid_first penalty active at position 0
+        state.search_score_slice = 1; // avoid_first penalty active at position 0
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2698,7 +2701,7 @@ mod tests {
             placements[0].time_block_id, tb_one,
             "LAHC should move the avoid-first lesson off position 0"
         );
-        assert_eq!(state.soft_score, 0);
+        assert_eq!(state.search_score_slice, 0);
     }
 
     #[test]
@@ -2802,7 +2805,7 @@ mod tests {
         state.used_class.insert((class, tb_one));
         state.used_room.insert((room, tb_zero));
         state.used_room.insert((room, tb_one));
-        state.soft_score = 1; // avoid_first penalty active at position 0
+        state.search_score_slice = 1; // avoid_first penalty active at position 0
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2977,7 +2980,7 @@ mod tests {
         state.used_class.insert((class_b, tb_zero));
         state.used_room.insert((room_a, tb_zero));
         state.used_room.insert((room_b, tb_zero));
-        state.soft_score = 2;
+        state.search_score_slice = 2;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -3387,7 +3390,7 @@ mod tests {
         *state.hours_by_teacher.entry(teacher1).or_insert(0) = 1;
         state.locked_room.insert((class, 0, subject), (room, 1));
         state.locked_room.insert((class, 1, subject), (room, 1));
-        state.soft_score = 0;
+        state.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem_for_attempt);
         let lesson_lookup: HashMap<LessonId, &Lesson> = problem_for_attempt
@@ -3489,7 +3492,7 @@ mod tests {
             locked_room: s.locked_room.clone(),
             subject_hours_by_class_day: s.subject_hours_by_class_day.clone(),
             lessons_by_class_day: s.lessons_by_class_day.clone(),
-            soft_score: s.soft_score,
+            search_score_slice: s.search_score_slice,
         }
     }
 
@@ -4100,7 +4103,7 @@ mod tests {
         *state.hours_by_teacher.entry(teacher1).or_insert(0) = 2;
         state.locked_room.insert((class, 0, subject), (room, 2));
         state.locked_room.insert((class, 1, subject), (room, 2));
-        state.soft_score = 0;
+        state.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem);
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -4430,7 +4433,7 @@ mod tests {
         state_pre
             .locked_room
             .insert((class_lock, 1, subject), (room_a, 1));
-        state_pre.soft_score = 0;
+        state_pre.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem);
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -4508,7 +4511,7 @@ mod tests {
             assert_eq!(s.teacher_positions, state_pre.teacher_positions);
             assert_eq!(s.hours_by_teacher, state_pre.hours_by_teacher);
             assert_eq!(s.locked_room, state_pre.locked_room);
-            assert_eq!(s.soft_score, state_pre.soft_score);
+            assert_eq!(s.search_score_slice, state_pre.search_score_slice);
         }
         assert!(
             saw_reject,

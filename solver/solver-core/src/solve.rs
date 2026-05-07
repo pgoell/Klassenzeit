@@ -244,8 +244,8 @@ pub fn solve_with_config_stats(
 
     // FFD-already-feasible probe: if greedy produced a feasible, soft-score-zero
     // schedule, both ttf and tto are recorded as Some(0.0) before LAHC runs.
-    // If feasibility holds but soft_score > 0, ttf alone is set so the LAHC
-    // loop's running-best probe captures any improvement.
+    // If feasibility holds but search_score_slice > 0, ttf alone is set so the
+    // LAHC loop's running-best probe captures any improvement.
     let placements_expected: usize = problem
         .lessons
         .iter()
@@ -255,7 +255,7 @@ pub fn solve_with_config_stats(
         solution.violations.is_empty() && solution.placements.len() == placements_expected;
     if greedy_feasible {
         stats.time_to_first_feasible_ms = Some(0.0);
-        if state.soft_score == 0 {
+        if state.search_score_slice == 0 {
             stats.time_to_optimal_ms = Some(0.0);
         }
     }
@@ -288,9 +288,9 @@ pub fn solve_with_config_stats(
         panic!("no-double-booking post-condition violated: {e}");
     }
 
-    // state.soft_score is the LAHC running slice (class_gap + teacher_gap
-    // + subject_pref). Solution.soft_score is the full weighted cost on
-    // the final placements, including prefer_home_room and
+    // state.search_score_slice is the LAHC running slice (class_gap +
+    // teacher_gap + subject_pref). Solution.soft_score is the full weighted
+    // cost on the final placements, including prefer_home_room and
     // class_day_balance, so consumers compare every backend on the same
     // number.
     solution.soft_score =
@@ -306,8 +306,8 @@ pub fn solve_with_config_stats(
 
 /// Mutable bookkeeping shared across all lesson-hour placements during one
 /// greedy solve. Hard-constraint sets prevent double-booking; partition maps
-/// and `soft_score` enable O(1) candidate scoring without reiterating placed
-/// lessons.
+/// and `search_score_slice` enable O(1) candidate scoring without reiterating
+/// placed lessons.
 pub(crate) struct GreedyState {
     pub(crate) used_teacher: HashSet<(TeacherId, TimeBlockId)>,
     pub(crate) used_class: HashSet<(SchoolClassId, TimeBlockId)>,
@@ -333,7 +333,13 @@ pub(crate) struct GreedyState {
     /// total compared against `SchoolClass.max_lessons_per_day` (when set).
     /// Maintained in lockstep with the existing per-class bookkeeping.
     pub(crate) lessons_by_class_day: HashMap<(SchoolClassId, u8), u8>,
-    pub(crate) soft_score: u32,
+    /// Running LAHC search slice: `class_gap + teacher_gap + subject_pref`.
+    /// Maintained by greedy's `try_place_block` persist site, by Change-move
+    /// delta, by Kempe snapshot+delta, and by R&R via
+    /// `running_slice_from_placements`. Greedy's picker persist contract
+    /// stores `slice_score` here; LAHC reads the slice for the non-negative
+    /// debug_assert in `try_change_move`.
+    pub(crate) search_score_slice: u32,
 }
 
 impl GreedyState {
@@ -348,7 +354,7 @@ impl GreedyState {
             locked_room: HashMap::new(),
             subject_hours_by_class_day: HashMap::new(),
             lessons_by_class_day: HashMap::new(),
-            soft_score: 0,
+            search_score_slice: 0,
         }
     }
 }
@@ -361,12 +367,13 @@ struct BlockCandidate {
     end_pos: u8,
     room_id: RoomId,
     /// Slice-only running cost (`class_gap + teacher_gap + subject_pref`)
-    /// post-place. Persisted to `state.soft_score` so the slice contract
-    /// LAHC's Change move and R&R post-recreate `running_slice_from_placements`
-    /// rely on stays intact.
+    /// post-place. Persisted to `state.search_score_slice` so the slice
+    /// contract LAHC's Change move and R&R post-recreate
+    /// `running_slice_from_placements` rely on stays intact.
     slice_score: u32,
     /// Total cost = `slice_score + home_room_penalty(room_id)`. Used for
-    /// candidate ranking and pruning. NOT persisted to `state.soft_score`.
+    /// candidate ranking and pruning. NOT persisted to
+    /// `state.search_score_slice`.
     total_score: u32,
 }
 
@@ -578,7 +585,7 @@ pub(crate) fn try_place_block(
         let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
         let teacher_delta_w = (i64::from(teacher_new) - i64::from(teacher_old))
             .saturating_mul(i64::from(weights.teacher_gap));
-        let new_signed = i64::from(state.soft_score)
+        let new_signed = i64::from(state.search_score_slice)
             .saturating_add(class_delta_w)
             .saturating_add(teacher_delta_w)
             .saturating_add(i64::from(subject_pref));
@@ -732,11 +739,12 @@ pub(crate) fn try_place_block(
         });
 
         // Early exit: a window with both slice delta zero AND home-room match
-        // at every member class is unbeatable (state.soft_score == total_score
-        // means no slice gain plus no home-room penalty), and `tb_order`'s sort
-        // means later windows have weakly larger (day, position) so the tiebreak
-        // rule cannot rescue a tied later window.
-        if total_score == state.soft_score {
+        // at every member class is unbeatable (state.search_score_slice ==
+        // total_score means no slice gain plus no home-room penalty), and
+        // `tb_order`'s sort means later windows have weakly larger
+        // (day, position) so the tiebreak rule cannot rescue a tied later
+        // window.
+        if total_score == state.search_score_slice {
             break;
         }
     }
@@ -810,7 +818,7 @@ pub(crate) fn try_place_block(
         let ins = teacher_part.binary_search(&pos).unwrap_or_else(|i| i);
         teacher_part.insert(ins, pos);
     }
-    state.soft_score = c.slice_score;
+    state.search_score_slice = c.slice_score;
     #[cfg(feature = "solver-trace")]
     trace::ffd_trace(lesson.id, c.day, c.start_pos, Some(c.room_id), "placed");
     true
@@ -1096,7 +1104,7 @@ fn try_place_group(
         }
         let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
         let teacher_delta_w = teacher_delta_sum.saturating_mul(i64::from(weights.teacher_gap));
-        let new_signed = i64::from(state.soft_score)
+        let new_signed = i64::from(state.search_score_slice)
             .saturating_add(class_delta_w)
             .saturating_add(teacher_delta_w)
             .saturating_add(i64::from(subject_pref));
@@ -1117,7 +1125,7 @@ fn try_place_group(
             score,
         });
 
-        if score == state.soft_score {
+        if score == state.search_score_slice {
             break;
         }
     }
@@ -1190,7 +1198,7 @@ fn try_place_group(
             .entry((*class, c.day))
             .or_insert(0) += added_u8;
     }
-    state.soft_score = c.score;
+    state.search_score_slice = c.score;
     true
 }
 

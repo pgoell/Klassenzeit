@@ -1,5 +1,5 @@
 //! Asserts that the LAHC outer loop exits as soon as the incumbent reaches
-//! `placements.len() == placements_expected && state.soft_score == 0`,
+//! `placements.len() == placements_expected && state.search_score_slice == 0`,
 //! regardless of the configured deadline.
 
 use std::time::{Duration, Instant};
