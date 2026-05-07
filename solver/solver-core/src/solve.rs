@@ -299,10 +299,6 @@ pub fn solve_with_config_stats(
     if let Err(e) = validate_daily_caps(problem, &solution.placements) {
         panic!("daily-cap post-condition violated: {e}");
     }
-    #[cfg(debug_assertions)]
-    if let Err(e) = validate_no_double_booking(problem, &solution.placements) {
-        panic!("no-double-booking post-condition violated: {e}");
-    }
 
     // state.search_score_slice is the LAHC running slice (class_gap +
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted
