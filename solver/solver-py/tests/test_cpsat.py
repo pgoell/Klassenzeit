@@ -265,3 +265,19 @@ def test_solve_cpsat_json_reported_soft_score_equals_canonical_score() -> None:
     out = json.loads(out_json)
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["soft_score"] == canonical
+
+
+def test_cpsat_objective_value_equals_score_solution_on_trivial_problem() -> None:
+    """Item 48 acceptance: the CP-SAT model objective value on the returned
+    solution must equal `score_solution(problem, placements, PRODUCTION_ACTIVE_WEIGHTS)`.
+
+    Trivial fixture has every axis evaluating to 0 today; the test passes
+    even before any axis is ported. It locks the contract so subsequent
+    axis ports can extend the test set without re-deriving the harness.
+    """
+    problem_json = _cpsat_trivial_one_lesson_problem()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    assert out["model_objective_value"] is not None
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["model_objective_value"] == canonical
