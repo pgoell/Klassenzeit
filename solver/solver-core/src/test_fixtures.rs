@@ -174,7 +174,7 @@ pub fn zweizuegig_fixture() -> Problem {
             prefer_early_period: u32::from(matches!(i, 0 | 1)), // index 0 = Deutsch, 1 = Mathematik
             avoid_first_period: u32::from(i == 7),              // index 7 = Sport
             avoid_last_period: u32::from(matches!(i, 0 | 1)),   // index 0 = Deutsch, 1 = Mathematik
-            prefer_late_period: 0,
+            prefer_late_period: u32::from(i == 8) * 5,
             max_hours_per_day: 8,
         })
         .collect();
@@ -346,7 +346,7 @@ pub fn dreizuegig_fixture() -> Problem {
             prefer_early_period: u32::from(matches!(i, 0 | 1)), // index 0 = Deutsch, 1 = Mathematik
             avoid_first_period: u32::from(i == 9),              // index 9 = Sport
             avoid_last_period: u32::from(matches!(i, 0 | 1)),   // index 0 = Deutsch, 1 = Mathematik
-            prefer_late_period: 0,
+            prefer_late_period: u32::from(i == 10) * 5,
             max_hours_per_day: 8,
         })
         .collect();

@@ -72,7 +72,7 @@ _SUBJECTS: tuple[_SubjectSpec, ...] = (
     _SubjectSpec("Kunst", "KU", "chart-1"),
     _SubjectSpec("Musik", "MU", "chart-3"),
     _SubjectSpec("Sport", "SP", "chart-4", avoid_first_period=1),
-    _SubjectSpec("Förderunterricht", "FÖ", "chart-5"),
+    _SubjectSpec("Förderunterricht", "FÖ", "chart-5", prefer_late_period=5),
 )
 
 
