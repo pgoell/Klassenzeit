@@ -39,6 +39,7 @@ fn placements_expected_for_problem(problem: &Problem) -> u64 {
 enum BenchBackend {
     Lahc,
     LahcRr,
+    LahcKempe,
     LahcRrKempe,
     CpSat,
 }
@@ -48,6 +49,7 @@ impl BenchBackend {
         match self {
             BenchBackend::Lahc => "lahc",
             BenchBackend::LahcRr => "lahc_rr",
+            BenchBackend::LahcKempe => "lahc_kempe",
             BenchBackend::LahcRrKempe => "lahc_rr_kempe",
             BenchBackend::CpSat => "cpsat",
         }
@@ -56,12 +58,19 @@ impl BenchBackend {
         match s {
             "lahc" => Ok(Self::Lahc),
             "lahc_rr" => Ok(Self::LahcRr),
+            "lahc_kempe" => Ok(Self::LahcKempe),
             "lahc_rr_kempe" => Ok(Self::LahcRrKempe),
             "cpsat" => Ok(Self::CpSat),
             other => Err(format!("unknown backend '{other}'")),
         }
     }
-    const ALL: [Self; 4] = [Self::Lahc, Self::LahcRr, Self::LahcRrKempe, Self::CpSat];
+    const ALL: [Self; 5] = [
+        Self::Lahc,
+        Self::LahcRr,
+        Self::LahcKempe,
+        Self::LahcRrKempe,
+        Self::CpSat,
+    ];
 }
 
 type FixtureEntry = (&'static str, fn() -> Problem);
@@ -438,6 +447,7 @@ fn run_lahc_cell(
     let (lahc_rr_period, lahc_kempe_period) = match backend {
         BenchBackend::Lahc => (None, None),
         BenchBackend::LahcRr => (Some(25u32), None),
+        BenchBackend::LahcKempe => (None, Some(23u32)),
         BenchBackend::LahcRrKempe => (Some(25u32), Some(23u32)),
         BenchBackend::CpSat => unreachable!("cpsat dispatched above"),
     };
@@ -1591,7 +1601,7 @@ mod tests {
     }
 
     #[test]
-    fn write_backend_objectives_section_renders_all_four_backends() {
+    fn write_backend_objectives_section_renders_every_registered_backend() {
         let mut out = String::new();
         write_backend_objectives_section(&mut out, &BenchBackend::ALL);
         assert!(
