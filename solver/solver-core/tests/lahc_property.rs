@@ -491,6 +491,46 @@ proptest! {
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
+    /// Item 52: LAHC must never return an incumbent whose canonical score
+    /// exceeds the post-greedy canonical. Pinned via the running-best
+    /// snapshot in `lahc::run`: `best_placements` is initialised to the
+    /// post-greedy placements and only swapped on canonical-strict-
+    /// improvement events; on loop exit `*placements = best_placements`.
+    /// Uses `PRODUCTION_ACTIVE_WEIGHTS` so the production scenario (home_room
+    /// and class_day_balance both non-zero) is what is pinned.
+    #[test]
+    fn lahc_canonical_score_is_non_increasing_versus_greedy_under_production_weights(
+        seed in 0u64..1024,
+    ) {
+        let problem = canonical_score_test_problem();
+        // Greedy-only (deadline None short-circuits LAHC).
+        let greedy_config = SolveConfig {
+            seed,
+            weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS.clone(),
+            deadline: None,
+            ..SolveConfig::default()
+        };
+        let (greedy_solution, _) =
+            solve_with_config_stats(&problem, &greedy_config).expect("greedy solve");
+        // Greedy + LAHC.
+        let lahc_config = SolveConfig {
+            seed,
+            weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS.clone(),
+            deadline: Some(Duration::from_millis(200)),
+            max_iterations: Some(2_000),
+            ..SolveConfig::default()
+        };
+        let (lahc_solution, _) =
+            solve_with_config_stats(&problem, &lahc_config).expect("lahc solve");
+        prop_assert!(
+            lahc_solution.soft_score <= greedy_solution.soft_score,
+            "LAHC canonical {} exceeds greedy canonical {} on seed {}",
+            lahc_solution.soft_score,
+            greedy_solution.soft_score,
+            seed,
+        );
+    }
+
     #[test]
     fn lahc_stats_ttf_le_tto_le_total(problem in lahc_small_problem(), seed in 0u64..1024) {
         // The probes' invariants under any (problem, seed):
@@ -545,15 +585,56 @@ fn lahc_rr_kempe_does_not_double_book_class_at_grundschule() {
         .expect("validate_no_double_booking must pass post-fix");
 }
 
-/// Tiny fixture for the canonical-score-at-LAHC-exit property test. One class
-/// with a `home_room_id` set to `rooms[0]` so the home_room cost is non-zero
-/// when LAHC picks `rooms[1]`, three days with three slots each so the
-/// class_day_balance cost is non-zero on most placements, and enough lessons
-/// that LAHC has plenty of moves to exercise.
+/// Item 52 regression guard: pin a deterministic seed where LAHC's
+/// search would otherwise drift the current canonical above the post-greedy
+/// canonical (Change move accepts a slice-improving but home_room-worsening
+/// move on the two-classes-share-room0 fixture; pre-snapshot, LAHC returns
+/// the worsened placements). Asserts that the running-best snapshot in
+/// `lahc::run` restores the post-greedy placements at loop exit so
+/// `lahc_solution.soft_score <= greedy_solution.soft_score` regardless of
+/// what the search drifted to. Names the snapshot mechanism for grep so a
+/// future PR cannot silently remove it.
+#[test]
+fn lahc_returns_running_best_canonical_when_search_drifts() {
+    let problem = canonical_score_test_problem();
+    let lahc_config = SolveConfig {
+        seed: 630,
+        weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS.clone(),
+        deadline: Some(Duration::from_millis(200)),
+        max_iterations: Some(2_000),
+        ..SolveConfig::default()
+    };
+    let (lahc_solution, _) = solve_with_config_stats(&problem, &lahc_config).expect("lahc solve");
+    let greedy_config = SolveConfig {
+        seed: 630,
+        weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS.clone(),
+        deadline: None,
+        ..SolveConfig::default()
+    };
+    let (greedy_solution, _) =
+        solve_with_config_stats(&problem, &greedy_config).expect("greedy solve");
+    assert!(
+        lahc_solution.soft_score <= greedy_solution.soft_score,
+        "lahc canonical {} > greedy canonical {} (snapshot mechanism failed)",
+        lahc_solution.soft_score,
+        greedy_solution.soft_score,
+    );
+}
+
+/// Tiny fixture for the canonical-score property tests. Two classes share
+/// `rooms[0]` as `home_room_id` so when LAHC's Change-move falls back from
+/// `rooms[0]` (occupied by the other class at the destination tb) to
+/// `rooms[1]`, the home_room cost rises and canonical can drift above the
+/// post-greedy canonical even when the slice strictly improves. Three days
+/// with three slots each gives multiple lessons per class with multiple
+/// candidate destinations so LAHC has plenty of moves to exercise both
+/// home_room and class_day_balance axes.
 fn canonical_score_test_problem() -> Problem {
     let subject = SubjectId(lahc_id_from(1));
-    let teacher = TeacherId(lahc_id_from(1000));
-    let class = SchoolClassId(lahc_id_from(2000));
+    let teacher_a = TeacherId(lahc_id_from(1000));
+    let teacher_b = TeacherId(lahc_id_from(1001));
+    let class_a = SchoolClassId(lahc_id_from(2000));
+    let class_b = SchoolClassId(lahc_id_from(2001));
     let room0 = RoomId(lahc_id_from(3000));
     let room1 = RoomId(lahc_id_from(3001));
 
@@ -570,24 +651,46 @@ fn canonical_score_test_problem() -> Problem {
         }
     }
 
-    let lessons: Vec<Lesson> = (0..4u32)
-        .map(|i| Lesson {
+    // Four lessons per class: every slot can hold one lesson per class.
+    // Both classes share the same `home_room_id = room0` so room0 / room1
+    // collisions force the Change-move's `pick_room` fallback when the
+    // destination tb already has a placement of the OTHER class in room0.
+    let mut lessons: Vec<Lesson> = Vec::new();
+    for i in 0..4u32 {
+        lessons.push(Lesson {
             id: LessonId(lahc_id_from(5000 + i)),
-            school_class_ids: vec![class],
+            school_class_ids: vec![class_a],
             subject_id: subject,
-            teacher_id: teacher,
+            teacher_id: teacher_a,
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
-        })
-        .collect();
+        });
+    }
+    for i in 0..4u32 {
+        lessons.push(Lesson {
+            id: LessonId(lahc_id_from(5100 + i)),
+            school_class_ids: vec![class_b],
+            subject_id: subject,
+            teacher_id: teacher_b,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+    }
 
     Problem {
         time_blocks,
-        teachers: vec![Teacher {
-            id: teacher,
-            max_hours_per_week: 40,
-        }],
+        teachers: vec![
+            Teacher {
+                id: teacher_a,
+                max_hours_per_week: 40,
+            },
+            Teacher {
+                id: teacher_b,
+                max_hours_per_week: 40,
+            },
+        ],
         rooms: vec![Room { id: room0 }, Room { id: room1 }],
         subjects: vec![Subject {
             id: subject,
@@ -597,16 +700,29 @@ fn canonical_score_test_problem() -> Problem {
             prefer_late_period: 0,
             max_hours_per_day: 8,
         }],
-        school_classes: vec![SchoolClass {
-            id: class,
-            home_room_id: Some(room0),
-            max_lessons_per_day: None,
-        }],
+        school_classes: vec![
+            SchoolClass {
+                id: class_a,
+                home_room_id: Some(room0),
+                max_lessons_per_day: None,
+            },
+            SchoolClass {
+                id: class_b,
+                home_room_id: Some(room0),
+                max_lessons_per_day: None,
+            },
+        ],
         lessons,
-        teacher_qualifications: vec![TeacherQualification {
-            teacher_id: teacher,
-            subject_id: subject,
-        }],
+        teacher_qualifications: vec![
+            TeacherQualification {
+                teacher_id: teacher_a,
+                subject_id: subject,
+            },
+            TeacherQualification {
+                teacher_id: teacher_b,
+                subject_id: subject,
+            },
+        ],
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],

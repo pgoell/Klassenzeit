@@ -69,8 +69,10 @@ fn supervisor_emits_observability_and_quality_columns() {
         "missing lahc_rr_kempe row in objectives section: {body}",
     );
     assert!(
-        body.contains("class_gap, teacher_gap, prefer_early, avoid_first, avoid_last, prefer_late"),
-        "missing lahc-family optimised set in objectives section: {body}",
+        body.contains(
+            "class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late"
+        ),
+        "missing lahc-family optimised set in objectives section (item 52: lahc accepts on full canonical): {body}",
     );
     assert!(
         body.contains("Quality (pass / 4)"),

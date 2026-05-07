@@ -49,7 +49,7 @@ pub(crate) fn run(
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
-    let mut lahc_list = vec![state.search_score_slice; LAHC_LIST_LEN];
+    let mut lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
@@ -103,13 +103,23 @@ pub(crate) fn run(
         .map(|l| l.hours_per_week as usize)
         .sum();
 
-    // Track the running-best soft score so the time-to-optimal probe can
-    // capture the wall-clock of the last improvement. If FFD greedy already
-    // reached `search_score_slice == 0` and feasibility, ttf and tto are both
-    // already set by `solve_with_config_stats` before LAHC runs; the
-    // running_best initialiser still seeds correctly so a never-improving
-    // LAHC leaves them untouched.
-    let mut running_best = state.search_score_slice;
+    // Track the running-best canonical score so the time-to-optimal probe
+    // can capture the wall-clock of the last improvement. LAHC accepts on
+    // canonical (item 52); ttf still gates on feasibility + slice floor as
+    // before. If FFD greedy already reached `canonical_score == 0` and
+    // feasibility, ttf and tto are both already set by
+    // `solve_with_config_stats` before LAHC runs; the `running_best`
+    // initialiser still seeds correctly so a never-improving LAHC leaves
+    // them untouched.
+    let mut running_best = state.canonical_score;
+    // Item 52: snapshot the running-best canonical placements so LAHC's
+    // accept criterion (which can drift the current canonical above the
+    // post-greedy canonical) does not contaminate the returned incumbent.
+    // Initialised to the post-greedy placements; refreshed on every
+    // running-best canonical event; restored at LAHC loop exit so the
+    // returned `solution.soft_score <= greedy_solution.soft_score` invariant
+    // holds across deadline / max_iter / early-exit paths.
+    let mut best_placements: Vec<Placement> = placements.clone();
 
     let mut iter: u64 = 0;
     while iter < max_iter && solve_start.elapsed() < deadline {
@@ -189,15 +199,16 @@ pub(crate) fn run(
         }
 
         iter += 1;
-        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.search_score_slice;
+        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.canonical_score;
         if stats.time_to_first_feasible_ms.is_none()
-            && state.search_score_slice == 0
+            && state.canonical_score == 0
             && placements.len() == placements_expected
         {
             stats.time_to_first_feasible_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.search_score_slice < running_best {
-            running_best = state.search_score_slice;
+        if state.canonical_score < running_best {
+            running_best = state.canonical_score;
+            best_placements = placements.clone();
             stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
         #[cfg(debug_assertions)]
@@ -206,10 +217,17 @@ pub(crate) fn run(
             crate::score::score_solution(problem, placements, &config.weights),
             "LAHC must keep state.canonical_score == score_solution(...) at every iteration tail",
         );
-        if state.search_score_slice == 0 && placements.len() == placements_expected {
+        if state.canonical_score == 0 && placements.len() == placements_expected {
             break;
         }
     }
+    // Item 52: restore the running-best canonical placements at every loop
+    // exit (deadline, max_iter, early-exit). After this assignment,
+    // `state.search_score_slice` and `state.canonical_score` may not match
+    // `placements`; that is fine because `solve_with_config_stats` reads
+    // neither field after `lahc::run` returns and recomputes
+    // `solution.soft_score = score_solution(problem, &solution.placements, weights)`.
+    *placements = best_placements;
 }
 
 /// Attempt one Change move: move `placements[placement_idx]` to time-block
@@ -448,7 +466,7 @@ fn try_change_move(
     let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
 
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let accept = new_score <= state.search_score_slice || new_score <= prior;
+    let accept = new_canonical <= state.canonical_score || new_canonical <= prior;
     if !accept {
         return false;
     }
@@ -1052,12 +1070,17 @@ fn rr_attempt(
     // class_gap + teacher_gap + subj_pref slice; including class_day_balance
     // or home_room here contaminates `state.search_score_slice` and
     // downstream Change-move deltas (slice-only) drive it negative over time.
-    let new_score =
+    let new_slice =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
-    state.search_score_slice = new_score;
-    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.search_score_slice = new_slice;
+    let new_canonical = crate::score::score_solution(problem, placements, weights);
+    state.canonical_score = new_canonical;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_slice || new_score <= prior;
+    // Item 52: R&R accepts on canonical so the move's home_room and
+    // class_day_balance contributions are gated alongside class_gap /
+    // teacher_gap / subject_pref. The slice ride-along stays so downstream
+    // Change moves still maintain `state.search_score_slice` consistently.
+    let lahc_ok = new_canonical <= pre_canonical || new_canonical <= prior;
     if !lahc_ok {
         rr_rollback(
             &recreated_rows,
@@ -2084,8 +2107,8 @@ fn kempe_attempt(
     let gap_delta = kempe_post_score_delta(&partition_snapshot, state, weights);
     let subject_pref_delta = i64::from(added_subject_pref) - i64::from(removed_subject_pref);
     let total_delta = gap_delta + subject_pref_delta;
-    let new_score_signed = i64::from(pre_slice) + total_delta;
-    let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
+    let new_slice_signed = i64::from(pre_slice) + total_delta;
+    let new_slice = u32::try_from(new_slice_signed.max(0)).unwrap_or(u32::MAX);
 
     // Canonical home_room delta: walk snapshot rows for `removed`,
     // recreated_in_order rows for `added`. Mirror's the existing
@@ -2169,7 +2192,11 @@ fn kempe_attempt(
     let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
 
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_slice || new_score <= prior;
+    // Item 52: Kempe accepts on canonical (slice + home_room + class_day_balance)
+    // so chain swaps that strictly improve slice while worsening canonical
+    // are rejected. The slice ride-along stays so the next Change move sees
+    // a consistent `state.search_score_slice` baseline.
+    let lahc_ok = new_canonical <= pre_canonical || new_canonical <= prior;
     if !lahc_ok {
         kempe_rollback(
             &recreated_in_order,
@@ -2184,7 +2211,7 @@ fn kempe_attempt(
         state.canonical_score = pre_canonical;
         return false;
     }
-    state.search_score_slice = new_score;
+    state.search_score_slice = new_slice;
     state.canonical_score = new_canonical;
     true
 }
