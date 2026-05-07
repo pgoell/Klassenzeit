@@ -466,3 +466,65 @@ def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> 
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
     assert out["model_objective_value"] == 20
+
+
+def _cpsat_forced_lopsided_spread_problem() -> str:
+    """Two days, three TBs on day 0 (positions 0, 1, 2), zero TBs on day
+    1. One class, one teacher, one room. One lesson with hours_per_week=3,
+    preferred_block_size=1. Every placement must land on day 0 (no TBs on
+    day 1). Spread is 3/0; D=2 days.
+
+    score_solution: c[0]=3, c[1]=0, sum=3, D=2.
+    scaled = |3*2 - 3| + |0*2 - 3| = 3 + 3 = 6
+    quotient = 6 // 2 = 3
+    Total class_day_balance = 5 * 3 = 15.
+
+    No class_gap (3 contiguous placements, no interior missing). No
+    teacher_gap. Only class_day_balance fires.
+    """
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10), "day_of_week": 0, "position": 0},
+                {"id": _cpsat_uuid(11), "day_of_week": 0, "position": 1},
+                {"id": _cpsat_uuid(12), "day_of_week": 0, "position": 2},
+                {"id": _cpsat_uuid(13), "day_of_week": 1, "position": 0},
+            ],
+            "teachers": [{"id": _cpsat_uuid(20), "max_hours_per_week": 5}],
+            "rooms": [{"id": _cpsat_uuid(30)}],
+            "subjects": [{"id": _cpsat_uuid(40)}],
+            "school_classes": [{"id": _cpsat_uuid(50)}],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60),
+                    "school_class_ids": [_cpsat_uuid(50)],
+                    "subject_id": _cpsat_uuid(40),
+                    "teacher_id": _cpsat_uuid(20),
+                    "hours_per_week": 3,
+                    "preferred_block_size": 1,
+                }
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": _cpsat_uuid(20), "subject_id": _cpsat_uuid(40)}
+            ],
+            "teacher_blocked_times": [
+                {"teacher_id": _cpsat_uuid(20), "time_block_id": _cpsat_uuid(13)}
+            ],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem() -> None:
+    """class_day_balance axis: 3 placements on day 0, 0 on day 1.
+    quotient = (|3*2-3| + |0*2-3|) // 2 = 6 // 2 = 3; weighted = 5 * 3 = 15.
+    """
+    problem_json = _cpsat_forced_lopsided_spread_problem()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    assert out["model_objective_value"] is not None
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["model_objective_value"] == canonical
+    assert out["model_objective_value"] == 15

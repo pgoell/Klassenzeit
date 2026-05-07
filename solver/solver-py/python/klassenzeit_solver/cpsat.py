@@ -644,6 +644,81 @@ def _objective_gap_term(
     return weight * cp_model.LinearExpr.sum(gap_vars) if gap_vars else 0
 
 
+def _objective_class_day_balance_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-class scaled L1 day-balance cost mirroring score::class_day_balance_cost.
+
+    For each class:
+      class_total = sum lesson.hours_per_week for lessons where class is in school_class_ids
+      c_count[class, day] = sum over anchors (l, day, p, r) where day matches
+        and class is in scope: N(l) * y[..]
+      dev[class, day] = abs(c_count[class, day] * D - class_total)
+      scaled[class] = sum_day dev[class, day]
+      quotient[class] = scaled[class] // D (CP-SAT add_division_equality)
+    Returns _W_CLASS_DAY_BALANCE * sum_class quotient[class].
+
+    Class with class_total == 0 contributes 0 by construction (all c_count
+    vars are 0, dev is 0, quotient is 0). Skipped at build time to avoid
+    creating unused vars.
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    positions_per_day = lookups["positions_per_day"]
+    days_set: set[int] = set(positions_per_day.keys())
+    if not days_set:
+        return 0
+    d = len(days_set)
+    classes = problem["school_classes"]
+
+    class_total: dict[str, int] = {}
+    for cls in classes:
+        c_id = cls["id"]
+        total = 0
+        for lesson in problem["lessons"]:
+            if c_id in lesson["school_class_ids"]:
+                total += lesson["hours_per_week"]
+        class_total[c_id] = total
+
+    quotients: list[cp_model.IntVar] = []
+    for cls in classes:
+        c_id = cls["id"]
+        total = class_total[c_id]
+        if total == 0:
+            continue
+        # c_count[day]: sum over anchors covering (c_id, day) of N(l) * y[..]
+        c_count_terms: dict[int, list[cp_model.LinearExpr]] = {day: [] for day in days_set}
+        for (l_id, day, _start_pos, _r_id), var in anchor_vars.items():
+            lesson = lesson_lookup[l_id]
+            if c_id not in lesson["school_class_ids"]:
+                continue
+            n = lesson["preferred_block_size"]
+            c_count_terms[day].append(n * var)
+        c_count_vars: dict[int, cp_model.IntVar] = {}
+        for day in days_set:
+            cc = model.new_int_var(0, total, f"ccount_{c_id}_{day}")
+            terms = c_count_terms[day]
+            if terms:
+                model.add(cc == cp_model.LinearExpr.sum(terms))
+            else:
+                model.add(cc == 0)
+            c_count_vars[day] = cc
+        dev_vars: list[cp_model.IntVar] = []
+        for day in days_set:
+            dev = model.new_int_var(0, total * d, f"dev_{c_id}_{day}")
+            model.add_abs_equality(dev, c_count_vars[day] * d - total)
+            dev_vars.append(dev)
+        scaled = model.new_int_var(0, total * d * d, f"scaled_{c_id}")
+        model.add(scaled == cp_model.LinearExpr.sum(dev_vars))
+        quotient = model.new_int_var(0, total * d, f"quotient_{c_id}")
+        model.add_division_equality(quotient, scaled, d)
+        quotients.append(quotient)
+
+    return _W_CLASS_DAY_BALANCE * cp_model.LinearExpr.sum(quotients) if quotients else 0
+
+
 def _emit_objective(
     model: cp_model.CpModel,
     problem: dict[str, Any],
@@ -667,8 +742,15 @@ def _emit_objective(
     summand_teacher_gap = _objective_gap_term(
         model, problem, anchor_vars, lookups, scope_kind="teacher", weight=_W_TEACHER_GAP
     )
+    summand_class_day_balance = _objective_class_day_balance_term(
+        model, problem, anchor_vars, lookups
+    )
     model.minimize(
-        summand_subject_pref + summand_home_room + summand_class_gap + summand_teacher_gap
+        summand_subject_pref
+        + summand_home_room
+        + summand_class_gap
+        + summand_teacher_gap
+        + summand_class_day_balance
     )
 
 
