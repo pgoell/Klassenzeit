@@ -256,6 +256,54 @@ pub(crate) fn class_day_balance_cost_for_class_with_swap(
     scaled / d
 }
 
+/// Variant of `class_day_balance_cost_for_class` that overlays a virtual
+/// addition of `add_n` placements on `add_day` for `class_id`, without
+/// mutating `class_positions`. Returns the per-class scaled L1 cost as if
+/// the addition had been applied. Used by FFD greedy's `try_place_block`
+/// and `try_place_group` window pickers to rank candidates by post-place
+/// class-day-balance contribution alongside the existing slice and
+/// home-room terms (item 54). Allocation-free; walks `0..days` twice.
+pub(crate) fn class_day_balance_cost_for_class_after_add(
+    class_id: SchoolClassId,
+    days: u8,
+    class_positions: &HashMap<(SchoolClassId, u8), Vec<u8>>,
+    add_day: u8,
+    add_n: u8,
+) -> u32 {
+    if days == 0 {
+        return 0;
+    }
+    let d = u32::from(days);
+    let added = u32::from(add_n);
+    let mut sum: u32 = 0;
+    for day in 0..days {
+        sum = sum.saturating_add(
+            class_positions
+                .get(&(class_id, day))
+                .map(|v| v.len() as u32)
+                .unwrap_or(0),
+        );
+    }
+    sum = sum.saturating_add(added);
+    if sum == 0 {
+        return 0;
+    }
+    let mut scaled: u32 = 0;
+    for day in 0..days {
+        let raw = class_positions
+            .get(&(class_id, day))
+            .map(|v| v.len() as u32)
+            .unwrap_or(0);
+        let c = if day == add_day {
+            raw.saturating_add(added)
+        } else {
+            raw
+        };
+        scaled = scaled.saturating_add(c.saturating_mul(d).abs_diff(sum));
+    }
+    scaled / d
+}
+
 /// Per-class scaled L1 day-balance cost computed from a pre-captured
 /// counts vector (`counts[day] = placements_for_class_on_day`).
 /// Caller supplies the counts; useful when the canonical delta needs
@@ -1370,6 +1418,52 @@ mod tests {
         post.entry((class, 3)).or_default().push(0);
         let actual = class_day_balance_cost_for_class(class, 5, &post);
         assert_eq!(predicted, actual);
+    }
+
+    #[test]
+    fn class_day_balance_cost_for_class_after_add_matches_post_apply_recompute() {
+        let class = SchoolClassId(score_uuid(97));
+        let mut pre: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        pre.insert((class, 0), vec![0, 1, 2]);
+        pre.insert((class, 2), vec![0]);
+        // Predict the cost as if we appended 2 placements on day 1 (currently empty).
+        let predicted = class_day_balance_cost_for_class_after_add(class, 5, &pre, 1, 2);
+        let mut post = pre.clone();
+        let day1 = post.entry((class, 1)).or_default();
+        day1.push(0);
+        day1.push(1);
+        let actual = class_day_balance_cost_for_class(class, 5, &post);
+        assert_eq!(predicted, actual);
+    }
+
+    #[test]
+    fn class_day_balance_cost_for_class_after_add_returns_zero_for_zero_days() {
+        let class = SchoolClassId(score_uuid(98));
+        let positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        assert_eq!(
+            class_day_balance_cost_for_class_after_add(class, 0, &positions, 0, 1),
+            0
+        );
+    }
+
+    #[test]
+    fn class_day_balance_cost_for_class_after_add_grows_lopsided_total() {
+        // Existing partition: 3 placements all on day 0; days = 4. Adding one more
+        // on day 0 should raise the per-class cost; adding one on day 1 should
+        // raise it less (pulls toward balance). Both bounded by the unweighted
+        // helper's formula.
+        let class = SchoolClassId(score_uuid(99));
+        let mut positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        positions.insert((class, 0), vec![0, 1, 2]);
+        let cost_add_to_packed =
+            class_day_balance_cost_for_class_after_add(class, 4, &positions, 0, 1);
+        let cost_add_to_empty =
+            class_day_balance_cost_for_class_after_add(class, 4, &positions, 1, 1);
+        assert!(
+            cost_add_to_empty < cost_add_to_packed,
+            "adding to an empty day should not increase imbalance more than adding to the packed day; \
+             empty={cost_add_to_empty} packed={cost_add_to_packed}"
+        );
     }
 
     #[test]

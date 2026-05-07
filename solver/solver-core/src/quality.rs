@@ -377,7 +377,7 @@ fn build_backend_objectives() -> Vec<BackendObjective> {
         QualityComponent::ALL.iter().copied().collect();
     let lahc_skipped: BTreeSet<QualityComponent> = BTreeSet::new();
     let lahc_notes = "LAHC accepts and exits on the full canonical (see lahc::run); \
-                      item 54 reserved for FFD greedy-time class-day-balance tiebreak.";
+                      FFD greedy ranks windows by slice + home_room + class_day_balance (item 54).";
     let cpsat_optimised: BTreeSet<QualityComponent> = BTreeSet::new();
     let cpsat_skipped: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
     let cpsat_notes = "Today minimises 0 (cpsat.py); item 48 ports the \

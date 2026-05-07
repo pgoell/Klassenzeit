@@ -980,6 +980,13 @@ fn rr_attempt(
 
     let mut failed_recreates: usize = 0;
     let mut recreated_rows: Vec<Vec<Placement>> = Vec::with_capacity(snapshots.len());
+    let days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
     for (lesson_id, _snap) in snapshots.iter() {
         let lesson = lesson_lookup
             .get(lesson_id)
@@ -1000,6 +1007,7 @@ fn rr_attempt(
             tb_order,
             room_order,
             max_position_per_day,
+            days,
         );
         if !placed {
             failed_recreates += 1;

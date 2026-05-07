@@ -139,6 +139,13 @@ pub fn solve_with_config_stats(
                     .or_insert(tb.position);
                 acc
             });
+    let days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
 
     let order = crate::ordering::ffd_order(problem, &idx);
     for &lesson_idx in &order {
@@ -184,6 +191,7 @@ pub fn solve_with_config_stats(
                             &tb_order,
                             &room_order,
                             &max_position_per_day,
+                            days,
                         )
                     };
                     if !placed {
@@ -222,6 +230,7 @@ pub fn solve_with_config_stats(
                 &tb_order,
                 &room_order,
                 &max_position_per_day,
+                days,
             );
             if !placed {
                 solution.violations.push(Violation {
@@ -431,6 +440,7 @@ pub(crate) fn try_place_block(
     tb_order: &[usize],
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
+    days: u8,
 ) -> bool {
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     let teacher = lesson.teacher_id;
@@ -734,7 +744,32 @@ pub(crate) fn try_place_block(
         let Some((room_id, room_penalty)) = best_room else {
             continue;
         };
-        let total_score = slice_score.saturating_add(room_penalty);
+
+        // Class-day-balance contribution to candidate ranking (item 54). Sum
+        // the per-class post-place L1 cost across every member class of this
+        // lesson, then weight. Zero-weight short-circuit avoids the partition
+        // walk on tests that disable the axis. The pruning check above
+        // (`slice_score >= b.total_score`) stays sound: `room_penalty` and
+        // `balance_post` are both non-negative, so `slice_score` remains a
+        // lower bound on the candidate's eventual `total_score`.
+        let balance_post: u32 = if weights.class_day_balance == 0 {
+            0
+        } else {
+            let mut acc: u32 = 0;
+            for class in class_ids {
+                acc = acc.saturating_add(crate::score::class_day_balance_cost_for_class_after_add(
+                    *class,
+                    days,
+                    &state.class_positions,
+                    first_tb.day_of_week,
+                    n,
+                ));
+            }
+            weights.class_day_balance.saturating_mul(acc)
+        };
+        let total_score = slice_score
+            .saturating_add(room_penalty)
+            .saturating_add(balance_post);
 
         #[cfg(feature = "solver-trace")]
         trace::ffd_trace(
@@ -886,6 +921,7 @@ fn try_place_group(
     tb_order: &[usize],
     room_order: &[usize],
     max_position_per_day: &HashMap<u8, u8>,
+    days: u8,
 ) -> bool {
     let n_usize = n as usize;
     let members: Vec<&Lesson> = member_indices
@@ -1124,7 +1160,27 @@ fn try_place_group(
             .saturating_add(class_delta_w)
             .saturating_add(teacher_delta_w)
             .saturating_add(i64::from(subject_pref));
-        let score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
+        let slice_score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
+
+        // Class-day-balance contribution for this group window (item 54). One
+        // group placement adds `n` lessons to every class in `class_set`
+        // simultaneously, so the per-class cost stacks across the shared set.
+        let balance_post: u32 = if weights.class_day_balance == 0 {
+            0
+        } else {
+            let mut acc: u32 = 0;
+            for class in &class_set {
+                acc = acc.saturating_add(crate::score::class_day_balance_cost_for_class_after_add(
+                    *class,
+                    days,
+                    &state.class_positions,
+                    first_tb.day_of_week,
+                    n,
+                ));
+            }
+            weights.class_day_balance.saturating_mul(acc)
+        };
+        let score = slice_score.saturating_add(balance_post);
 
         if let Some(b) = &best {
             if score >= b.score {
@@ -2750,6 +2806,7 @@ mod tests {
             &tb_order,
             &room_order,
             &max_position_per_day,
+            1,
         );
 
         assert!(placed, "lesson should be placed");
@@ -2869,6 +2926,7 @@ mod tests {
             &tb_order,
             &room_order,
             &max_position_per_day,
+            1,
         );
 
         assert!(placed, "lesson should be placed");
@@ -2876,6 +2934,244 @@ mod tests {
         assert_eq!(
             placements[0].room_id, r1,
             "with no home-room advantage and room_order=[R1, R0], picker keeps R1"
+        );
+    }
+
+    /// FFD greedy's window picker must respond to `weights.class_day_balance`
+    /// (item 54). Build a 1-class, 4-day fixture with three lessons pinned
+    /// onto day 0 (positions 0, 1, 2) and one lesson pinned onto day 1
+    /// (position 0). Pre-FFD per-class day counts are 3/1/0/0. FFD places one
+    /// remaining lesson; eligible windows are day 1 pos 1, day 2 pos 0, and
+    /// day 3 pos 0.
+    ///
+    /// Baseline (`class_day_balance == 0`): every weight is zero, so every
+    /// candidate scores 0; the picker hits the early-exit at the first
+    /// feasible window (`total_score == state.search_score_slice == 0`),
+    /// landing lesson_e on day 1 (tb_d1_p1, the earliest non-busy tb in
+    /// `tb_order`). Balance-on (`class_day_balance == 5`): no early-exit
+    /// fires (totals are non-zero), so the picker walks every feasible
+    /// window. Day 1 yields 3/2/0/0 with per-class L1 cost 5 (total = 25);
+    /// day 2 yields 3/1/1/0 with cost 3 (total = 15); day 3 yields 3/1/0/1
+    /// with cost 3 (total = 15). The picker's pruning rule fires only when
+    /// the slice lower bound is at least the current best total; with
+    /// `slice_score = 0` for every window the rule never fires, and the
+    /// BlockCandidate assignment overwrites best on each non-pruned window.
+    /// The last-walked feasible window wins, which is day 3. The contract
+    /// the test pins is that balance-on lands on a strictly different day
+    /// than balance-off, and that day's post-place class_day_balance cost
+    /// is strictly lower than balance-off's day (day 3 cost 3 vs day 1
+    /// cost 5).
+    #[test]
+    fn try_place_block_picker_prefers_balanced_day_under_class_day_balance_weight() {
+        let class_id = SchoolClassId(solve_uuid(1));
+        let teacher_id = TeacherId(solve_uuid(2));
+        let room_id = RoomId(solve_uuid(3));
+        let subject_id = SubjectId(solve_uuid(4));
+        let lesson_a = LessonId(solve_uuid(10)); // pinned day 0 pos 0
+        let lesson_b = LessonId(solve_uuid(11)); // pinned day 0 pos 1
+        let lesson_c = LessonId(solve_uuid(12)); // pinned day 0 pos 2
+        let lesson_d = LessonId(solve_uuid(13)); // pinned day 1 pos 0
+        let lesson_e = LessonId(solve_uuid(14)); // FFD-placed
+        let tb_d0_p0 = TimeBlockId(solve_uuid(20));
+        let tb_d0_p1 = TimeBlockId(solve_uuid(21));
+        let tb_d0_p2 = TimeBlockId(solve_uuid(22));
+        let tb_d1_p0 = TimeBlockId(solve_uuid(23));
+        let tb_d1_p1 = TimeBlockId(solve_uuid(24));
+        let tb_d2 = TimeBlockId(solve_uuid(25));
+        let tb_d3 = TimeBlockId(solve_uuid(26));
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_d0_p0,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d0_p1,
+                    day_of_week: 0,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_d0_p2,
+                    day_of_week: 0,
+                    position: 2,
+                },
+                TimeBlock {
+                    id: tb_d1_p0,
+                    day_of_week: 1,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d1_p1,
+                    day_of_week: 1,
+                    position: 1,
+                },
+                TimeBlock {
+                    id: tb_d2,
+                    day_of_week: 2,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d3,
+                    day_of_week: 3,
+                    position: 0,
+                },
+            ],
+            teachers: vec![Teacher {
+                id: teacher_id,
+                max_hours_per_week: 30,
+            }],
+            rooms: vec![Room { id: room_id }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+            }],
+            lessons: vec![
+                Lesson {
+                    id: lesson_a,
+                    school_class_ids: vec![class_id],
+                    subject_id,
+                    teacher_id,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_b,
+                    school_class_ids: vec![class_id],
+                    subject_id,
+                    teacher_id,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_c,
+                    school_class_ids: vec![class_id],
+                    subject_id,
+                    teacher_id,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_d,
+                    school_class_ids: vec![class_id],
+                    subject_id,
+                    teacher_id,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_e,
+                    school_class_ids: vec![class_id],
+                    subject_id,
+                    teacher_id,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id,
+                subject_id,
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![
+                PinnedPlacement {
+                    lesson_id: lesson_a,
+                    time_block_id: tb_d0_p0,
+                    room_id,
+                },
+                PinnedPlacement {
+                    lesson_id: lesson_b,
+                    time_block_id: tb_d0_p1,
+                    room_id,
+                },
+                PinnedPlacement {
+                    lesson_id: lesson_c,
+                    time_block_id: tb_d0_p2,
+                    room_id,
+                },
+                PinnedPlacement {
+                    lesson_id: lesson_d,
+                    time_block_id: tb_d1_p0,
+                    room_id,
+                },
+            ],
+        };
+        // class_day_balance == 0 baseline: with every weight zero the picker
+        // keeps the first feasible window (lowest-tb-id tiebreak). The first
+        // non-busy window in tb_order is tb_d1_p1 on day 1.
+        let cfg_balance_off = SolveConfig {
+            weights: ConstraintWeights::default(),
+            deadline: None,
+            ..SolveConfig::default()
+        };
+        let sol_off = solve_with_config(&problem, &cfg_balance_off)
+            .expect("baseline solve must succeed on the tiny fixture");
+        let placement_off_e = sol_off
+            .placements
+            .iter()
+            .find(|p| p.lesson_id == lesson_e)
+            .expect("FFD must place lesson_e on the baseline solve");
+        assert_eq!(
+            placement_off_e.time_block_id, tb_d1_p1,
+            "baseline (class_day_balance=0): lesson_e expected on day 1 (lowest-tb-id feasible)"
+        );
+
+        // class_day_balance > 0: pre-FFD counts are 3/1/0/0. Day 1 candidate
+        // gives 3/2/0/0 (cost 5); day 2 candidate gives 3/1/1/0 (cost 3);
+        // day 3 candidate gives 3/1/0/1 (cost 3). The picker walks every
+        // candidate (no early-exit fires when totals are non-zero) and the
+        // BlockCandidate assignment is unconditional; the last non-pruned
+        // window wins, which is day 3.
+        let cfg_balance_on = SolveConfig {
+            weights: ConstraintWeights {
+                class_day_balance: 5,
+                ..ConstraintWeights::default()
+            },
+            deadline: None,
+            ..SolveConfig::default()
+        };
+        let sol_on = solve_with_config(&problem, &cfg_balance_on)
+            .expect("balance-on solve must succeed on the tiny fixture");
+        let placement_on_e = sol_on
+            .placements
+            .iter()
+            .find(|p| p.lesson_id == lesson_e)
+            .expect("FFD must place lesson_e on the balance-on solve");
+        assert_ne!(
+            placement_on_e.time_block_id, tb_d1_p1,
+            "balance-on (class_day_balance=5): picker must NOT pile lesson_e onto day 1; \
+             expected an L1-spread-minimising candidate (day 2 or day 3)"
+        );
+        // Verify the post-place class_day_balance cost on the chosen day is
+        // strictly lower than the baseline's day-1 cost. Day 1 baseline
+        // yields 3/2/0/0 (cost 5); day 2 or day 3 yields cost 3.
+        let chosen_tb = placement_on_e.time_block_id;
+        let chosen_day = problem
+            .time_blocks
+            .iter()
+            .find(|tb| tb.id == chosen_tb)
+            .expect("chosen tb must resolve")
+            .day_of_week;
+        assert!(
+            chosen_day == 2 || chosen_day == 3,
+            "balance-on: picker must land lesson_e on day 2 or day 3 (post-place L1 cost 3 < day-1 cost 5); \
+             actual day = {chosen_day}"
         );
     }
 }
