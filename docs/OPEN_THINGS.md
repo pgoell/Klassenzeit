@@ -105,7 +105,7 @@ Real `demo_gymnasium_g9_full` exercising Wahlpflicht (Sprint 3) + Sek II Kurssys
 
 ### Hessen Grundschule reference data
 
-Researched 2026-04-22 and mapped onto the schema during the seed brainstorm (`docs/superpowers/specs/2026-04-24-grundschule-seed-design.md` "Research notes" table). Values below are the source figures; the seed reflects every "Yes" row and documents every "Not encoded" row against an existing OPEN_THINGS deferral.
+Researched 2026-04-22 and mapped onto the schema during the seed brainstorm (the seed-design spec, since archived). Values below are the source figures; the seed reflects every "Yes" row and documents every "Not encoded" row against an existing OPEN_THINGS deferral.
 
 - *Stundentafel Klasse 1/2:* 21 Pflichtstunden (Deutsch 6, Mathematik 5, Sachunterricht 2, Religion/Ethik 2, Kunst/Werken/Musik 3, Sport 3) plus 2 Stunden Förderunterricht/AGs.
 - *Stundentafel Klasse 3/4:* 25 Pflichtstunden (Deutsch 5, Mathematik 5, Sachunterricht 4, Fremdsprache 2, Religion/Ethik 2, Kunst/Werken/Musik 4, Sport 3) plus 2 Stunden Förderunterricht/AGs. Über alle vier Jahrgänge also 92 Wochenstunden gesamt.
@@ -223,7 +223,7 @@ Everything below is queued for later. Ordered roughly by importance within each 
 - **Integration test for conditional mount.** `include_testing_router_if_enabled` has unit tests but no integration test that actually imports `main` with `KZ_ENV=dev` and asserts `/__test__/*` returns 404. Add if a future refactor risks breaking the wiring silently.
 - **Shell-exported `KZ_ENV=dev` defeats pytest router mounting.** The `os.environ.setdefault` in conftest no-ops if the shell already has `KZ_ENV` set. A shell-exported `KZ_ENV=dev` would silently skip mounting the testing router, and router tests would fail with 404. Add a warning in conftest or switch to `pytest-env` if this bites anyone.
 - **Admin email must not use `.local` TLD.** `email-validator` (used by `pydantic.EmailStr`) rejects reserved domains. The seed admin uses `admin@example.com`. Revisit if we ever want a more realistic test domain.
-- **Branch-protection required check and `e2e-gate` aggregator job.** The spec called for an `if: always()` aggregator that makes `e2e` a required check compatible with path-filtered skips. Not implemented; `e2e` currently runs only when paths match and is not listed in `docs/superpowers/branch-protection.json`. Add both once the suite proves stable enough to block merges.
+- **Branch-protection required check and `e2e-gate` aggregator job.** The spec called for an `if: always()` aggregator that makes `e2e` a required check compatible with path-filtered skips. Not implemented; `e2e` currently runs only when paths match and is not listed in `.github/branch-protection.json`. Add both once the suite proves stable enough to block merges.
 - **`TRUNCATE ... RESTART IDENTITY CASCADE` may reset sequences beyond the savepoint.** `RESTART IDENTITY` is DDL in some Postgres configurations and can bypass the per-test savepoint rollback. Not an issue at current suite size; revisit if tests begin relying on predictable sequence values.
 
 ### Toolchain & build friction

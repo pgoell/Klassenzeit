@@ -1,6 +1,5 @@
 //! Diagnostic stderr trace for `solve::try_place_block`. Compiles only under
-//! `--features solver-trace`; off by default. See
-//! `docs/superpowers/specs/2026-05-04-ffd-lock-in-diagnostic-design.md`.
+//! `--features solver-trace`; off by default.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

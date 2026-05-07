@@ -8,7 +8,7 @@
 //! `backend/src/klassenzeit_backend/seed/demo_*.py`; drift is caught by
 //! `assert_eq!(lessons.len(), N)` against literals shared with the
 //! matching Python solvability test. A `gesamtschule_fixture` is tracked
-//! under `docs/superpowers/OPEN_THINGS.md` "Acknowledged deferrals".
+//! under `docs/OPEN_THINGS.md` "Acknowledged deferrals".
 //!
 //! All three fixtures iterate subjects in the natural authoring order; FFD
 //! ordering inside `solve_with_config` sorts lessons by eligibility before

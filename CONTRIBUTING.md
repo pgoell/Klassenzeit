@@ -72,14 +72,14 @@ refactor!: replace sync HTTP client with async
 
 ### Applying repo settings
 
-The repo's GitHub-side configuration (merge strategies, required status checks, linear history) lives in two JSON files under `docs/superpowers/`. Apply them with:
+The repo's GitHub-side configuration (merge strategies, required status checks, linear history) lives in `.github/repo-settings.json` and `.github/branch-protection.json`. Apply them with:
 
 ```bash
 mise run repo:apply-settings -- --dry-run   # recommended first run
 mise run repo:apply-settings                 # actually apply
 ```
 
-The script reads branch protection back and exits non-zero on drift. See `docs/superpowers/specs/2026-04-22-apply-github-settings-script-design.md` for rationale.
+The script reads branch protection back and exits non-zero on drift.
 
 ## Authentication
 

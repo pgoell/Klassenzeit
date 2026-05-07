@@ -168,7 +168,7 @@ run = [
 # ─── GitHub repo config ─────────────────────────────────────────────────────
 
 [tasks."repo:apply-settings"]
-description = "Apply GitHub repo + branch-protection settings from docs/superpowers/*.json"
+description = "Apply GitHub repo + branch-protection settings from .github/*.json"
 run = "bash scripts/apply-github-settings.sh"
 
 # ─── Lint & format ──────────────────────────────────────────────────────────

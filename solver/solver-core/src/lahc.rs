@@ -777,8 +777,7 @@ fn apply_change_move(
 
 /// Number of block-anchors per R&R attempt. Hardcoded today; a follow-up
 /// promotes this to `SolveConfig.lahc_rr_k` if `BENCH_RESULTS.md` shows
-/// K-sensitivity. See
-/// `docs/superpowers/specs/2026-05-04-solver-rr-lahc-move-design.md`.
+/// K-sensitivity.
 const RR_K: usize = 5;
 
 /// Snapshot of one block's removed placements, sufficient to replay the
@@ -1305,8 +1304,7 @@ fn replay_placement(
 
 /// Maximum chain length per Kempe attempt. Hardcoded today; a follow-up
 /// promotes this to `SolveConfig.lahc_kempe_max_chain` if `BENCH_RESULTS.md`
-/// shows depth-sensitivity. See
-/// `docs/superpowers/specs/2026-05-04-solver-kempe-lahc-move-design.md`.
+/// shows depth-sensitivity.
 const KEMPE_MAX_CHAIN: usize = 8;
 
 /// Outcome of `kempe_build_chain`. `Built(chain)` carries the mapping from

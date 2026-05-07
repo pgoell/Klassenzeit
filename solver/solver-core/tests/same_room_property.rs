@@ -284,8 +284,6 @@ fn no_room_hopping_within_day_for_one_subject_demo_grundschule() {
 /// counter. The new metric correctly identifies 4a-FÖ as more constrained
 /// than the old metric did and FFD now places it before sibling lessons can
 /// claim the academic-suitable Klassenräume that 4a-FÖ needs.
-///
-/// Spec: `docs/superpowers/specs/2026-05-04-solver-ffd-ordering-and-bench-design.md`.
 #[test]
 fn ffd_does_not_lock_in_on_demo_grundschule() {
     let problem = ffd_lock_in_grundschule();

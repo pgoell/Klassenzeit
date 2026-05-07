@@ -5,9 +5,6 @@
 //! components per backend; ADRs and item-51 work compare component
 //! vectors instead of one collapsed scalar.
 //!
-//! See `docs/superpowers/specs/2026-05-06-quality-report-design.md` for
-//! the design rationale (item 50).
-//!
 //! Adding a new axis: add a field to [`QualityReport`], extend
 //! `quality_report` to populate it, add a unit test that walks the same
 //! partition the underlying `score::*` helper walks, and add an entry to

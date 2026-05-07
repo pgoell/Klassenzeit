@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Apply GitHub repo + branch-protection settings from docs/superpowers/*.json.
-# See docs/superpowers/specs/2026-04-22-apply-github-settings-script-design.md
-# and docs/superpowers/specs/2026-04-30-repo-settings-drift-check-design.md
-# for rationale.
+# Apply GitHub repo + branch-protection settings from .github/*.json.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,8 +12,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/apply-github-settings.sh [--check | --dry-run | --skip-verify] [--help]
 
-Applies docs/superpowers/repo-settings.json via PATCH /repos/:owner/:repo, then
-docs/superpowers/branch-protection.json via PUT /repos/:owner/:repo/branches/:default/protection.
+Applies .github/repo-settings.json via PATCH /repos/:owner/:repo, then
+.github/branch-protection.json via PUT /repos/:owner/:repo/branches/:default/protection.
 Reads branch protection back and diffs the normalized result against the source
 JSON. Exits non-zero on drift.
 
@@ -64,8 +61,8 @@ REPO_INFO=$(gh repo view --json nameWithOwner,defaultBranchRef \
 OWNER_REPO=${REPO_INFO% *}
 DEFAULT_BRANCH=${REPO_INFO##* }
 
-REPO_SETTINGS=docs/superpowers/repo-settings.json
-BRANCH_PROTECTION=docs/superpowers/branch-protection.json
+REPO_SETTINGS=.github/repo-settings.json
+BRANCH_PROTECTION=.github/branch-protection.json
 
 echo "target: $OWNER_REPO (branch: $DEFAULT_BRANCH)"
 
