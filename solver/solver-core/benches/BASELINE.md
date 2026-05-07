@@ -4,14 +4,14 @@
 
 | Fixture | Mode | Samples | p1 (µs) | p50 (µs) | p99 (µs) | Placements/sec | Placements | Hard violations | Soft score |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | greedy | 154535 | 51 | 52 | 68 | 842176 | 45 | 0 | 0 |
-| grundschule | lahc | 121 | 200060 | 200069 | 200084 | 224 | 45 | 0 | 0 |
-| zweizuegig | greedy | 33983 | 265 | 271 | 313 | 716722 | 196 | 0 | 2 |
-| zweizuegig | lahc | 121 | 200283 | 200294 | 200327 | 978 | 196 | 0 | 2 |
-| dreizuegig | greedy | 9895 | 838 | 850 | 912 | 344568 | 294 | 0 | 0 |
-| dreizuegig | lahc | 121 | 200859 | 200873 | 200941 | 1463 | 294 | 0 | 0 |
+| grundschule | greedy | 31183 | 324 | 329 | 451 | 134338 | 45 | 0 | 32 |
+| grundschule | lahc | 121 | 200067 | 200071 | 200093 | 224 | 45 | 0 | 27 |
+| zweizuegig | greedy | 4447 | 2119 | 2146 | 2630 | 90387 | 196 | 0 | 353 |
+| zweizuegig | lahc | 121 | 200222 | 200231 | 200316 | 978 | 196 | 0 | 221 |
+| dreizuegig | greedy | 2223 | 4748 | 4809 | 5873 | 60558 | 294 | 0 | 1883 |
+| dreizuegig | lahc | 121 | 200345 | 200357 | 200405 | 1467 | 294 | 0 | 1529 |
 
-Refreshed 2026-04-30 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
+Refreshed 2026-05-07 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
 
 Refresh with `mise run bench:record` when a PR intentionally changes solver
 performance. An accidental diff here is a review gate, not a feature.
