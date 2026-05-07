@@ -150,6 +150,7 @@ pub(crate) fn run(
                 class_max_lessons_per_day,
                 &lahc_list,
                 iter,
+                config.lahc_rr_k,
             );
         } else if is_kempe_iter {
             kempe_attempt(
@@ -775,11 +776,6 @@ fn apply_change_move(
     }
 }
 
-/// Number of block-anchors per R&R attempt. Hardcoded today; a follow-up
-/// promotes this to `SolveConfig.lahc_rr_k` if `BENCH_RESULTS.md` shows
-/// K-sensitivity.
-const RR_K: usize = 5;
-
 /// Snapshot of one block's removed placements, sufficient to replay the
 /// removal back into the state. R&R holds a vector of these to roll back if
 /// the recreated solution is rejected by the acceptance gate.
@@ -901,7 +897,7 @@ fn rr_collect_anchors(
     anchors
 }
 
-/// Run one R&R move: pick up to `RR_K` block anchors at random, ruin them,
+/// Run one R&R move: pick up to `rr_k` block anchors at random, ruin them,
 /// recreate them, accept under the asymmetric LAHC gate. Returns true if the
 /// move was accepted (state mutated to keep the new arrangement); returns
 /// false if the move was rejected (state restored to the pre-attempt
@@ -925,6 +921,7 @@ fn rr_attempt(
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
+    rr_k: u32,
 ) -> bool {
     use rand::seq::SliceRandom;
 
@@ -933,7 +930,7 @@ fn rr_attempt(
         return false;
     }
     anchors.shuffle(rr_rng);
-    let chosen_count = anchors.len().min(RR_K);
+    let chosen_count = anchors.len().min(rr_k as usize);
     let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
     let pre_slice = state.search_score_slice;
@@ -2919,6 +2916,7 @@ mod tests {
             max_iterations: Some(600),
             lahc_rr_period: None,
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 1));
@@ -3056,6 +3054,7 @@ mod tests {
             max_iterations: Some(2000),
             lahc_rr_period: None,
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
 
         state.locked_room.insert((class, 0, subject), (room, 2));
@@ -3232,6 +3231,7 @@ mod tests {
             max_iterations: Some(2000),
             lahc_rr_period: None,
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
 
         state.locked_room.insert((class_a, 0, subject), (room_a, 1));
@@ -3481,6 +3481,7 @@ mod tests {
             max_iterations: Some(2000),
             lahc_rr_period: Some(1),
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
 
         let result = crate::solve_with_config(&problem, &cfg);

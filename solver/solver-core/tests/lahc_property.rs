@@ -216,6 +216,7 @@ proptest! {
             max_iterations: Some(200),
             lahc_rr_period: None,
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();
@@ -324,6 +325,7 @@ proptest! {
             max_iterations: Some(200),
             lahc_rr_period: Some(5),
             lahc_kempe_period: None,
+            lahc_rr_k: 5,
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 /// Tunables for one solver invocation. Pass via [`crate::solve_with_config`];
 /// the no-config [`crate::solve`] entry point uses [`SolveConfig::default`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolveConfig {
     /// Optional wall-clock budget. `None` means "no LAHC pass; greedy only".
     /// `Some(d)` triggers the LAHC local-search loop after greedy and bounds
@@ -40,6 +40,25 @@ pub struct SolveConfig {
     /// sets this to `Some(23)`. Production callers leave this `None`; the
     /// active default in `solve()` is unchanged.
     pub lahc_kempe_period: Option<u32>,
+    /// Number of block-anchors selected per ruin-and-recreate attempt. Active
+    /// default is `5`. The bake-off bench's `--rr-k` flag overrides this; item
+    /// 21 sweeps the value to find the Pareto frontier on (feasibility,
+    /// soft-score median).
+    pub lahc_rr_k: u32,
+}
+
+impl Default for SolveConfig {
+    fn default() -> Self {
+        Self {
+            deadline: None,
+            seed: 0,
+            weights: ConstraintWeights::default(),
+            max_iterations: None,
+            lahc_rr_period: None,
+            lahc_kempe_period: None,
+            lahc_rr_k: 5,
+        }
+    }
 }
 
 /// Soft-constraint weights consumed by `score_solution` and the lowest-delta
