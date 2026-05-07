@@ -281,3 +281,58 @@ def test_cpsat_objective_value_equals_score_solution_on_trivial_problem() -> Non
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
+
+
+def _cpsat_doppelstunde_with_prefer_late_subject() -> str:
+    """Doppelstunde fixture variant where subject.prefer_late_period = 1, so
+    score_solution's prefer_late axis fires per placement."""
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10), "day_of_week": 0, "position": 0},
+                {"id": _cpsat_uuid(11), "day_of_week": 0, "position": 1},
+                {"id": _cpsat_uuid(12), "day_of_week": 0, "position": 2},
+                {"id": _cpsat_uuid(13), "day_of_week": 0, "position": 3},
+            ],
+            "teachers": [{"id": _cpsat_uuid(20), "max_hours_per_week": 5}],
+            "rooms": [{"id": _cpsat_uuid(30)}],
+            "subjects": [{"id": _cpsat_uuid(40), "prefer_late_period": 1}],
+            "school_classes": [{"id": _cpsat_uuid(50)}],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60),
+                    "school_class_ids": [_cpsat_uuid(50)],
+                    "subject_id": _cpsat_uuid(40),
+                    "teacher_id": _cpsat_uuid(20),
+                    "hours_per_week": 2,
+                    "preferred_block_size": 2,
+                }
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": _cpsat_uuid(20), "subject_id": _cpsat_uuid(40)}
+            ],
+            "teacher_blocked_times": [],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_cpsat_objective_value_equals_score_solution_on_subject_preference_problem() -> None:
+    """prefer_late axis: max_position_for_day=3, weights.prefer_late_period=1,
+    subject.prefer_late_period=1; doppelstunde block contributes
+    (3-p) + (3-(p+1)) per placement, weighted by 1*1.
+
+    The CP-SAT objective should drive the doppelstunde to anchor at p=2
+    (positions 2,3) so prefer_late contribution is (3-2) + (3-3) = 1, not
+    p=0 (positions 0,1) which would contribute 5.
+    """
+    problem_json = _cpsat_doppelstunde_with_prefer_late_subject()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    assert out["model_objective_value"] is not None
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["model_objective_value"] == canonical
+    # Witness that CP-SAT actually steers: objective is 1, not the worst-case 5.
+    assert out["model_objective_value"] == 1

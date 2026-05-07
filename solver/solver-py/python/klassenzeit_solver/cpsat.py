@@ -25,6 +25,21 @@ from klassenzeit_solver._rust import score_solution_json
 AnchorKey = tuple[str, int, int, str]
 
 
+# Mirror of solver_core::types::PRODUCTION_ACTIVE_WEIGHTS so CP-SAT's
+# model objective evaluates to the same number as
+# `score_solution(..., PRODUCTION_ACTIVE_WEIGHTS)` on any returned
+# solution. Item 48 keeps these in lockstep with Rust by referencing both
+# in `solver/CLAUDE.md`; the property tests in `test_cpsat.py` flag drift.
+_W_CLASS_GAP = 10
+_W_TEACHER_GAP = 10
+_W_PREFER_EARLY_PERIOD = 1
+_W_AVOID_FIRST_PERIOD = 1
+_W_PREFER_HOME_ROOM = 5
+_W_AVOID_LAST_PERIOD = 1
+_W_PREFER_LATE_PERIOD = 1
+_W_CLASS_DAY_BALANCE = 5
+
+
 class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
     """Records ``solver.WallTime() * 1000`` on the first feasible solution."""
 
@@ -132,7 +147,7 @@ def _build_model(
     _emit_lesson_group_co_placement(model, problem, anchor_vars, anchors_for_lesson)
     _emit_pinned_placements(model, problem, anchor_vars, lookups)
 
-    model.minimize(0)
+    _emit_objective(model, problem, anchor_vars, lookups)
     meta: dict[str, Any] = {
         "lesson_lookup": lookups["lesson_lookup"],
         "tb_at": lookups["tb_at"],
@@ -439,6 +454,74 @@ def _emit_pinned_placements(
             model.add(anchor_vars[key] == 1)
         else:
             _force_infeasible(model)
+
+
+def _objective_subject_preference_terms(
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-anchor constant coefficient for subject-preference axes.
+
+    Covers prefer_early, avoid_first, avoid_last, prefer_late. Each axis
+    sums over the N positions in the block window; the per-anchor sum
+    collapses to a Python int known at build time. Returns
+    sum_anchor coeff * y[anchor].
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    tb_pos_lookup = lookups["tb_pos_lookup"]
+    subjects = {s["id"]: s for s in problem["subjects"]}
+    max_pos_per_day: dict[int, int] = {}
+    for tb in problem["time_blocks"]:
+        d = tb["day_of_week"]
+        max_pos_per_day[d] = max(max_pos_per_day.get(d, 0), tb["position"])
+
+    terms: list[cp_model.LinearExpr] = []
+    for (l_id, day, start_pos, _r_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        subject = subjects[lesson["subject_id"]]
+        max_pos = max_pos_per_day[day]
+        coeff = 0
+        prefer_early = subject.get("prefer_early_period", 0)
+        if prefer_early:
+            window_pos_sum = n * start_pos + n * (n - 1) // 2
+            coeff += _W_PREFER_EARLY_PERIOD * prefer_early * window_pos_sum
+        avoid_first = subject.get("avoid_first_period", 0)
+        if avoid_first and start_pos == 0:
+            coeff += _W_AVOID_FIRST_PERIOD * avoid_first
+        avoid_last = subject.get("avoid_last_period", 0)
+        if avoid_last and start_pos + n - 1 == max_pos:
+            coeff += _W_AVOID_LAST_PERIOD * avoid_last
+        prefer_late = subject.get("prefer_late_period", 0)
+        if prefer_late:
+            window_late_sum = n * max_pos - n * start_pos - n * (n - 1) // 2
+            coeff += _W_PREFER_LATE_PERIOD * prefer_late * window_late_sum
+        if coeff:
+            terms.append(coeff * var)
+    # tb_pos_lookup is unused here today; kept on the signature for the
+    # gap-axis tasks below so they can reuse the same lookups dict shape.
+    _ = tb_pos_lookup
+    return cp_model.LinearExpr.sum(terms) if terms else 0
+
+
+def _emit_objective(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> None:
+    """Build CP-SAT model objective mirroring solver_core::score_solution.
+
+    Five summands: subject_preference (per-anchor constant coefficient),
+    home_room (per-anchor constant coefficient), class_gap (per-(class,
+    day, position) channeling), teacher_gap (per-(teacher, day, position)
+    channeling), class_day_balance (per-class abs-equality plus
+    division-equality). See docs/superpowers/specs/2026-05-07-cpsat-objective-parity-design.md
+    for the encoding rationale.
+    """
+    summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
+    model.minimize(summand_subject_pref)
 
 
 def _extract_placements(
