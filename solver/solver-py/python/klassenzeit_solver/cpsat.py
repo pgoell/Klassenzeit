@@ -731,8 +731,7 @@ def _emit_objective(
     home_room (per-anchor constant coefficient), class_gap (per-(class,
     day, position) channeling), teacher_gap (per-(teacher, day, position)
     channeling), class_day_balance (per-class abs-equality plus
-    division-equality). See docs/superpowers/specs/2026-05-07-cpsat-objective-parity-design.md
-    for the encoding rationale.
+    division-equality).
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
     summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)

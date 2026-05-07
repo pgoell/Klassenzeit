@@ -12,7 +12,7 @@ rust-version.workspace = true
 default      = ["fixtures"]
 # Enable diagnostic stderr trace lines from `try_place_block`. Off by default;
 # the trace is a one-shot diagnostic for the FFD lock-in described in the
-# active sprint of `docs/superpowers/OPEN_THINGS.md`. Production callers
+# active sprint of `docs/OPEN_THINGS.md`. Production callers
 # (solver-py, the bench) never enable it.
 solver-trace = []
 # Expose hand-coded `Problem` fixtures via `pub mod test_fixtures`. Default-on

@@ -28,13 +28,13 @@ Always use TDD with red-green-refactor, driven by `superpowers:test-driven-devel
 
 Before opening a PR, run `agent-system-management:capturing-session-learnings` if the session produced learnings worth persisting, and if you ran that, run `agent-system-management:improving-instructions` right after. Both via the `Skill` tool.
 
-Keep things that are out of scope for a step, or that you notice as tech debt or todos, in `docs/superpowers/OPEN_THINGS.md`, ordered by importance. Don't add duplicates.
+Keep things that are out of scope for a step, or that you notice as tech debt or todos, in `docs/OPEN_THINGS.md`, ordered by importance. Don't add duplicates.
 
-**`/autopilot <topic>`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. See `.claude/commands/autopilot.md` for the exact sequence, its required-skill-invocations table, and the skill audit that runs before the PR opens. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
+**`workbench:autopilot`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. The reusable loop lives in the workbench plugin; Klassenzeit-specific overrides (automerge mode, post-PR brainstorm comment hook, solver-rebuild discipline, OPEN_THINGS hygiene, auto-memory refresh, `fewer-permission-prompts` as additional step-6 skill) live in `.workbench/autopilot.md`. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
 
 ## Work selection: quality first, tidy first
 
-When picking the next item off `docs/superpowers/OPEN_THINGS.md` without a more specific directive from the user, prefer **tech debt and quality work over new user-facing features**. Follow Kent Beck's "Tidy First?" heuristic: small structural refactors that make subsequent feature work cheaper and safer come before the features themselves. Concretely:
+When picking the next item off `docs/OPEN_THINGS.md` without a more specific directive from the user, prefer **tech debt and quality work over new user-facing features**. Follow Kent Beck's "Tidy First?" heuristic: small structural refactors that make subsequent feature work cheaper and safer come before the features themselves. Concretely:
 
 1. Read OPEN_THINGS.md top to bottom. Skim the "Product capabilities" section last.
 2. Pick the highest-impact item from the "CI / repo automation", "Testing", "Toolchain & build friction", "Auth maintenance", or "Production readiness" sections that is unblocked and fits a single PR.

@@ -1,10 +1,7 @@
 """Hessen Grundschule demo seed.
 
 One-shot seed that creates the entities needed for the end-to-end
-"login, click Generate, see a timetable" demo flow. See
-``docs/superpowers/specs/2026-04-24-grundschule-seed-design.md`` for the
-full design including the mapping from real Hessen Grundschule
-constraints to schema columns.
+"login, click Generate, see a timetable" demo flow.
 
 Scope ends before ``lessons`` and ``scheduled_lessons``; those are created
 by the ``generate-lessons`` and ``POST /schedule`` routes respectively.

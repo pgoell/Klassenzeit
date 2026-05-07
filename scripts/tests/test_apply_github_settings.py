@@ -19,7 +19,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "apply-github-settings.sh"
-BRANCH_PROTECTION_JSON = REPO_ROOT / "docs" / "superpowers" / "branch-protection.json"
+BRANCH_PROTECTION_JSON = REPO_ROOT / ".github" / "branch-protection.json"
 BASH = shutil.which("bash") or "/bin/bash"
 
 
@@ -225,8 +225,8 @@ def test_apply_order_is_repo_settings_then_protection(mock_gh):
 def test_apply_passes_correct_input_files(mock_gh):
     run_script(mock_gh, "--skip-verify", expect_exit=0)
     log_text = mock_gh["log"].read_text()
-    assert "docs/superpowers/repo-settings.json" in log_text
-    assert "docs/superpowers/branch-protection.json" in log_text
+    assert ".github/repo-settings.json" in log_text
+    assert ".github/branch-protection.json" in log_text
 
 
 def test_apply_calls_correct_endpoints(mock_gh):

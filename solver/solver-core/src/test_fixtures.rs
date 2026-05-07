@@ -567,7 +567,7 @@ pub fn dreizuegig_fixture() -> Problem {
 }
 
 /// Demo-Grundschule-shaped fixture sized to reproduce the FFD lock-in flake
-/// described in `docs/superpowers/OPEN_THINGS.md` (active sprint, diagnostic
+/// described in `docs/OPEN_THINGS.md` (active sprint, diagnostic
 /// phase, item 1) and in `solver/CLAUDE.md` L44. Mirrors
 /// `backend/src/klassenzeit_backend/seed/demo_grundschule.py` at fixed
 /// deterministic UUIDs: 4 classes (1a..4a), 5 days x 7 periods, 7 rooms (4
