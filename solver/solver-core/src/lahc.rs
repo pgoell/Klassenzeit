@@ -150,6 +150,7 @@ pub(crate) fn run(
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup,
                 &tb_by_day_pos,
                 pinned,
                 placements,
@@ -175,6 +176,7 @@ pub(crate) fn run(
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup,
                 &max_position_per_day,
                 &config.weights,
                 placements,
@@ -198,6 +200,12 @@ pub(crate) fn run(
             running_best = state.search_score_slice;
             stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            state.canonical_score,
+            crate::score::score_solution(problem, placements, &config.weights),
+            "LAHC must keep state.canonical_score == score_solution(...) at every iteration tail",
+        );
         if state.search_score_slice == 0 && placements.len() == placements_expected {
             break;
         }
@@ -217,6 +225,7 @@ fn try_change_move(
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     max_position_per_day: &HashMap<u8, u8>,
     weights: &ConstraintWeights,
     placements: &mut [Placement],
@@ -378,6 +387,66 @@ fn try_change_move(
     );
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
 
+    // Canonical delta: slice delta + home_room delta + class_day_balance delta.
+    // Both new axes short-circuit when their weight is zero or when the move
+    // does not affect the axis (same-day moves leave class_day_balance
+    // unchanged). Pure, allocation-free.
+    let home_room_delta: i64 = if weights.prefer_home_room == 0 {
+        0
+    } else {
+        let mut acc: i64 = 0;
+        for class in class_ids {
+            let old_pen = crate::score::home_room_penalty_one_class(
+                *class,
+                home_room_lookup,
+                p.room_id,
+                weights,
+            );
+            let new_pen = crate::score::home_room_penalty_one_class(
+                *class,
+                home_room_lookup,
+                new_room_id,
+                weights,
+            );
+            acc += i64::from(new_pen) - i64::from(old_pen);
+        }
+        acc
+    };
+
+    let class_day_balance_delta: i64 =
+        if weights.class_day_balance == 0 || old_tb.day_of_week == new_tb.day_of_week {
+            0
+        } else {
+            let days = problem
+                .time_blocks
+                .iter()
+                .map(|tb| tb.day_of_week)
+                .max()
+                .map(|m| m.saturating_add(1))
+                .unwrap_or(0);
+            let mut acc: i64 = 0;
+            for class in class_ids {
+                let pre = crate::score::class_day_balance_cost_for_class(
+                    *class,
+                    days,
+                    &state.class_positions,
+                );
+                let post = crate::score::class_day_balance_cost_for_class_with_swap(
+                    *class,
+                    days,
+                    &state.class_positions,
+                    old_tb.day_of_week,
+                    new_tb.day_of_week,
+                );
+                acc += i64::from(post) - i64::from(pre);
+            }
+            i64::from(weights.class_day_balance) * acc
+        };
+
+    let canonical_delta = delta + home_room_delta + class_day_balance_delta;
+    let new_canonical_signed = i64::from(state.canonical_score) + canonical_delta;
+    let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
+
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     let accept = new_score <= state.search_score_slice || new_score <= prior;
     if !accept {
@@ -397,6 +466,7 @@ fn try_change_move(
         state,
     );
     state.search_score_slice = new_score;
+    state.canonical_score = new_canonical;
     true
 }
 
@@ -850,6 +920,7 @@ fn rr_attempt(
     let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
     let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
     let pre_count = placements.len();
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
     for (lesson_id, day) in &chosen {
@@ -959,6 +1030,7 @@ fn rr_attempt(
             state,
         );
         state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -983,6 +1055,7 @@ fn rr_attempt(
     let new_score =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
     state.search_score_slice = new_score;
+    state.canonical_score = crate::score::score_solution(problem, placements, weights);
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     let lahc_ok = new_score <= pre_slice || new_score <= prior;
     if !lahc_ok {
@@ -995,6 +1068,7 @@ fn rr_attempt(
             state,
         );
         state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -1652,6 +1726,7 @@ fn kempe_attempt(
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
     pinned: &HashSet<LessonId>,
     placements: &mut Vec<Placement>,
@@ -1663,6 +1738,7 @@ fn kempe_attempt(
     iter: u64,
 ) -> bool {
     let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
 
     // Seed pick: rr_collect_anchors filters (lesson, day) where FFD packed
     // multiple N=1 blocks of the same lesson on one day. See its doc
@@ -1782,6 +1858,47 @@ fn kempe_attempt(
         state,
     );
 
+    // Snapshot per-affected-class day-count vectors before ruin so the
+    // canonical class_day_balance delta can be computed pre/post without
+    // re-walking the full classes list. Pre-ruin so the math matches the
+    // gap_delta pattern (gap_delta = post-apply - pre-ruin).
+    let canonical_days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
+    let mut affected_classes: Vec<SchoolClassId> = Vec::new();
+    {
+        let mut seen: HashSet<SchoolClassId> = HashSet::new();
+        for &lesson_id in &chain_order {
+            let Some(lesson) = lesson_lookup.get(&lesson_id) else {
+                continue;
+            };
+            for class in &lesson.school_class_ids {
+                if seen.insert(*class) {
+                    affected_classes.push(*class);
+                }
+            }
+        }
+    }
+    let class_day_counts_pre: Vec<(SchoolClassId, Vec<u32>)> = affected_classes
+        .iter()
+        .map(|class_id| {
+            let counts: Vec<u32> = (0..canonical_days)
+                .map(|day| {
+                    state
+                        .class_positions
+                        .get(&(*class_id, day))
+                        .map(|v| v.len() as u32)
+                        .unwrap_or(0)
+                })
+                .collect();
+            (*class_id, counts)
+        })
+        .collect();
+
     let mut removed_subject_pref: u32 = 0;
     let mut snapshots: Vec<(LessonId, u8, BlockSnapshot)> = Vec::with_capacity(chain_order.len());
     for &lesson_id in &chain_order {
@@ -1798,6 +1915,7 @@ fn kempe_attempt(
                     state,
                 );
                 state.search_score_slice = pre_slice;
+                state.canonical_score = pre_canonical;
                 return false;
             }
         };
@@ -1826,6 +1944,7 @@ fn kempe_attempt(
                     state,
                 );
                 state.search_score_slice = pre_slice;
+                state.canonical_score = pre_canonical;
                 return false;
             }
         };
@@ -1958,6 +2077,7 @@ fn kempe_attempt(
             state,
         );
         state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         return false;
     }
 
@@ -1966,6 +2086,88 @@ fn kempe_attempt(
     let total_delta = gap_delta + subject_pref_delta;
     let new_score_signed = i64::from(pre_slice) + total_delta;
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
+
+    // Canonical home_room delta: walk snapshot rows for `removed`,
+    // recreated_in_order rows for `added`. Mirror's the existing
+    // removed_subject_pref / added_subject_pref accumulation pattern.
+    let home_room_delta: i64 = if weights.prefer_home_room == 0 {
+        0
+    } else {
+        let mut removed_home_room: u32 = 0;
+        let mut added_home_room: u32 = 0;
+        for (lesson_id, _src, snap) in snapshots.iter() {
+            let Some(lesson) = lesson_lookup.get(lesson_id) else {
+                continue;
+            };
+            for row in &snap.rows {
+                for class in &lesson.school_class_ids {
+                    removed_home_room = removed_home_room.saturating_add(
+                        crate::score::home_room_penalty_one_class(
+                            *class,
+                            home_room_lookup,
+                            row.room_id,
+                            weights,
+                        ),
+                    );
+                }
+            }
+        }
+        for (lesson_id, dest_d, dest_start_pos) in recreated_in_order.iter() {
+            let Some(lesson) = lesson_lookup.get(lesson_id) else {
+                continue;
+            };
+            let n = lesson.preferred_block_size;
+            for k in 0..n {
+                let row_pos = dest_start_pos + k;
+                let Some(tb_id) = tb_by_day_pos.get(&(*dest_d, row_pos)) else {
+                    continue;
+                };
+                let Some(p) = placements
+                    .iter()
+                    .find(|p| p.lesson_id == *lesson_id && p.time_block_id == *tb_id)
+                else {
+                    continue;
+                };
+                for class in &lesson.school_class_ids {
+                    added_home_room =
+                        added_home_room.saturating_add(crate::score::home_room_penalty_one_class(
+                            *class,
+                            home_room_lookup,
+                            p.room_id,
+                            weights,
+                        ));
+                }
+            }
+        }
+        i64::from(added_home_room) - i64::from(removed_home_room)
+    };
+
+    // Canonical class_day_balance delta: per-affected-class pre-cost from
+    // the pre-ruin snapshot, post-cost from the now-mutated state.
+    let class_day_balance_delta: i64 = if weights.class_day_balance == 0 {
+        0
+    } else {
+        let mut acc: i64 = 0;
+        for (class_id, pre_counts) in &class_day_counts_pre {
+            let pre_cost = crate::score::class_day_balance_cost_for_class_from_counts(
+                *class_id,
+                canonical_days,
+                pre_counts,
+            );
+            let post_cost = crate::score::class_day_balance_cost_for_class(
+                *class_id,
+                canonical_days,
+                &state.class_positions,
+            );
+            acc += i64::from(post_cost) - i64::from(pre_cost);
+        }
+        i64::from(weights.class_day_balance) * acc
+    };
+
+    let canonical_delta = total_delta + home_room_delta + class_day_balance_delta;
+    let new_canonical_signed = i64::from(pre_canonical) + canonical_delta;
+    let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
+
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     let lahc_ok = new_score <= pre_slice || new_score <= prior;
     if !lahc_ok {
@@ -1979,9 +2181,11 @@ fn kempe_attempt(
             state,
         );
         state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         return false;
     }
     state.search_score_slice = new_score;
+    state.canonical_score = new_canonical;
     true
 }
 
@@ -2668,6 +2872,7 @@ mod tests {
         state.used_class.insert((class, tb_zero));
         state.used_room.insert((room, tb_zero));
         state.search_score_slice = 1; // avoid_first penalty active at position 0
+        state.canonical_score = 1;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2806,6 +3011,7 @@ mod tests {
         state.used_room.insert((room, tb_zero));
         state.used_room.insert((room, tb_one));
         state.search_score_slice = 1; // avoid_first penalty active at position 0
+        state.canonical_score = 1;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2981,6 +3187,7 @@ mod tests {
         state.used_room.insert((room_a, tb_zero));
         state.used_room.insert((room_b, tb_zero));
         state.search_score_slice = 2;
+        state.canonical_score = 2;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -3436,6 +3643,7 @@ mod tests {
             let mut snap_placements = placements.clone();
             let mut snap_state = clone_state(&state);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let ok = kempe_attempt(
                 &problem_for_attempt,
                 &idx,
@@ -3444,6 +3652,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut snap_placements,
@@ -3493,6 +3702,7 @@ mod tests {
             subject_hours_by_class_day: s.subject_hours_by_class_day.clone(),
             lessons_by_class_day: s.lessons_by_class_day.clone(),
             search_score_slice: s.search_score_slice,
+            canonical_score: s.canonical_score,
         }
     }
 
@@ -4137,6 +4347,7 @@ mod tests {
             let mut snap_p = placements.clone();
             let mut snap_s = clone_state(&state);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let ok = kempe_attempt(
                 &problem,
                 &idx,
@@ -4145,6 +4356,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut snap_p,
@@ -4471,6 +4683,7 @@ mod tests {
             let mut p = placements_pre.clone();
             let mut s = clone_state(&state_pre);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let accepted = kempe_attempt(
                 &problem,
                 &idx,
@@ -4479,6 +4692,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut p,

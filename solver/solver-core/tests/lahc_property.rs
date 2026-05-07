@@ -456,6 +456,41 @@ proptest! {
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
+    /// Item 52 prep: pin that LAHC leaves `state.canonical_score` (visible
+    /// post-solve as `solution.soft_score`) consistent with
+    /// `score_solution(problem, placements, weights)` on the returned
+    /// placements for every move type. Pinned by the in-loop `debug_assert!`
+    /// in `lahc::run`; this test names the contract for grep-discoverability
+    /// and provides cross-seed coverage that the assert alone would not. Uses
+    /// production-shaped weights (home_room and class_day_balance both
+    /// non-zero) so the canonical scorer exercises both axes.
+    #[test]
+    fn canonical_score_matches_score_solution_at_lahc_exit(
+        seed in 0u64..1024,
+    ) {
+        let weights = ConstraintWeights {
+            class_gap: 1,
+            teacher_gap: 1,
+            prefer_home_room: 5,
+            class_day_balance: 5,
+            ..ConstraintWeights::default()
+        };
+        let config = SolveConfig {
+            seed,
+            weights,
+            deadline: Some(Duration::from_millis(50)),
+            max_iterations: Some(2_000),
+            ..SolveConfig::default()
+        };
+        // Use a sized fixture rather than a per-case generator so seed
+        // drives LAHC behaviour while the problem stays fixed; widening
+        // home_room coverage lives in the fixture builder below.
+        let problem = canonical_score_test_problem();
+        let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
+        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        prop_assert_eq!(solution.soft_score, canonical);
+    }
+
     #[test]
     fn lahc_stats_ttf_le_tto_le_total(problem in lahc_small_problem(), seed in 0u64..1024) {
         // The probes' invariants under any (problem, seed):
@@ -508,6 +543,75 @@ fn lahc_rr_kempe_does_not_double_book_class_at_grundschule() {
     let solution = solve_with_config(&p, &cfg).expect("solve_with_config must not error");
     validate_no_double_booking(&p, &solution.placements)
         .expect("validate_no_double_booking must pass post-fix");
+}
+
+/// Tiny fixture for the canonical-score-at-LAHC-exit property test. One class
+/// with a `home_room_id` set to `rooms[0]` so the home_room cost is non-zero
+/// when LAHC picks `rooms[1]`, three days with three slots each so the
+/// class_day_balance cost is non-zero on most placements, and enough lessons
+/// that LAHC has plenty of moves to exercise.
+fn canonical_score_test_problem() -> Problem {
+    let subject = SubjectId(lahc_id_from(1));
+    let teacher = TeacherId(lahc_id_from(1000));
+    let class = SchoolClassId(lahc_id_from(2000));
+    let room0 = RoomId(lahc_id_from(3000));
+    let room1 = RoomId(lahc_id_from(3001));
+
+    let mut time_blocks: Vec<TimeBlock> = Vec::new();
+    let mut tb_idx = 0u32;
+    for d in 0..3u8 {
+        for p in 0..3u8 {
+            time_blocks.push(TimeBlock {
+                id: TimeBlockId(lahc_id_from(4000 + tb_idx)),
+                day_of_week: d,
+                position: p,
+            });
+            tb_idx += 1;
+        }
+    }
+
+    let lessons: Vec<Lesson> = (0..4u32)
+        .map(|i| Lesson {
+            id: LessonId(lahc_id_from(5000 + i)),
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_id: teacher,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        })
+        .collect();
+
+    Problem {
+        time_blocks,
+        teachers: vec![Teacher {
+            id: teacher,
+            max_hours_per_week: 40,
+        }],
+        rooms: vec![Room { id: room0 }, Room { id: room1 }],
+        subjects: vec![Subject {
+            id: subject,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        }],
+        school_classes: vec![SchoolClass {
+            id: class,
+            home_room_id: Some(room0),
+            max_lessons_per_day: None,
+        }],
+        lessons,
+        teacher_qualifications: vec![TeacherQualification {
+            teacher_id: teacher,
+            subject_id: subject,
+        }],
+        teacher_blocked_times: vec![],
+        room_blocked_times: vec![],
+        room_subject_suitabilities: vec![],
+        pinned_placements: vec![],
+    }
 }
 
 /// Build a tiny problem with one pinned lesson at TB0 (under `avoid_first_period`,

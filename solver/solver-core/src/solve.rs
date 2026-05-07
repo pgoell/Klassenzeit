@@ -260,6 +260,13 @@ pub fn solve_with_config_stats(
         }
     }
 
+    // Initialise the canonical-objective tracker. Greedy persists the slice
+    // into state.search_score_slice via try_place_block; the canonical adds
+    // home_room + class_day_balance over the slice. Set once here so LAHC
+    // can maintain canonical incrementally per move.
+    state.canonical_score =
+        crate::score::score_solution(problem, &solution.placements, &config.weights);
+
     crate::lahc::run(
         problem,
         &idx,
@@ -340,6 +347,14 @@ pub(crate) struct GreedyState {
     /// stores `slice_score` here; LAHC reads the slice for the non-negative
     /// debug_assert in `try_change_move`.
     pub(crate) search_score_slice: u32,
+    /// Running canonical objective: `score_solution(problem, placements,
+    /// weights)`. Initialised at the end of greedy in
+    /// `solve_with_config_stats` before LAHC dispatch. Maintained in
+    /// lockstep with `search_score_slice` across the LAHC Change move
+    /// (incremental delta), R&R (full recompute), and Kempe (snapshot
+    /// plus delta). Drives LAHC's accept criterion, `time_to_optimal_ms`
+    /// probe, early-exit predicate, and running-best snapshot.
+    pub(crate) canonical_score: u32,
 }
 
 impl GreedyState {
@@ -355,6 +370,7 @@ impl GreedyState {
             subject_hours_by_class_day: HashMap::new(),
             lessons_by_class_day: HashMap::new(),
             search_score_slice: 0,
+            canonical_score: 0,
         }
     }
 }
