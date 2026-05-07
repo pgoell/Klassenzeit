@@ -618,11 +618,15 @@ pub(crate) fn try_place_block(
         let slice_score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
 
         // Pruning: skip the room scan if this window's slice-score lower bound
-        // cannot beat the current best total. `home_room_penalty >= 0` for every
-        // (window, room), so slice is a sound lower bound on total; a window
-        // whose slice already exceeds the best total cannot produce a strictly
-        // better candidate. Tiebreak (day, start_pos, room.id) preserved via
-        // strict `<` and tb_order's sort.
+        // cannot beat the current best total. `home_room_penalty >= 0` and
+        // `class_day_balance_post >= 0` for every (window, room), so slice is
+        // a sound lower bound on total; a window whose slice already
+        // exceeds-or-ties the best total cannot produce a strictly better
+        // candidate. The cross-window comparison at the BlockCandidate
+        // assignment site (item 60) is strict `<` end-to-end: FIRST-walked
+        // wins on tied `total_score` via `tb_order`'s sort by
+        // `(day_of_week, position, tb_id)`, symmetric to the room scan's
+        // "lowest `room.id` wins on tie" rule.
         if let Some(b) = &best {
             if slice_score >= b.total_score {
                 #[cfg(feature = "solver-trace")]
@@ -779,15 +783,22 @@ pub(crate) fn try_place_block(
             Some(room_id),
             "window_candidate",
         );
-        best = Some(BlockCandidate {
-            outer_pos,
-            day: first_tb.day_of_week,
-            start_pos,
-            end_pos,
-            room_id,
-            slice_score,
-            total_score,
-        });
+        // Strict `<` cross-window comparison (item 60). FIRST-walked feasible
+        // window wins on tied `total_score`; combined with `tb_order`'s sort
+        // by `(day_of_week, position, tb_id)` this resolves to "lowest
+        // `(day, position)` wins on tie", symmetric to the room scan's
+        // "lowest `room.id` wins on tie" rule above.
+        if best.as_ref().is_none_or(|b| total_score < b.total_score) {
+            best = Some(BlockCandidate {
+                outer_pos,
+                day: first_tb.day_of_week,
+                start_pos,
+                end_pos,
+                room_id,
+                slice_score,
+                total_score,
+            });
+        }
 
         // Early exit: a window with both slice delta zero AND home-room match
         // at every member class is unbeatable (state.search_score_slice ==
@@ -2954,13 +2965,14 @@ mod tests {
     /// day 2 yields 3/1/1/0 with cost 3 (total = 15); day 3 yields 3/1/0/1
     /// with cost 3 (total = 15). The picker's pruning rule fires only when
     /// the slice lower bound is at least the current best total; with
-    /// `slice_score = 0` for every window the rule never fires, and the
-    /// BlockCandidate assignment overwrites best on each non-pruned window.
-    /// The last-walked feasible window wins, which is day 3. The contract
-    /// the test pins is that balance-on lands on a strictly different day
-    /// than balance-off, and that day's post-place class_day_balance cost
-    /// is strictly lower than balance-off's day (day 3 cost 3 vs day 1
-    /// cost 5).
+    /// `slice_score = 0` for every window the rule never fires. Under the
+    /// strict-`<` cross-window comparison (item 60), the picker walks day 1
+    /// first (best total = 25), then day 2 (15 < 25, becomes best), then
+    /// day 3 (15 < 15 is false, day 2 keeps the lead). The contract the
+    /// test pins is that balance-on lands deterministically on day 2: the
+    /// FIRST-walked window of the cost-3 tier, mirroring the room-scan's
+    /// "lowest-id wins on tie" rule via `tb_order`'s
+    /// `(day_of_week, position, tb_id)` sort.
     #[test]
     fn try_place_block_picker_prefers_balanced_day_under_class_day_balance_weight() {
         let class_id = SchoolClassId(solve_uuid(1));
@@ -3156,11 +3168,12 @@ mod tests {
         assert_ne!(
             placement_on_e.time_block_id, tb_d1_p1,
             "balance-on (class_day_balance=5): picker must NOT pile lesson_e onto day 1; \
-             expected an L1-spread-minimising candidate (day 2 or day 3)"
+             expected the FIRST-walked L1-spread-minimising candidate (day 2 under strict `<`)"
         );
-        // Verify the post-place class_day_balance cost on the chosen day is
-        // strictly lower than the baseline's day-1 cost. Day 1 baseline
-        // yields 3/2/0/0 (cost 5); day 2 or day 3 yields cost 3.
+        // Verify the chosen day is exactly day 2 (the FIRST-walked window of
+        // the cost-3 tier). Day 1 baseline yields 3/2/0/0 (cost 5); day 2
+        // and day 3 both yield cost 3, but strict `<` resolves the tie to
+        // day 2 because tb_order is sorted by (day, position, tb_id).
         let chosen_tb = placement_on_e.time_block_id;
         let chosen_day = problem
             .time_blocks
@@ -3168,9 +3181,9 @@ mod tests {
             .find(|tb| tb.id == chosen_tb)
             .expect("chosen tb must resolve")
             .day_of_week;
-        assert!(
-            chosen_day == 2 || chosen_day == 3,
-            "balance-on: picker must land lesson_e on day 2 or day 3 (post-place L1 cost 3 < day-1 cost 5); \
+        assert_eq!(
+            chosen_day, 2,
+            "balance-on: picker must land lesson_e on day 2 (FIRST-walked of the tied cost-3 candidates under strict `<`); \
              actual day = {chosen_day}"
         );
     }
