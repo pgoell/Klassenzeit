@@ -315,3 +315,43 @@ fn solve_soft_score_under_production_weights_equals_score_solution() {
         sol.soft_score, recomputed,
     );
 }
+
+/// Item 54: FFD greedy's `try_place_block` picker must respond to
+/// `weights.class_day_balance`. Solve the existing two-day class-day-balance
+/// fixture once with the axis disabled and once with it enabled at the
+/// production weight (5). Re-evaluate both placement sets under a balance-
+/// only scorer (`class_day_balance = 1`, every other weight `0`) and assert
+/// the balance-on placement set produces a strictly lower contribution.
+#[test]
+fn ffd_greedy_class_day_balance_weight_lowers_post_solve_class_day_balance_cost() {
+    let problem = build_class_day_balance_problem();
+    let cfg_off = SolveConfig {
+        weights: ConstraintWeights::default(),
+        deadline: None,
+        ..SolveConfig::default()
+    };
+    let cfg_on = SolveConfig {
+        weights: ConstraintWeights {
+            class_day_balance: 5,
+            ..ConstraintWeights::default()
+        },
+        deadline: None,
+        ..SolveConfig::default()
+    };
+    let sol_off = solve_with_config(&problem, &cfg_off).expect("baseline solve");
+    let sol_on = solve_with_config(&problem, &cfg_on).expect("balance-on solve");
+
+    // Re-score both placement sets under a balance-only scorer so the
+    // comparison isolates the class_day_balance contribution.
+    let scorer = ConstraintWeights {
+        class_day_balance: 1,
+        ..ConstraintWeights::default()
+    };
+    let balance_off = score_solution(&problem, &sol_off.placements, &scorer);
+    let balance_on = score_solution(&problem, &sol_on.placements, &scorer);
+    assert!(
+        balance_on < balance_off,
+        "balance-on solve must produce a strictly lower class_day_balance \
+         contribution; got off={balance_off} on={balance_on}"
+    );
+}
