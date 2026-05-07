@@ -46,7 +46,7 @@ async def test_zweizuegig_creates_expected_entity_counts(
 ) -> None:
     assert await _count_zw(seeded_zweizuegig, Subject) == 11
     assert await _count_zw(seeded_zweizuegig, WeekScheme) == 1
-    assert await _count_zw(seeded_zweizuegig, TimeBlock) == 5 * 7  # 5 days x 7 periods
+    assert await _count_zw(seeded_zweizuegig, TimeBlock) == 5 * 6  # 5 days x 6 periods
     assert await _count_zw(seeded_zweizuegig, Stundentafel) == 4
     assert await _count_zw(seeded_zweizuegig, SchoolClass) == 8
     assert await _count_zw(seeded_zweizuegig, Teacher) == 12
@@ -139,10 +139,10 @@ async def test_zweizuegig_time_blocks_form_full_week_grid(
         .scalars()
         .all()
     )
-    assert len(blocks) == 35
+    assert len(blocks) == 30
     for day in range(5):
         day_blocks = [b for b in blocks if b.day_of_week == day]
-        assert [b.position for b in day_blocks] == list(range(1, 8))
+        assert [b.position for b in day_blocks] == list(range(1, 7))
         for b in day_blocks:
             assert isinstance(b.start_time, time)
             assert b.start_time < b.end_time

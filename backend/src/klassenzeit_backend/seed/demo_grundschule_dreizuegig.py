@@ -17,12 +17,14 @@ skips them, so the Stundentafel-driven generate path produces the
 remaining (non-Religion) lessons after the seed runs.
 
 The module reuses einzuegig's NamedTuple specs and module-level
-constants (``_PERIODS``, ``_DAYS_MON_TO_FRI``, ``_SUBJECTS``,
+constants (``_DAYS_MON_TO_FRI``, ``_SUBJECTS``,
 ``_KLASSENRAUM_SUITABLE_SUBJECTS``, and the ``_TeacherSpec`` /
 ``_RoomSpec`` / ``_SchoolClassSpec`` types). The Stundentafel hour dicts
 diverge: ``_GRADE_1_2_HOURS_DREIZUEGIG`` and ``_GRADE_3_4_HOURS_DREIZUEGIG``
 drop the ``ETH`` row because Religion is delivered via the cross-class
-trio, not the Stundentafel.
+trio, not the Stundentafel. The 8-period grid is defined locally
+(``_PERIODS_DREIZUEGIG``) so dreizuegig's Ganztagsschule shape is
+independent of einzuegig's ``_PERIODS``.
 
 Lesson rows for non-Religion subjects are not produced by this seed;
 they are created by ``POST /api/classes/{id}/generate-lessons`` in the
@@ -54,7 +56,6 @@ from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
 from klassenzeit_backend.seed.demo_grundschule import (
     _DAYS_MON_TO_FRI,
     _KLASSENRAUM_SUITABLE_SUBJECTS,
-    _PERIODS,
     _SUBJECTS,
     _assign_eponymous_home_rooms,
     _PeriodTimes,
@@ -73,13 +74,22 @@ WEEK_SCHEME_DESCRIPTION = (
 )
 
 
-# Dreizuegig extends the einzuegig 7-period grid with an eighth ganztags
-# period so the FFD greedy can place all 12 classes' Stundentafel-driven
-# lessons plus the cross-class Religion trio (3 lessons per Jahrgang, each
-# spanning 3 classes) without UUID-tiebreak-dependent flakiness. The 8th
-# period (14:05 to 14:50) follows the existing 7-period pattern.
+# Dreizuegig is a Ganztagsschule pattern: 8 periods per day, defined
+# locally so the shape is independent of einzuegig's ``_PERIODS``.
+# Periods 1-6 mirror the morning Halbtag grid; periods 7 and 8 (13:20-
+# 14:05 and 14:05-14:50) are the dreizuegig-only Ganztags-Stundenfenster
+# that give the FFD greedy enough slack to place all 12 classes'
+# Stundentafel-driven lessons plus the cross-class Religion trio (3
+# lessons per Jahrgang, each spanning 3 classes) without UUID-tiebreak-
+# dependent flakiness.
 _PERIODS_DREIZUEGIG: tuple[_PeriodTimes, ...] = (
-    *_PERIODS,
+    _PeriodTimes(1, time(8, 0), time(8, 45)),
+    _PeriodTimes(2, time(8, 45), time(9, 30)),
+    _PeriodTimes(3, time(9, 50), time(10, 35)),
+    _PeriodTimes(4, time(10, 35), time(11, 20)),
+    _PeriodTimes(5, time(11, 35), time(12, 20)),
+    _PeriodTimes(6, time(12, 20), time(13, 5)),
+    _PeriodTimes(7, time(13, 20), time(14, 5)),
     _PeriodTimes(8, time(14, 5), time(14, 50)),
 )
 

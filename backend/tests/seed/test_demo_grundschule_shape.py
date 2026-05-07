@@ -43,7 +43,7 @@ async def test_seed_creates_expected_entity_counts(
 ) -> None:
     assert await _count(seeded_session, Subject) == 11
     assert await _count(seeded_session, WeekScheme) == 1
-    assert await _count(seeded_session, TimeBlock) == 35
+    assert await _count(seeded_session, TimeBlock) == 30
     assert await _count(seeded_session, Stundentafel) == 4
     assert await _count(seeded_session, StundentafelEntry) == 34
     assert await _count(seeded_session, SchoolClass) == 4
@@ -53,12 +53,12 @@ async def test_seed_creates_expected_entity_counts(
     assert await _count(seeded_session, RoomSubjectSuitability) == 35
 
 
-async def test_time_blocks_span_five_days_seven_periods_forty_five_minutes(
+async def test_time_blocks_span_five_days_six_periods_forty_five_minutes(
     seeded_session: AsyncSession,
 ) -> None:
     result = await seeded_session.execute(select(TimeBlock))
     blocks = list(result.scalars().all())
-    assert len(blocks) == 35
+    assert len(blocks) == 30
 
     days = {b.day_of_week for b in blocks}
     assert days == {0, 1, 2, 3, 4}, days
@@ -67,7 +67,7 @@ async def test_time_blocks_span_five_days_seven_periods_forty_five_minutes(
     for b in blocks:
         positions_per_day.setdefault(b.day_of_week, set()).add(b.position)
     for day, positions in positions_per_day.items():
-        assert positions == {1, 2, 3, 4, 5, 6, 7}, (day, positions)
+        assert positions == {1, 2, 3, 4, 5, 6}, (day, positions)
 
     forty_five = timedelta(minutes=45)
     for b in blocks:
@@ -189,5 +189,4 @@ async def test_week_scheme_has_expected_period_times(
         (4, time(10, 35), time(11, 20)),
         (5, time(11, 35), time(12, 20)),
         (6, time(12, 20), time(13, 5)),
-        (7, time(13, 20), time(14, 5)),
     ]

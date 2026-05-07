@@ -51,8 +51,11 @@ test.describe("Grundschule smoke", () => {
     // The schedule page renders the empty state until the solver runs.
     await page.getByRole("button", { name: "Generate schedule", exact: true }).click();
 
-    // The grid renders with at least one placed period cell containing Deutsch.
-    await expect(page.locator(".kz-ws-grid")).toBeVisible();
+    // The schedule POST awaits the LAHC solver (KZ_SOLVE_DEADLINE_MS=2000 in
+    // playwright.config.ts), so the grid takes up to ~3 s to mount after the
+    // click. Bumping the toBeVisible timeout absorbs the solver latency without
+    // racing the empty-state to populated transition.
+    await expect(page.locator(".kz-ws-grid")).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-variant="period"]').first()).toBeVisible();
     await expect(
       page.locator('[data-variant="period"]').getByText("Deutsch").first(),

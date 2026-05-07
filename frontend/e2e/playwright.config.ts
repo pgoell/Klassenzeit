@@ -44,6 +44,12 @@ export default defineConfig({
         KZ_ENV: "test",
         KZ_DATABASE_URL: DATABASE_URL,
         KZ_COOKIE_SECURE: "false",
+        // .env.test pins KZ_SOLVE_DEADLINE_MS=0 (greedy-only) for backend pytest;
+        // e2e exercises the production schedule route on the auto-assign teacher
+        // distribution, where greedy-only is fragile to FFD lock-in. Give LAHC
+        // 2 s to escape so the schedule POST returns a populated placements list
+        // before the toBeVisible wait on `.kz-ws-grid` times out.
+        KZ_SOLVE_DEADLINE_MS: "2000",
       },
     },
     {
