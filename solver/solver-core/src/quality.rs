@@ -17,7 +17,8 @@
 //! windows / day-quality (no schema yet), pin disruption cost (waits
 //! for soft pins).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use crate::score::{
@@ -271,6 +272,156 @@ pub fn quality_report(
     }
 }
 
+/// One canonical soft-objective axis. Every backend declares which of these
+/// it optimises in its internal acceptance criterion or model objective via
+/// [`BackendObjective`]. `HardViolations` and `UnplacedHours` from
+/// [`QualityReport`] are intentionally excluded: they are pruned during
+/// search rather than optimised, so it is meaningless to ask which backend
+/// "optimises" them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum QualityComponent {
+    /// `weights.class_gap`-weighted axis from `score::class_gap_cost`.
+    ClassGap,
+    /// `weights.teacher_gap`-weighted axis from `score::teacher_gap_cost`.
+    TeacherGap,
+    /// `weights.class_day_balance`-weighted axis from `score::class_day_balance_cost`.
+    ClassDayBalance,
+    /// `weights.prefer_home_room`-weighted axis from `score::home_room_penalty`.
+    HomeRoom,
+    /// `weights.prefer_early_period`-weighted axis (per-placement
+    /// `subject.prefer_early_period * tb.position`).
+    PreferEarly,
+    /// `weights.avoid_first_period`-weighted axis at `tb.position == 0`.
+    AvoidFirst,
+    /// `weights.avoid_last_period`-weighted axis at the last position of the day.
+    AvoidLast,
+    /// `weights.prefer_late_period`-weighted axis from
+    /// `subject.prefer_late_period * (max_position_for_day - tb.position)`.
+    PreferLate,
+}
+
+impl QualityComponent {
+    /// Every variant, in [`PartialOrd`] order. Used by tests and by the
+    /// bench renderer to enumerate components deterministically.
+    pub const ALL: [QualityComponent; 8] = [
+        QualityComponent::ClassGap,
+        QualityComponent::TeacherGap,
+        QualityComponent::ClassDayBalance,
+        QualityComponent::HomeRoom,
+        QualityComponent::PreferEarly,
+        QualityComponent::AvoidFirst,
+        QualityComponent::AvoidLast,
+        QualityComponent::PreferLate,
+    ];
+
+    /// Lower-snake_case label suitable for markdown rendering and as a
+    /// stable identifier in tests. Named `component_label` rather than
+    /// `label` to keep `scripts/check_unique_fns.py` happy:
+    /// `BenchBackend::label` already exists in `solver-bench/src/main.rs`.
+    pub fn component_label(self) -> &'static str {
+        match self {
+            QualityComponent::ClassGap => "class_gap",
+            QualityComponent::TeacherGap => "teacher_gap",
+            QualityComponent::ClassDayBalance => "class_day_balance",
+            QualityComponent::HomeRoom => "home_room",
+            QualityComponent::PreferEarly => "prefer_early",
+            QualityComponent::AvoidFirst => "avoid_first",
+            QualityComponent::AvoidLast => "avoid_last",
+            QualityComponent::PreferLate => "prefer_late",
+        }
+    }
+}
+
+/// Per-backend objective declaration. Describes which canonical
+/// [`QualityComponent`]s the backend's *internal* search loop or model
+/// objective optimises today, plus the components it explicitly does not
+/// optimise. The bench renders this above the bake-off table so reviewers
+/// see internal-objective drift instead of staring at a collapsed `Soft
+/// score` column.
+///
+/// The declarations describe today's reality, not the desired end state.
+/// As items 48 / 52 / 54 land, each one moves entries from `declared_skipped`
+/// into `optimised` in its own commit.
+#[derive(Debug)]
+pub struct BackendObjective {
+    /// Backend identifier matching `solver-bench`'s `--backend` argument
+    /// (`"lahc"`, `"lahc_rr"`, `"lahc_rr_kempe"`, `"cpsat"`).
+    pub name: &'static str,
+    /// Canonical components this backend's internal acceptance criterion
+    /// (LAHC) or model objective (CP-SAT) actually steers toward.
+    pub optimised: BTreeSet<QualityComponent>,
+    /// Canonical components this backend explicitly does not include in
+    /// its internal objective today. Their value is still recomputed
+    /// post-solve by `quality_report(...)` and contributes to
+    /// `Solution.soft_score`, so a backend can score badly on a skipped
+    /// axis without that being a bug.
+    pub declared_skipped: BTreeSet<QualityComponent>,
+    /// One-sentence rationale tying each declaration back to the OPEN_THINGS
+    /// item that closes the gap (item 48 for cpsat; item 52 for LAHC's slice).
+    pub notes: &'static str,
+}
+
+/// Looks up the [`BackendObjective`] for a registered backend. Returns
+/// `None` for unknown names; bench callers treat that as a registration bug.
+pub fn backend_objective(name: &str) -> Option<&'static BackendObjective> {
+    BACKEND_OBJECTIVES
+        .get_or_init(build_backend_objectives)
+        .iter()
+        .find(|bo| bo.name == name)
+}
+
+static BACKEND_OBJECTIVES: OnceLock<Vec<BackendObjective>> = OnceLock::new();
+
+fn build_backend_objectives() -> Vec<BackendObjective> {
+    use QualityComponent::*;
+    let lahc_optimised: BTreeSet<QualityComponent> = [
+        ClassGap,
+        TeacherGap,
+        PreferEarly,
+        AvoidFirst,
+        AvoidLast,
+        PreferLate,
+    ]
+    .into_iter()
+    .collect();
+    let lahc_skipped: BTreeSet<QualityComponent> =
+        [HomeRoom, ClassDayBalance].into_iter().collect();
+    let lahc_notes = "LAHC slice is class_gap + teacher_gap + subject_pref \
+                      (see solve.rs:291-292); item 52 widens it; item 54 \
+                      adds class-day-balance to the search hot path.";
+    let cpsat_optimised: BTreeSet<QualityComponent> = BTreeSet::new();
+    let cpsat_skipped: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
+    let cpsat_notes = "Today minimises 0 (cpsat.py); item 48 ports the \
+                       canonical objective into the CP-SAT model.";
+    vec![
+        BackendObjective {
+            name: "lahc",
+            optimised: lahc_optimised.clone(),
+            declared_skipped: lahc_skipped.clone(),
+            notes: lahc_notes,
+        },
+        BackendObjective {
+            name: "lahc_rr",
+            optimised: lahc_optimised.clone(),
+            declared_skipped: lahc_skipped.clone(),
+            notes: "Inherits LAHC's slice; R&R recreate ranks by soft delta \
+                    after item 49.",
+        },
+        BackendObjective {
+            name: "lahc_rr_kempe",
+            optimised: lahc_optimised,
+            declared_skipped: lahc_skipped,
+            notes: lahc_notes,
+        },
+        BackendObjective {
+            name: "cpsat",
+            optimised: cpsat_optimised,
+            declared_skipped: cpsat_skipped,
+            notes: cpsat_notes,
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,5 +658,61 @@ mod tests {
         );
         let expected = score_solution(&problem, &solution.placements, &PRODUCTION_ACTIVE_WEIGHTS);
         assert_eq!(report.weighted_score, expected);
+    }
+
+    #[test]
+    fn backend_objective_returns_some_for_every_known_backend() {
+        for name in ["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] {
+            assert!(
+                backend_objective(name).is_some(),
+                "backend_objective({name:?}) should return Some; the bench enumerates this name",
+            );
+        }
+    }
+
+    #[test]
+    fn backend_objective_returns_none_for_unknown_name() {
+        assert!(backend_objective("timefold").is_none());
+        assert!(backend_objective("").is_none());
+    }
+
+    #[test]
+    fn backend_objective_lahc_family_partitions_quality_components() {
+        use std::collections::BTreeSet;
+        let all: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
+        for name in ["lahc", "lahc_rr", "lahc_rr_kempe"] {
+            let bo = backend_objective(name).expect("registered");
+            let union: BTreeSet<QualityComponent> =
+                bo.optimised.union(&bo.declared_skipped).copied().collect();
+            assert_eq!(
+                union, all,
+                "{name}: optimised ∪ declared_skipped must cover every QualityComponent",
+            );
+            let intersection: BTreeSet<QualityComponent> = bo
+                .optimised
+                .intersection(&bo.declared_skipped)
+                .copied()
+                .collect();
+            assert!(
+                intersection.is_empty(),
+                "{name}: optimised ∩ declared_skipped must be empty (component cannot be both)",
+            );
+        }
+    }
+
+    #[test]
+    fn backend_objective_cpsat_partitions_quality_components() {
+        use std::collections::BTreeSet;
+        let all: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
+        let bo = backend_objective("cpsat").expect("registered");
+        let union: BTreeSet<QualityComponent> =
+            bo.optimised.union(&bo.declared_skipped).copied().collect();
+        assert_eq!(union, all);
+        let intersection: BTreeSet<QualityComponent> = bo
+            .optimised
+            .intersection(&bo.declared_skipped)
+            .copied()
+            .collect();
+        assert!(intersection.is_empty());
     }
 }
