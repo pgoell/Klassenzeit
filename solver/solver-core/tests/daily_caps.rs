@@ -212,6 +212,7 @@ fn caps_kempe_solve_under_production_caps_smoke() {
             weights: solver_core::PRODUCTION_ACTIVE_WEIGHTS,
             lahc_rr_period: Some(25),
             lahc_kempe_period: Some(23),
+            lahc_rr_k: 5,
         };
         solve_with_config(&problem, &cfg).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
     }
