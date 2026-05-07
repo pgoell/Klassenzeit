@@ -61,6 +61,18 @@ fn supervisor_emits_observability_and_quality_columns() {
         "missing late-period header: {body}"
     );
     assert!(
+        body.contains("## Backend objectives"),
+        "missing Backend objectives section: {body}",
+    );
+    assert!(
+        body.contains("lahc_rr_kempe"),
+        "missing lahc_rr_kempe row in objectives section: {body}",
+    );
+    assert!(
+        body.contains("class_gap, teacher_gap, prefer_early, avoid_first, avoid_last, prefer_late"),
+        "missing lahc-family optimised set in objectives section: {body}",
+    );
+    assert!(
         body.contains("Quality (pass / 4)"),
         "missing quality column header: {body}"
     );
