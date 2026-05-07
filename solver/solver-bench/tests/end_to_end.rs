@@ -69,6 +69,10 @@ fn supervisor_emits_observability_and_quality_columns() {
         "missing lahc_rr_kempe row in objectives section: {body}",
     );
     assert!(
+        body.contains("| lahc_kempe |"),
+        "missing lahc_kempe row in objectives section (between table cell delimiters): {body}",
+    );
+    assert!(
         body.contains(
             "class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late"
         ),

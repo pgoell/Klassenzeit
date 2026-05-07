@@ -399,6 +399,12 @@ fn build_backend_objectives() -> Vec<BackendObjective> {
                     home_room delta after item 49.",
         },
         BackendObjective {
+            name: "lahc_kempe",
+            optimised: lahc_optimised.clone(),
+            declared_skipped: lahc_skipped.clone(),
+            notes: lahc_notes,
+        },
+        BackendObjective {
             name: "lahc_rr_kempe",
             optimised: lahc_optimised,
             declared_skipped: lahc_skipped,
@@ -653,7 +659,7 @@ mod tests {
 
     #[test]
     fn backend_objective_returns_some_for_every_known_backend() {
-        for name in ["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] {
+        for name in ["lahc", "lahc_rr", "lahc_kempe", "lahc_rr_kempe", "cpsat"] {
             assert!(
                 backend_objective(name).is_some(),
                 "backend_objective({name:?}) should return Some; the bench enumerates this name",
@@ -671,7 +677,7 @@ mod tests {
     fn backend_objective_lahc_family_partitions_quality_components() {
         use std::collections::BTreeSet;
         let all: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
-        for name in ["lahc", "lahc_rr", "lahc_rr_kempe"] {
+        for name in ["lahc", "lahc_rr", "lahc_kempe", "lahc_rr_kempe"] {
             let bo = backend_objective(name).expect("registered");
             let union: BTreeSet<QualityComponent> =
                 bo.optimised.union(&bo.declared_skipped).copied().collect();

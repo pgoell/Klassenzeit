@@ -26,7 +26,7 @@ See [Anthropic's memory docs](https://code.claude.com/docs/en/memory) for the lo
 
 Always use TDD with red-green-refactor, driven by `superpowers:test-driven-development`. Development always ends in PRs after documentation was extensively reviewed and updated.
 
-Before opening a PR, run `claude-md-management:revise-claude-md` if the session produced learnings worth persisting, and if you ran that, run `claude-md-management:claude-md-improver` right after. Both via the `Skill` tool.
+Before opening a PR, run `agent-system-management:capturing-session-learnings` if the session produced learnings worth persisting, and if you ran that, run `agent-system-management:improving-instructions` right after. Both via the `Skill` tool.
 
 Keep things that are out of scope for a step, or that you notice as tech debt or todos, in `docs/superpowers/OPEN_THINGS.md`, ordered by importance. Don't add duplicates.
 
