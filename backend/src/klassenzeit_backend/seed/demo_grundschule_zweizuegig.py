@@ -57,9 +57,8 @@ from klassenzeit_backend.seed.demo_grundschule import (
 
 WEEK_SCHEME_NAME = "Grundschule (zweizuegig) Zeitraster"
 WEEK_SCHEME_DESCRIPTION = (
-    "Hessen Grundschule, zwei Zuege pro Jahrgang: 5 Tage, 7 Stunden a 45 Minuten, "
-    "Hofpausen nach der 2. und 4. Stunde. Stunde 7 dient als Ganztags- / "
-    "AG-Zeitfenster und gibt dem Solver Slack fuer volle Stundentafeln."
+    "Hessen Grundschule, zwei Zuege pro Jahrgang: 5 Tage, 6 Stunden a 45 Minuten, "
+    "Hofpausen nach der 2. und 4. Stunde."
 )
 
 

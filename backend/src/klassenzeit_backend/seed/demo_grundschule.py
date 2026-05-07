@@ -29,9 +29,7 @@ from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
 
 WEEK_SCHEME_NAME = "Grundschule Zeitraster"
 WEEK_SCHEME_DESCRIPTION = (
-    "Hessen Grundschule: 5 Tage, 7 Stunden a 45 Minuten, "
-    "Hofpausen nach der 2. und 4. Stunde. Stunde 7 dient als Ganztags- / "
-    "AG-Zeitfenster und gibt dem Solver Slack fuer volle Stundentafeln."
+    "Hessen Grundschule: 5 Tage, 6 Stunden a 45 Minuten, Hofpausen nach der 2. und 4. Stunde."
 )
 
 
@@ -48,7 +46,6 @@ _PERIODS: tuple[_PeriodTimes, ...] = (
     _PeriodTimes(4, time(10, 35), time(11, 20)),
     _PeriodTimes(5, time(11, 35), time(12, 20)),
     _PeriodTimes(6, time(12, 20), time(13, 5)),
-    _PeriodTimes(7, time(13, 20), time(14, 5)),
 )
 
 _DAYS_MON_TO_FRI: tuple[int, ...] = (0, 1, 2, 3, 4)
