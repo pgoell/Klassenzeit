@@ -25,6 +25,21 @@ from klassenzeit_solver._rust import score_solution_json
 AnchorKey = tuple[str, int, int, str]
 
 
+# Mirror of solver_core::types::PRODUCTION_ACTIVE_WEIGHTS so CP-SAT's
+# model objective evaluates to the same number as
+# `score_solution(..., PRODUCTION_ACTIVE_WEIGHTS)` on any returned
+# solution. Item 48 keeps these in lockstep with Rust by referencing both
+# in `solver/CLAUDE.md`; the property tests in `test_cpsat.py` flag drift.
+_W_CLASS_GAP = 10
+_W_TEACHER_GAP = 10
+_W_PREFER_EARLY_PERIOD = 1
+_W_AVOID_FIRST_PERIOD = 1
+_W_PREFER_HOME_ROOM = 5
+_W_AVOID_LAST_PERIOD = 1
+_W_PREFER_LATE_PERIOD = 1
+_W_CLASS_DAY_BALANCE = 5
+
+
 class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
     """Records ``solver.WallTime() * 1000`` on the first feasible solution."""
 
@@ -74,6 +89,7 @@ def solve_cpsat_json(
                 "placements": placements,
                 "violations": [],
                 "soft_score": int(soft_score),
+                "model_objective_value": int(solver.objective_value),
                 "peak_rss_kb": peak_rss_kb,
                 "time_to_first_feasible_ms": ttf,
                 "time_to_optimal_ms": tto,
@@ -98,6 +114,7 @@ def solve_cpsat_json(
                 "placements": [],
                 "violations": violations,
                 "soft_score": 0,
+                "model_objective_value": None,
                 "peak_rss_kb": peak_rss_kb,
                 "time_to_first_feasible_ms": None,
                 "time_to_optimal_ms": None,
@@ -130,7 +147,7 @@ def _build_model(
     _emit_lesson_group_co_placement(model, problem, anchor_vars, anchors_for_lesson)
     _emit_pinned_placements(model, problem, anchor_vars, lookups)
 
-    model.minimize(0)
+    _emit_objective(model, problem, anchor_vars, lookups)
     meta: dict[str, Any] = {
         "lesson_lookup": lookups["lesson_lookup"],
         "tb_at": lookups["tb_at"],
@@ -437,6 +454,304 @@ def _emit_pinned_placements(
             model.add(anchor_vars[key] == 1)
         else:
             _force_infeasible(model)
+
+
+def _objective_subject_preference_terms(
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-anchor constant coefficient for subject-preference axes.
+
+    Covers prefer_early, avoid_first, avoid_last, prefer_late. Each axis
+    sums over the N positions in the block window; the per-anchor sum
+    collapses to a Python int known at build time. Returns
+    sum_anchor coeff * y[anchor].
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    tb_pos_lookup = lookups["tb_pos_lookup"]
+    subjects = {s["id"]: s for s in problem["subjects"]}
+    max_pos_per_day: dict[int, int] = {}
+    for tb in problem["time_blocks"]:
+        d = tb["day_of_week"]
+        max_pos_per_day[d] = max(max_pos_per_day.get(d, 0), tb["position"])
+
+    terms: list[cp_model.LinearExpr] = []
+    for (l_id, day, start_pos, _r_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        subject = subjects[lesson["subject_id"]]
+        max_pos = max_pos_per_day[day]
+        coeff = 0
+        prefer_early = subject.get("prefer_early_period", 0)
+        if prefer_early:
+            window_pos_sum = n * start_pos + n * (n - 1) // 2
+            coeff += _W_PREFER_EARLY_PERIOD * prefer_early * window_pos_sum
+        avoid_first = subject.get("avoid_first_period", 0)
+        if avoid_first and start_pos == 0:
+            coeff += _W_AVOID_FIRST_PERIOD * avoid_first
+        avoid_last = subject.get("avoid_last_period", 0)
+        if avoid_last and start_pos + n - 1 == max_pos:
+            coeff += _W_AVOID_LAST_PERIOD * avoid_last
+        prefer_late = subject.get("prefer_late_period", 0)
+        if prefer_late:
+            window_late_sum = n * max_pos - n * start_pos - n * (n - 1) // 2
+            coeff += _W_PREFER_LATE_PERIOD * prefer_late * window_late_sum
+        if coeff:
+            terms.append(coeff * var)
+    # tb_pos_lookup is unused here today; kept on the signature for the
+    # gap-axis tasks below so they can reuse the same lookups dict shape.
+    _ = tb_pos_lookup
+    return cp_model.LinearExpr.sum(terms) if terms else 0
+
+
+def _objective_home_room_term(
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-anchor constant coefficient for the home_room axis.
+
+    Sum over class in lesson.school_class_ids of
+    (mismatch ? weights.prefer_home_room * N : 0). Mirrors
+    score::home_room_penalty per-placement aggregated over the N-block
+    window. Multi-class lessons accumulate per-class contributions;
+    classes without home_room_id contribute 0.
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    home_room_by_class: dict[str, str | None] = {
+        c["id"]: c.get("home_room_id") for c in problem["school_classes"]
+    }
+
+    terms: list[cp_model.LinearExpr] = []
+    for (l_id, _day, _start_pos, room_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        coeff = 0
+        for class_id in lesson["school_class_ids"]:
+            home_room_id = home_room_by_class.get(class_id)
+            if home_room_id is not None and home_room_id != room_id:
+                coeff += _W_PREFER_HOME_ROOM * n
+        if coeff:
+            terms.append(coeff * var)
+    return cp_model.LinearExpr.sum(terms) if terms else 0
+
+
+def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-day inner loops; splitting hurts readability)
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+    scope_kind: str,
+) -> dict[tuple[str, int, int], cp_model.IntVar]:
+    """Build per-(entity, day, position) 0-1 presence indicators.
+
+    For each (entity, day, position) where entity is a class id (when
+    scope_kind == 'class') or a teacher id (when scope_kind == 'teacher'),
+    build present[entity, day, p] = OR over anchors covering (day, p) in
+    the entity's scope. OR-semantics (via add_max_equality) is required
+    for class scope where lesson-group co-placement allows multiple
+    anchors to cover the same (class, day, p); score_solution dedups
+    positions per (class, day) before counting gaps so the CP-SAT
+    presence indicator must mirror that 0-1 coverage view rather than a
+    raw sum. Returned mapping is keyed by (entity_id_str, day, position).
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    positions_per_day = lookups["positions_per_day"]
+    if scope_kind == "class":
+        entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
+    elif scope_kind == "teacher":
+        entity_ids = {t["id"] for t in problem["teachers"]}
+    else:  # pragma: no cover - guarded by callers
+        raise ValueError(f"unknown scope_kind: {scope_kind}")
+
+    coverage: dict[tuple[str, int, int], list[cp_model.IntVar]] = {}
+    for (l_id, day, start_pos, _r_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        if scope_kind == "class":
+            owners: list[str] = list(lesson["school_class_ids"])
+        else:
+            owners = [lesson["teacher_id"]]
+        for offset in range(n):
+            p = start_pos + offset
+            for owner in owners:
+                coverage.setdefault((owner, day, p), []).append(var)
+
+    presence: dict[tuple[str, int, int], cp_model.IntVar] = {}
+    for entity_id in entity_ids:
+        for day, positions in positions_per_day.items():
+            for pos in positions:
+                key = (entity_id, day, pos)
+                covering = coverage.get(key, [])
+                pres = model.new_int_var(0, 1, f"present_{scope_kind}_{entity_id}_{day}_{pos}")
+                if covering:
+                    # OR-semantics, not sum: lesson-group co-placement allows
+                    # multiple anchors to cover (class, day, pos) at once,
+                    # while score_solution dedups per (class, day) before
+                    # counting gaps. add_max_equality on 0-1 vars yields the
+                    # 0-1 "is this slot covered" indicator gap counting needs.
+                    model.add_max_equality(pres, covering)
+                else:
+                    model.add(pres == 0)
+                presence[key] = pres
+    return presence
+
+
+def _objective_gap_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+    scope_kind: str,
+    weight: int,
+) -> cp_model.LinearExpr | int:
+    """Build per-(entity, day, position) gap indicators and weight the sum.
+
+    For each (entity, day, position) presence indicator, build
+    has_left/has_right/gap channeling and return weight * sum(gap[...]).
+    """
+    presence = _build_per_slot_presence(model, problem, anchor_vars, lookups, scope_kind)
+    positions_per_day = lookups["positions_per_day"]
+    if scope_kind == "class":
+        entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
+    else:
+        entity_ids = {t["id"] for t in problem["teachers"]}
+
+    gap_vars: list[cp_model.IntVar] = []
+    for entity_id in entity_ids:
+        for day, positions in positions_per_day.items():
+            sorted_positions = sorted(positions)
+            for idx, pos in enumerate(sorted_positions):
+                pres_p = presence[(entity_id, day, pos)]
+                left_neighbours = [presence[(entity_id, day, q)] for q in sorted_positions[:idx]]
+                right_neighbours = [
+                    presence[(entity_id, day, q)] for q in sorted_positions[idx + 1 :]
+                ]
+                if not left_neighbours or not right_neighbours:
+                    # No interior position can have both has_left and has_right.
+                    continue
+                has_left = model.new_bool_var(f"hl_{scope_kind}_{entity_id}_{day}_{pos}")
+                has_right = model.new_bool_var(f"hr_{scope_kind}_{entity_id}_{day}_{pos}")
+                model.add_max_equality(has_left, left_neighbours)
+                model.add_max_equality(has_right, right_neighbours)
+                gap = model.new_bool_var(f"gap_{scope_kind}_{entity_id}_{day}_{pos}")
+                model.add(gap >= has_left + has_right + (1 - pres_p) - 2)
+                model.add(gap <= has_left)
+                model.add(gap <= has_right)
+                model.add(gap <= 1 - pres_p)
+                gap_vars.append(gap)
+    return weight * cp_model.LinearExpr.sum(gap_vars) if gap_vars else 0
+
+
+def _objective_class_day_balance_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-class scaled L1 day-balance cost mirroring score::class_day_balance_cost.
+
+    For each class:
+      class_total = sum lesson.hours_per_week for lessons where class is in school_class_ids
+      c_count[class, day] = sum over anchors (l, day, p, r) where day matches
+        and class is in scope: N(l) * y[..]
+      dev[class, day] = abs(c_count[class, day] * D - class_total)
+      scaled[class] = sum_day dev[class, day]
+      quotient[class] = scaled[class] // D (CP-SAT add_division_equality)
+    Returns _W_CLASS_DAY_BALANCE * sum_class quotient[class].
+
+    Class with class_total == 0 contributes 0 by construction (all c_count
+    vars are 0, dev is 0, quotient is 0). Skipped at build time to avoid
+    creating unused vars.
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    positions_per_day = lookups["positions_per_day"]
+    days_set: set[int] = set(positions_per_day.keys())
+    if not days_set:
+        return 0
+    d = len(days_set)
+    classes = problem["school_classes"]
+
+    class_total: dict[str, int] = {}
+    for cls in classes:
+        c_id = cls["id"]
+        total = 0
+        for lesson in problem["lessons"]:
+            if c_id in lesson["school_class_ids"]:
+                total += lesson["hours_per_week"]
+        class_total[c_id] = total
+
+    quotients: list[cp_model.IntVar] = []
+    for cls in classes:
+        c_id = cls["id"]
+        total = class_total[c_id]
+        if total == 0:
+            continue
+        # c_count[day]: sum over anchors covering (c_id, day) of N(l) * y[..]
+        c_count_terms: dict[int, list[cp_model.LinearExpr]] = {day: [] for day in days_set}
+        for (l_id, day, _start_pos, _r_id), var in anchor_vars.items():
+            lesson = lesson_lookup[l_id]
+            if c_id not in lesson["school_class_ids"]:
+                continue
+            n = lesson["preferred_block_size"]
+            c_count_terms[day].append(n * var)
+        c_count_vars: dict[int, cp_model.IntVar] = {}
+        for day in days_set:
+            cc = model.new_int_var(0, total, f"ccount_{c_id}_{day}")
+            terms = c_count_terms[day]
+            if terms:
+                model.add(cc == cp_model.LinearExpr.sum(terms))
+            else:
+                model.add(cc == 0)
+            c_count_vars[day] = cc
+        dev_vars: list[cp_model.IntVar] = []
+        for day in days_set:
+            dev = model.new_int_var(0, total * d, f"dev_{c_id}_{day}")
+            model.add_abs_equality(dev, c_count_vars[day] * d - total)
+            dev_vars.append(dev)
+        scaled = model.new_int_var(0, total * d * d, f"scaled_{c_id}")
+        model.add(scaled == cp_model.LinearExpr.sum(dev_vars))
+        quotient = model.new_int_var(0, total * d, f"quotient_{c_id}")
+        model.add_division_equality(quotient, scaled, d)
+        quotients.append(quotient)
+
+    return _W_CLASS_DAY_BALANCE * cp_model.LinearExpr.sum(quotients) if quotients else 0
+
+
+def _emit_objective(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> None:
+    """Build CP-SAT model objective mirroring solver_core::score_solution.
+
+    Five summands: subject_preference (per-anchor constant coefficient),
+    home_room (per-anchor constant coefficient), class_gap (per-(class,
+    day, position) channeling), teacher_gap (per-(teacher, day, position)
+    channeling), class_day_balance (per-class abs-equality plus
+    division-equality). See docs/superpowers/specs/2026-05-07-cpsat-objective-parity-design.md
+    for the encoding rationale.
+    """
+    summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
+    summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
+    summand_class_gap = _objective_gap_term(
+        model, problem, anchor_vars, lookups, scope_kind="class", weight=_W_CLASS_GAP
+    )
+    summand_teacher_gap = _objective_gap_term(
+        model, problem, anchor_vars, lookups, scope_kind="teacher", weight=_W_TEACHER_GAP
+    )
+    summand_class_day_balance = _objective_class_day_balance_term(
+        model, problem, anchor_vars, lookups
+    )
+    model.minimize(
+        summand_subject_pref
+        + summand_home_room
+        + summand_class_gap
+        + summand_teacher_gap
+        + summand_class_day_balance
+    )
 
 
 def _extract_placements(
