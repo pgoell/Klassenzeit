@@ -505,6 +505,38 @@ def _objective_subject_preference_terms(
     return cp_model.LinearExpr.sum(terms) if terms else 0
 
 
+def _objective_home_room_term(
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-anchor constant coefficient for the home_room axis.
+
+    Sum over class in lesson.school_class_ids of
+    (mismatch ? weights.prefer_home_room * N : 0). Mirrors
+    score::home_room_penalty per-placement aggregated over the N-block
+    window. Multi-class lessons accumulate per-class contributions;
+    classes without home_room_id contribute 0.
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    home_room_by_class: dict[str, str | None] = {
+        c["id"]: c.get("home_room_id") for c in problem["school_classes"]
+    }
+
+    terms: list[cp_model.LinearExpr] = []
+    for (l_id, _day, _start_pos, room_id), var in anchor_vars.items():
+        lesson = lesson_lookup[l_id]
+        n = lesson["preferred_block_size"]
+        coeff = 0
+        for class_id in lesson["school_class_ids"]:
+            home_room_id = home_room_by_class.get(class_id)
+            if home_room_id is not None and home_room_id != room_id:
+                coeff += _W_PREFER_HOME_ROOM * n
+        if coeff:
+            terms.append(coeff * var)
+    return cp_model.LinearExpr.sum(terms) if terms else 0
+
+
 def _emit_objective(
     model: cp_model.CpModel,
     problem: dict[str, Any],
@@ -521,7 +553,8 @@ def _emit_objective(
     for the encoding rationale.
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
-    model.minimize(summand_subject_pref)
+    summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
+    model.minimize(summand_subject_pref + summand_home_room)
 
 
 def _extract_placements(

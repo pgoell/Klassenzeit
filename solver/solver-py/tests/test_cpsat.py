@@ -336,3 +336,68 @@ def test_cpsat_objective_value_equals_score_solution_on_subject_preference_probl
     assert out["model_objective_value"] == canonical
     # Witness that CP-SAT actually steers: objective is 1, not the worst-case 5.
     assert out["model_objective_value"] == 1
+
+
+def _cpsat_home_room_problem() -> str:
+    """Two classes with distinct home_rooms, one shared lesson placed in
+    one room. Per score_solution: per-placement, per-class additive
+    penalty when class.home_room_id != placement.room_id.
+
+    Two TBs, two rooms (one is class 50's home, one is class 51's home),
+    one shared single-block 2h lesson. Model must pick a room and pay
+    weights.prefer_home_room * 2 (mismatched class, 2 placements).
+    """
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10), "day_of_week": 0, "position": 0},
+                {"id": _cpsat_uuid(11), "day_of_week": 0, "position": 1},
+            ],
+            "teachers": [{"id": _cpsat_uuid(20), "max_hours_per_week": 5}],
+            "rooms": [
+                {"id": _cpsat_uuid(30)},
+                {"id": _cpsat_uuid(31)},
+            ],
+            "subjects": [{"id": _cpsat_uuid(40)}],
+            "school_classes": [
+                {"id": _cpsat_uuid(50), "home_room_id": _cpsat_uuid(30)},
+                {"id": _cpsat_uuid(51), "home_room_id": _cpsat_uuid(31)},
+            ],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60),
+                    "school_class_ids": [_cpsat_uuid(50), _cpsat_uuid(51)],
+                    "subject_id": _cpsat_uuid(40),
+                    "teacher_id": _cpsat_uuid(20),
+                    "hours_per_week": 2,
+                    "preferred_block_size": 1,
+                }
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": _cpsat_uuid(20), "subject_id": _cpsat_uuid(40)}
+            ],
+            "teacher_blocked_times": [],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_cpsat_objective_value_equals_score_solution_on_home_room_problem() -> None:
+    """home_room axis: a multi-class lesson placed in either room
+    mismatches exactly one class's home_room, contributing
+    weights.prefer_home_room (= 5) per placement. With 2 placements (2h
+    single-block), the per-block contribution is 10. Both placements
+    accumulate so total = 10 * 2 = 20... no, score_solution iterates per
+    placement; 2 placements * 1 mismatched class * 5 = 10.
+    """
+    problem_json = _cpsat_home_room_problem()
+    out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
+    out = json.loads(out_json)
+    assert out["model_objective_value"] is not None
+    canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
+    assert out["model_objective_value"] == canonical
+    # Witness: every room is one class's home and the other's mismatch.
+    # 2 placements * 1 mismatched class * weight 5 = 10.
+    assert out["model_objective_value"] == 10
