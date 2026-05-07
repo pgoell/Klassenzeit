@@ -24,9 +24,9 @@ const LAHC_LIST_LEN: usize = 500;
 
 /// Run the LAHC loop over the placement set produced by greedy. Mutates
 /// `placements` and the partition / used-* state in place via `state`. The
-/// post-LAHC running total ends up in `state.soft_score`. Records timing
-/// probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into `stats`
-/// against `solve_start` so the wall-clock origin is shared with
+/// post-LAHC running total ends up in `state.search_score_slice`. Records
+/// timing probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into
+/// `stats` against `solve_start` so the wall-clock origin is shared with
 /// `solve_with_config_stats`'s entry instead of LAHC's own start.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper threading stats + clock origin
 pub(crate) fn run(
@@ -49,7 +49,7 @@ pub(crate) fn run(
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
-    let mut lahc_list = vec![state.soft_score; LAHC_LIST_LEN];
+    let mut lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
@@ -94,21 +94,32 @@ pub(crate) fn run(
         .collect();
     // Sum of `hours_per_week` across all lessons is the placement-count floor:
     // every lesson-hour materialises as one `Placement`. The LAHC loop can exit
-    // early once this floor is reached AND `state.soft_score == 0`, since no
-    // further iteration can improve a feasible objective-floor incumbent.
+    // early once this floor is reached AND `state.search_score_slice == 0`,
+    // since no further iteration can improve a feasible objective-floor
+    // incumbent.
     let placements_expected: usize = problem
         .lessons
         .iter()
         .map(|l| l.hours_per_week as usize)
         .sum();
 
-    // Track the running-best soft score so the time-to-optimal probe can
-    // capture the wall-clock of the last improvement. If FFD greedy already
-    // reached `soft_score == 0` and feasibility, ttf and tto are both already
-    // set by `solve_with_config_stats` before LAHC runs; the running_best
-    // initialiser still seeds correctly so a never-improving LAHC leaves them
-    // untouched.
-    let mut running_best = state.soft_score;
+    // Track the running-best canonical score so the time-to-optimal probe
+    // can capture the wall-clock of the last improvement. LAHC accepts on
+    // canonical (item 52); ttf still gates on feasibility + slice floor as
+    // before. If FFD greedy already reached `canonical_score == 0` and
+    // feasibility, ttf and tto are both already set by
+    // `solve_with_config_stats` before LAHC runs; the `running_best`
+    // initialiser still seeds correctly so a never-improving LAHC leaves
+    // them untouched.
+    let mut running_best = state.canonical_score;
+    // Item 52: snapshot the running-best canonical placements so LAHC's
+    // accept criterion (which can drift the current canonical above the
+    // post-greedy canonical) does not contaminate the returned incumbent.
+    // Initialised to the post-greedy placements; refreshed on every
+    // running-best canonical event; restored at LAHC loop exit so the
+    // returned `solution.soft_score <= greedy_solution.soft_score` invariant
+    // holds across deadline / max_iter / early-exit paths.
+    let mut best_placements: Vec<Placement> = placements.clone();
 
     let mut iter: u64 = 0;
     while iter < max_iter && solve_start.elapsed() < deadline {
@@ -149,6 +160,7 @@ pub(crate) fn run(
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup,
                 &tb_by_day_pos,
                 pinned,
                 placements,
@@ -174,6 +186,7 @@ pub(crate) fn run(
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup,
                 &max_position_per_day,
                 &config.weights,
                 placements,
@@ -186,21 +199,35 @@ pub(crate) fn run(
         }
 
         iter += 1;
-        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.soft_score;
+        lahc_list[(iter as usize - 1) % LAHC_LIST_LEN] = state.canonical_score;
         if stats.time_to_first_feasible_ms.is_none()
-            && state.soft_score == 0
+            && state.canonical_score == 0
             && placements.len() == placements_expected
         {
             stats.time_to_first_feasible_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.soft_score < running_best {
-            running_best = state.soft_score;
+        if state.canonical_score < running_best {
+            running_best = state.canonical_score;
+            best_placements = placements.clone();
             stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.soft_score == 0 && placements.len() == placements_expected {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            state.canonical_score,
+            crate::score::score_solution(problem, placements, &config.weights),
+            "LAHC must keep state.canonical_score == score_solution(...) at every iteration tail",
+        );
+        if state.canonical_score == 0 && placements.len() == placements_expected {
             break;
         }
     }
+    // Item 52: restore the running-best canonical placements at every loop
+    // exit (deadline, max_iter, early-exit). After this assignment,
+    // `state.search_score_slice` and `state.canonical_score` may not match
+    // `placements`; that is fine because `solve_with_config_stats` reads
+    // neither field after `lahc::run` returns and recomputes
+    // `solution.soft_score = score_solution(problem, &solution.placements, weights)`.
+    *placements = best_placements;
 }
 
 /// Attempt one Change move: move `placements[placement_idx]` to time-block
@@ -216,6 +243,7 @@ fn try_change_move(
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     max_position_per_day: &HashMap<u8, u8>,
     weights: &ConstraintWeights,
     placements: &mut [Placement],
@@ -368,17 +396,77 @@ fn try_change_move(
         weights,
     ) + subject_pref_delta;
 
-    let new_score_signed = i64::from(state.soft_score) + delta;
+    let new_score_signed = i64::from(state.search_score_slice) + delta;
     debug_assert!(
         new_score_signed >= 0,
         "running score must remain non-negative; current_score={} delta={}",
-        state.soft_score,
+        state.search_score_slice,
         delta
     );
     let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
 
+    // Canonical delta: slice delta + home_room delta + class_day_balance delta.
+    // Both new axes short-circuit when their weight is zero or when the move
+    // does not affect the axis (same-day moves leave class_day_balance
+    // unchanged). Pure, allocation-free.
+    let home_room_delta: i64 = if weights.prefer_home_room == 0 {
+        0
+    } else {
+        let mut acc: i64 = 0;
+        for class in class_ids {
+            let old_pen = crate::score::home_room_penalty_one_class(
+                *class,
+                home_room_lookup,
+                p.room_id,
+                weights,
+            );
+            let new_pen = crate::score::home_room_penalty_one_class(
+                *class,
+                home_room_lookup,
+                new_room_id,
+                weights,
+            );
+            acc += i64::from(new_pen) - i64::from(old_pen);
+        }
+        acc
+    };
+
+    let class_day_balance_delta: i64 =
+        if weights.class_day_balance == 0 || old_tb.day_of_week == new_tb.day_of_week {
+            0
+        } else {
+            let days = problem
+                .time_blocks
+                .iter()
+                .map(|tb| tb.day_of_week)
+                .max()
+                .map(|m| m.saturating_add(1))
+                .unwrap_or(0);
+            let mut acc: i64 = 0;
+            for class in class_ids {
+                let pre = crate::score::class_day_balance_cost_for_class(
+                    *class,
+                    days,
+                    &state.class_positions,
+                );
+                let post = crate::score::class_day_balance_cost_for_class_with_swap(
+                    *class,
+                    days,
+                    &state.class_positions,
+                    old_tb.day_of_week,
+                    new_tb.day_of_week,
+                );
+                acc += i64::from(post) - i64::from(pre);
+            }
+            i64::from(weights.class_day_balance) * acc
+        };
+
+    let canonical_delta = delta + home_room_delta + class_day_balance_delta;
+    let new_canonical_signed = i64::from(state.canonical_score) + canonical_delta;
+    let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
+
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let accept = new_score <= state.soft_score || new_score <= prior;
+    let accept = new_canonical <= state.canonical_score || new_canonical <= prior;
     if !accept {
         return false;
     }
@@ -395,7 +483,8 @@ fn try_change_move(
         placements,
         state,
     );
-    state.soft_score = new_score;
+    state.search_score_slice = new_score;
+    state.canonical_score = new_canonical;
     true
 }
 
@@ -848,7 +937,8 @@ fn rr_attempt(
     let chosen_count = anchors.len().min(RR_K);
     let chosen: Vec<(LessonId, u8)> = anchors.into_iter().take(chosen_count).collect();
 
-    let pre_score = state.soft_score;
+    let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
     let pre_count = placements.len();
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
     for (lesson_id, day) in &chosen {
@@ -957,7 +1047,8 @@ fn rr_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -967,22 +1058,29 @@ fn rr_attempt(
         return false;
     }
 
-    // `try_place_block` accumulates against `state.soft_score`, but `rr_ruin_block`
-    // does not subtract the removed placement's gap contribution from soft_score.
-    // For a successful recreate, the post-recreate `state.soft_score` therefore
-    // drifts; subsequent Change moves operate on a stale score and the
-    // non-negative-delta invariant inside `try_change_move` can fail. Recompute
-    // exactly here so the LAHC gate decides on correct numbers and downstream
-    // moves see a consistent score. Use the slice-only helper rather than
+    // `try_place_block` accumulates against `state.search_score_slice`, but
+    // `rr_ruin_block` does not subtract the removed placement's gap
+    // contribution from the slice. For a successful recreate, the
+    // post-recreate `state.search_score_slice` therefore drifts; subsequent
+    // Change moves operate on a stale score and the non-negative-delta
+    // invariant inside `try_change_move` can fail. Recompute exactly here so
+    // the LAHC gate decides on correct numbers and downstream moves see a
+    // consistent score. Use the slice-only helper rather than
     // `score::score_solution` because greedy / Change / Kempe maintain the
-    // class_gap + teacher_gap + subj_pref slice; including class_day_balance or
-    // home_room here contaminates `state.soft_score` and downstream Change-move
-    // deltas (slice-only) drive it negative over time.
-    let new_score =
+    // class_gap + teacher_gap + subj_pref slice; including class_day_balance
+    // or home_room here contaminates `state.search_score_slice` and
+    // downstream Change-move deltas (slice-only) drive it negative over time.
+    let new_slice =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
-    state.soft_score = new_score;
+    state.search_score_slice = new_slice;
+    let new_canonical = crate::score::score_solution(problem, placements, weights);
+    state.canonical_score = new_canonical;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    // Item 52: R&R accepts on canonical so the move's home_room and
+    // class_day_balance contributions are gated alongside class_gap /
+    // teacher_gap / subject_pref. The slice ride-along stays so downstream
+    // Change moves still maintain `state.search_score_slice` consistently.
+    let lahc_ok = new_canonical <= pre_canonical || new_canonical <= prior;
     if !lahc_ok {
         rr_rollback(
             &recreated_rows,
@@ -992,7 +1090,8 @@ fn rr_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -1650,6 +1749,7 @@ fn kempe_attempt(
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
     tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
     pinned: &HashSet<LessonId>,
     placements: &mut Vec<Placement>,
@@ -1660,7 +1760,8 @@ fn kempe_attempt(
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
-    let pre_score = state.soft_score;
+    let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
 
     // Seed pick: rr_collect_anchors filters (lesson, day) where FFD packed
     // multiple N=1 blocks of the same lesson on one day. See its doc
@@ -1780,6 +1881,47 @@ fn kempe_attempt(
         state,
     );
 
+    // Snapshot per-affected-class day-count vectors before ruin so the
+    // canonical class_day_balance delta can be computed pre/post without
+    // re-walking the full classes list. Pre-ruin so the math matches the
+    // gap_delta pattern (gap_delta = post-apply - pre-ruin).
+    let canonical_days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
+    let mut affected_classes: Vec<SchoolClassId> = Vec::new();
+    {
+        let mut seen: HashSet<SchoolClassId> = HashSet::new();
+        for &lesson_id in &chain_order {
+            let Some(lesson) = lesson_lookup.get(&lesson_id) else {
+                continue;
+            };
+            for class in &lesson.school_class_ids {
+                if seen.insert(*class) {
+                    affected_classes.push(*class);
+                }
+            }
+        }
+    }
+    let class_day_counts_pre: Vec<(SchoolClassId, Vec<u32>)> = affected_classes
+        .iter()
+        .map(|class_id| {
+            let counts: Vec<u32> = (0..canonical_days)
+                .map(|day| {
+                    state
+                        .class_positions
+                        .get(&(*class_id, day))
+                        .map(|v| v.len() as u32)
+                        .unwrap_or(0)
+                })
+                .collect();
+            (*class_id, counts)
+        })
+        .collect();
+
     let mut removed_subject_pref: u32 = 0;
     let mut snapshots: Vec<(LessonId, u8, BlockSnapshot)> = Vec::with_capacity(chain_order.len());
     for &lesson_id in &chain_order {
@@ -1795,7 +1937,8 @@ fn kempe_attempt(
                     placements,
                     state,
                 );
-                state.soft_score = pre_score;
+                state.search_score_slice = pre_slice;
+                state.canonical_score = pre_canonical;
                 return false;
             }
         };
@@ -1823,7 +1966,8 @@ fn kempe_attempt(
                     placements,
                     state,
                 );
-                state.soft_score = pre_score;
+                state.search_score_slice = pre_slice;
+                state.canonical_score = pre_canonical;
                 return false;
             }
         };
@@ -1955,17 +2099,104 @@ fn kempe_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         return false;
     }
 
     let gap_delta = kempe_post_score_delta(&partition_snapshot, state, weights);
     let subject_pref_delta = i64::from(added_subject_pref) - i64::from(removed_subject_pref);
     let total_delta = gap_delta + subject_pref_delta;
-    let new_score_signed = i64::from(pre_score) + total_delta;
-    let new_score = u32::try_from(new_score_signed.max(0)).unwrap_or(u32::MAX);
+    let new_slice_signed = i64::from(pre_slice) + total_delta;
+    let new_slice = u32::try_from(new_slice_signed.max(0)).unwrap_or(u32::MAX);
+
+    // Canonical home_room delta: walk snapshot rows for `removed`,
+    // recreated_in_order rows for `added`. Mirror's the existing
+    // removed_subject_pref / added_subject_pref accumulation pattern.
+    let home_room_delta: i64 = if weights.prefer_home_room == 0 {
+        0
+    } else {
+        let mut removed_home_room: u32 = 0;
+        let mut added_home_room: u32 = 0;
+        for (lesson_id, _src, snap) in snapshots.iter() {
+            let Some(lesson) = lesson_lookup.get(lesson_id) else {
+                continue;
+            };
+            for row in &snap.rows {
+                for class in &lesson.school_class_ids {
+                    removed_home_room = removed_home_room.saturating_add(
+                        crate::score::home_room_penalty_one_class(
+                            *class,
+                            home_room_lookup,
+                            row.room_id,
+                            weights,
+                        ),
+                    );
+                }
+            }
+        }
+        for (lesson_id, dest_d, dest_start_pos) in recreated_in_order.iter() {
+            let Some(lesson) = lesson_lookup.get(lesson_id) else {
+                continue;
+            };
+            let n = lesson.preferred_block_size;
+            for k in 0..n {
+                let row_pos = dest_start_pos + k;
+                let Some(tb_id) = tb_by_day_pos.get(&(*dest_d, row_pos)) else {
+                    continue;
+                };
+                let Some(p) = placements
+                    .iter()
+                    .find(|p| p.lesson_id == *lesson_id && p.time_block_id == *tb_id)
+                else {
+                    continue;
+                };
+                for class in &lesson.school_class_ids {
+                    added_home_room =
+                        added_home_room.saturating_add(crate::score::home_room_penalty_one_class(
+                            *class,
+                            home_room_lookup,
+                            p.room_id,
+                            weights,
+                        ));
+                }
+            }
+        }
+        i64::from(added_home_room) - i64::from(removed_home_room)
+    };
+
+    // Canonical class_day_balance delta: per-affected-class pre-cost from
+    // the pre-ruin snapshot, post-cost from the now-mutated state.
+    let class_day_balance_delta: i64 = if weights.class_day_balance == 0 {
+        0
+    } else {
+        let mut acc: i64 = 0;
+        for (class_id, pre_counts) in &class_day_counts_pre {
+            let pre_cost = crate::score::class_day_balance_cost_for_class_from_counts(
+                *class_id,
+                canonical_days,
+                pre_counts,
+            );
+            let post_cost = crate::score::class_day_balance_cost_for_class(
+                *class_id,
+                canonical_days,
+                &state.class_positions,
+            );
+            acc += i64::from(post_cost) - i64::from(pre_cost);
+        }
+        i64::from(weights.class_day_balance) * acc
+    };
+
+    let canonical_delta = total_delta + home_room_delta + class_day_balance_delta;
+    let new_canonical_signed = i64::from(pre_canonical) + canonical_delta;
+    let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
+
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
-    let lahc_ok = new_score <= pre_score || new_score <= prior;
+    // Item 52: Kempe accepts on canonical (slice + home_room + class_day_balance)
+    // so chain swaps that strictly improve slice while worsening canonical
+    // are rejected. The slice ride-along stays so the next Change move sees
+    // a consistent `state.search_score_slice` baseline.
+    let lahc_ok = new_canonical <= pre_canonical || new_canonical <= prior;
     if !lahc_ok {
         kempe_rollback(
             &recreated_in_order,
@@ -1976,10 +2207,12 @@ fn kempe_attempt(
             placements,
             state,
         );
-        state.soft_score = pre_score;
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
         return false;
     }
-    state.soft_score = new_score;
+    state.search_score_slice = new_slice;
+    state.canonical_score = new_canonical;
     true
 }
 
@@ -2104,9 +2337,10 @@ fn kempe_rollback(
 
 /// Recompute the running-score slice (`class_gap + teacher_gap + subject_pref`)
 /// from `placements`. Matches the slice greedy / Change / Kempe maintain on
-/// `state.soft_score`. R&R uses this after a successful recreate because
-/// `rr_ruin_block` does not decrement the removed contribution and a fresh
-/// `score::score_solution` would over-count by `class_day_balance + home_room`.
+/// `state.search_score_slice`. R&R uses this after a successful recreate
+/// because `rr_ruin_block` does not decrement the removed contribution and a
+/// fresh `score::score_solution` would over-count by
+/// `class_day_balance + home_room`.
 fn running_slice_from_placements(
     problem: &Problem,
     placements: &[Placement],
@@ -2664,7 +2898,8 @@ mod tests {
         state.used_teacher.insert((teacher, tb_zero));
         state.used_class.insert((class, tb_zero));
         state.used_room.insert((room, tb_zero));
-        state.soft_score = 1; // avoid_first penalty active at position 0
+        state.search_score_slice = 1; // avoid_first penalty active at position 0
+        state.canonical_score = 1;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2698,7 +2933,7 @@ mod tests {
             placements[0].time_block_id, tb_one,
             "LAHC should move the avoid-first lesson off position 0"
         );
-        assert_eq!(state.soft_score, 0);
+        assert_eq!(state.search_score_slice, 0);
     }
 
     #[test]
@@ -2802,7 +3037,8 @@ mod tests {
         state.used_class.insert((class, tb_one));
         state.used_room.insert((room, tb_zero));
         state.used_room.insert((room, tb_one));
-        state.soft_score = 1; // avoid_first penalty active at position 0
+        state.search_score_slice = 1; // avoid_first penalty active at position 0
+        state.canonical_score = 1;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -2977,7 +3213,8 @@ mod tests {
         state.used_class.insert((class_b, tb_zero));
         state.used_room.insert((room_a, tb_zero));
         state.used_room.insert((room_b, tb_zero));
-        state.soft_score = 2;
+        state.search_score_slice = 2;
+        state.canonical_score = 2;
 
         let config = SolveConfig {
             weights: ConstraintWeights {
@@ -3387,7 +3624,7 @@ mod tests {
         *state.hours_by_teacher.entry(teacher1).or_insert(0) = 1;
         state.locked_room.insert((class, 0, subject), (room, 1));
         state.locked_room.insert((class, 1, subject), (room, 1));
-        state.soft_score = 0;
+        state.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem_for_attempt);
         let lesson_lookup: HashMap<LessonId, &Lesson> = problem_for_attempt
@@ -3433,6 +3670,7 @@ mod tests {
             let mut snap_placements = placements.clone();
             let mut snap_state = clone_state(&state);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let ok = kempe_attempt(
                 &problem_for_attempt,
                 &idx,
@@ -3441,6 +3679,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut snap_placements,
@@ -3489,7 +3728,8 @@ mod tests {
             locked_room: s.locked_room.clone(),
             subject_hours_by_class_day: s.subject_hours_by_class_day.clone(),
             lessons_by_class_day: s.lessons_by_class_day.clone(),
-            soft_score: s.soft_score,
+            search_score_slice: s.search_score_slice,
+            canonical_score: s.canonical_score,
         }
     }
 
@@ -4100,7 +4340,7 @@ mod tests {
         *state.hours_by_teacher.entry(teacher1).or_insert(0) = 2;
         state.locked_room.insert((class, 0, subject), (room, 2));
         state.locked_room.insert((class, 1, subject), (room, 2));
-        state.soft_score = 0;
+        state.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem);
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -4134,6 +4374,7 @@ mod tests {
             let mut snap_p = placements.clone();
             let mut snap_s = clone_state(&state);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let ok = kempe_attempt(
                 &problem,
                 &idx,
@@ -4142,6 +4383,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut snap_p,
@@ -4430,7 +4672,7 @@ mod tests {
         state_pre
             .locked_room
             .insert((class_lock, 1, subject), (room_a, 1));
-        state_pre.soft_score = 0;
+        state_pre.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem);
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -4468,6 +4710,7 @@ mod tests {
             let mut p = placements_pre.clone();
             let mut s = clone_state(&state_pre);
             let mut rng = SmallRng::seed_from_u64(seed);
+            let home_room_lookup_test: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
             let accepted = kempe_attempt(
                 &problem,
                 &idx,
@@ -4476,6 +4719,7 @@ mod tests {
                 &lesson_lookup,
                 &tb_lookup,
                 &subject_lookup,
+                &home_room_lookup_test,
                 &tb_by_day_pos,
                 &pinned,
                 &mut p,
@@ -4508,7 +4752,7 @@ mod tests {
             assert_eq!(s.teacher_positions, state_pre.teacher_positions);
             assert_eq!(s.hours_by_teacher, state_pre.hours_by_teacher);
             assert_eq!(s.locked_room, state_pre.locked_room);
-            assert_eq!(s.soft_score, state_pre.soft_score);
+            assert_eq!(s.search_score_slice, state_pre.search_score_slice);
         }
         assert!(
             saw_reject,

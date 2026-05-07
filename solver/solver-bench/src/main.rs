@@ -1611,9 +1611,9 @@ mod tests {
         );
         assert!(
             out.contains(
-                "class_gap, teacher_gap, prefer_early, avoid_first, avoid_last, prefer_late"
+                "class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late"
             ),
-            "lahc family optimised set rendered incorrectly: {out}",
+            "lahc family optimised set rendered incorrectly (item 52: lahc accepts on full canonical): {out}",
         );
         assert!(
             out.contains("(none)"),

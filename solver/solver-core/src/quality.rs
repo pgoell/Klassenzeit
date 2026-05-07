@@ -373,22 +373,11 @@ pub fn backend_objective(name: &str) -> Option<&'static BackendObjective> {
 static BACKEND_OBJECTIVES: OnceLock<Vec<BackendObjective>> = OnceLock::new();
 
 fn build_backend_objectives() -> Vec<BackendObjective> {
-    use QualityComponent::*;
-    let lahc_optimised: BTreeSet<QualityComponent> = [
-        ClassGap,
-        TeacherGap,
-        PreferEarly,
-        AvoidFirst,
-        AvoidLast,
-        PreferLate,
-    ]
-    .into_iter()
-    .collect();
-    let lahc_skipped: BTreeSet<QualityComponent> =
-        [HomeRoom, ClassDayBalance].into_iter().collect();
-    let lahc_notes = "LAHC slice is class_gap + teacher_gap + subject_pref \
-                      (see solve.rs:291-292); item 52 widens it; item 54 \
-                      adds class-day-balance to the search hot path.";
+    let lahc_optimised: BTreeSet<QualityComponent> =
+        QualityComponent::ALL.iter().copied().collect();
+    let lahc_skipped: BTreeSet<QualityComponent> = BTreeSet::new();
+    let lahc_notes = "LAHC accepts and exits on the full canonical (see lahc::run); \
+                      item 54 reserved for FFD greedy-time class-day-balance tiebreak.";
     let cpsat_optimised: BTreeSet<QualityComponent> = BTreeSet::new();
     let cpsat_skipped: BTreeSet<QualityComponent> = QualityComponent::ALL.iter().copied().collect();
     let cpsat_notes = "Today minimises 0 (cpsat.py); item 48 ports the \
@@ -404,8 +393,8 @@ fn build_backend_objectives() -> Vec<BackendObjective> {
             name: "lahc_rr",
             optimised: lahc_optimised.clone(),
             declared_skipped: lahc_skipped.clone(),
-            notes: "Inherits LAHC's slice; R&R recreate ranks by soft delta \
-                    after item 49.",
+            notes: "Inherits LAHC's canonical objective; R&R recreate ranks rooms by \
+                    home_room delta after item 49.",
         },
         BackendObjective {
             name: "lahc_rr_kempe",

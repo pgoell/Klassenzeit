@@ -99,7 +99,7 @@ pub struct SolveStats {
     pub time_to_first_feasible_ms: Option<f64>,
     /// Wall-clock from `solve_with_config_stats` entry to the last
     /// running-best improvement. `Some(0.0)` when FFD greedy is already at
-    /// `state.soft_score == 0` and feasible. `None` when no LAHC iteration
+    /// `state.search_score_slice == 0` and feasible. `None` when no LAHC iteration
     /// improved the running-best (or LAHC was not run because deadline is
     /// `None`). Note that LAHC has no proof of optimality; `time_to_optimal_ms`
     /// is a lower bound on the actual optimisation cost (the time of the LAST

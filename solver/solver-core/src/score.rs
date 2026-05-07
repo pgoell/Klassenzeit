@@ -171,6 +171,142 @@ pub(crate) fn class_day_balance_cost(
     total
 }
 
+/// Per-class scaled L1 day-balance cost. Walks the class's per-day counts
+/// twice (sum, then scaled), no allocation, returns the unweighted cost
+/// for the single class. Caller multiplies by `weights.class_day_balance`.
+/// Used by LAHC Change-move and Kempe delta paths so the canonical
+/// objective stays incrementally maintained without allocating
+/// `Vec<u32>(days)` per call. The cold-path `class_day_balance_cost`
+/// equals the sum of this helper across `problem.school_classes`.
+pub(crate) fn class_day_balance_cost_for_class(
+    class_id: SchoolClassId,
+    days: u8,
+    class_positions: &HashMap<(SchoolClassId, u8), Vec<u8>>,
+) -> u32 {
+    if days == 0 {
+        return 0;
+    }
+    let d = u32::from(days);
+    let mut sum: u32 = 0;
+    for day in 0..days {
+        sum = sum.saturating_add(
+            class_positions
+                .get(&(class_id, day))
+                .map(|v| v.len() as u32)
+                .unwrap_or(0),
+        );
+    }
+    if sum == 0 {
+        return 0;
+    }
+    let mut scaled: u32 = 0;
+    for day in 0..days {
+        let c = class_positions
+            .get(&(class_id, day))
+            .map(|v| v.len() as u32)
+            .unwrap_or(0);
+        scaled = scaled.saturating_add(c.saturating_mul(d).abs_diff(sum));
+    }
+    scaled / d
+}
+
+/// Variant of `class_day_balance_cost_for_class` that overlays a virtual
+/// move of one count from `old_day` to `new_day` (single placement swap)
+/// without mutating `class_positions`. Returns the per-class scaled L1
+/// cost as if the move had been applied. Used by LAHC Change-move's
+/// canonical delta to compute pre/post for one class without allocation.
+pub(crate) fn class_day_balance_cost_for_class_with_swap(
+    class_id: SchoolClassId,
+    days: u8,
+    class_positions: &HashMap<(SchoolClassId, u8), Vec<u8>>,
+    old_day: u8,
+    new_day: u8,
+) -> u32 {
+    if days == 0 || old_day == new_day {
+        return class_day_balance_cost_for_class(class_id, days, class_positions);
+    }
+    let d = u32::from(days);
+    let mut sum: u32 = 0;
+    for day in 0..days {
+        sum = sum.saturating_add(
+            class_positions
+                .get(&(class_id, day))
+                .map(|v| v.len() as u32)
+                .unwrap_or(0),
+        );
+    }
+    if sum == 0 {
+        return 0;
+    }
+    let mut scaled: u32 = 0;
+    for day in 0..days {
+        let raw = class_positions
+            .get(&(class_id, day))
+            .map(|v| v.len() as u32)
+            .unwrap_or(0);
+        let c = if day == old_day {
+            raw.saturating_sub(1)
+        } else if day == new_day {
+            raw.saturating_add(1)
+        } else {
+            raw
+        };
+        scaled = scaled.saturating_add(c.saturating_mul(d).abs_diff(sum));
+    }
+    scaled / d
+}
+
+/// Per-class scaled L1 day-balance cost computed from a pre-captured
+/// counts vector (`counts[day] = placements_for_class_on_day`).
+/// Caller supplies the counts; useful when the canonical delta needs
+/// the cost against a snapshot that is no longer in `class_positions`
+/// (for example Kempe's pre-apply snapshot).
+pub(crate) fn class_day_balance_cost_for_class_from_counts(
+    _class_id: SchoolClassId,
+    days: u8,
+    counts: &[u32],
+) -> u32 {
+    if days == 0 || counts.is_empty() {
+        return 0;
+    }
+    let d = u32::from(days);
+    let mut sum: u32 = 0;
+    for c in counts.iter().take(usize::from(days)) {
+        sum = sum.saturating_add(*c);
+    }
+    if sum == 0 {
+        return 0;
+    }
+    let mut scaled: u32 = 0;
+    for c in counts.iter().take(usize::from(days)) {
+        scaled = scaled.saturating_add(c.saturating_mul(d).abs_diff(sum));
+    }
+    scaled / d
+}
+
+/// Per-class home_room penalty. Returns `weights.prefer_home_room` if
+/// the class has a `home_room_id` and the given `room_id` differs;
+/// 0 otherwise. Used by LAHC Change-move and Kempe canonical deltas
+/// where the per-row home_room contribution is needed without
+/// re-walking `lesson.school_class_ids` inside the existing
+/// `home_room_penalty(lesson, ...)` path. Pure, allocation-free.
+pub(crate) fn home_room_penalty_one_class(
+    class_id: SchoolClassId,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    room_id: RoomId,
+    weights: &ConstraintWeights,
+) -> u32 {
+    if weights.prefer_home_room == 0 {
+        return 0;
+    }
+    if let Some(Some(home_id)) = home_room_lookup.get(&class_id) {
+        if *home_id != room_id {
+            return weights.prefer_home_room;
+        }
+    }
+    0
+}
+
 /// Count gap-hours in a sorted, deduplicated `positions` slice. A gap-hour is
 /// an ordinal strictly between `positions.first()` and `positions.last()` that
 /// does not appear in `positions`.
@@ -1192,5 +1328,68 @@ mod tests {
         };
         let placements = [place(60, 10), place(60, 11), place(60, 12), place(60, 13)];
         assert_eq!(score_solution(&p, &placements, &weights), 30);
+    }
+
+    #[test]
+    fn class_day_balance_cost_for_class_matches_full_cost_per_class() {
+        let class_a = SchoolClassId(score_uuid(91));
+        let class_b = SchoolClassId(score_uuid(92));
+        let mut by_class_day: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        by_class_day.insert((class_a, 0), vec![0, 1, 2]);
+        by_class_day.insert((class_a, 1), vec![0]);
+        by_class_day.insert((class_b, 2), vec![0, 1]);
+        let classes = vec![
+            SchoolClass {
+                id: class_a,
+                home_room_id: None,
+                max_lessons_per_day: None,
+            },
+            SchoolClass {
+                id: class_b,
+                home_room_id: None,
+                max_lessons_per_day: None,
+            },
+        ];
+        let days: u8 = 5;
+        let total = class_day_balance_cost(&by_class_day, &classes, days);
+        let per_class_a = class_day_balance_cost_for_class(class_a, days, &by_class_day);
+        let per_class_b = class_day_balance_cost_for_class(class_b, days, &by_class_day);
+        assert_eq!(per_class_a + per_class_b, total);
+    }
+
+    #[test]
+    fn class_day_balance_cost_for_class_with_swap_matches_post_apply_recompute() {
+        let class = SchoolClassId(score_uuid(93));
+        let mut pre: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        pre.insert((class, 0), vec![0, 1, 2]);
+        pre.insert((class, 2), vec![0]);
+        let predicted = class_day_balance_cost_for_class_with_swap(class, 5, &pre, 0, 3);
+        let mut post = pre.clone();
+        let day0 = post.get_mut(&(class, 0)).unwrap();
+        day0.pop();
+        post.entry((class, 3)).or_default().push(0);
+        let actual = class_day_balance_cost_for_class(class, 5, &post);
+        assert_eq!(predicted, actual);
+    }
+
+    #[test]
+    fn home_room_penalty_one_class_matches_lesson_walk_for_single_class_lesson() {
+        let class = SchoolClassId(score_uuid(94));
+        let home = RoomId(score_uuid(95));
+        let other = RoomId(score_uuid(96));
+        let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
+        lookup.insert(class, Some(home));
+        let weights = ConstraintWeights {
+            prefer_home_room: 7,
+            ..ConstraintWeights::default()
+        };
+        assert_eq!(
+            home_room_penalty_one_class(class, &lookup, other, &weights),
+            7
+        );
+        assert_eq!(
+            home_room_penalty_one_class(class, &lookup, home, &weights),
+            0
+        );
     }
 }
