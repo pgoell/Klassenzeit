@@ -19,7 +19,6 @@ Items trace back to the specs that introduced them: the [project scaffolding des
 
 ### Schema phase
 
-62. **`SchoolClass.class_teacher_id: uuid.UUID | None` FK to Teacher.** `[P0]` Adds the Klassenlehrer field (server default null, ON DELETE SET NULL). Pydantic + Zod + frontend mirrors. Migration is straightforward (additive nullable column); no data backfill needed. The matching frontend picker lands in the Frontend phase (item 70).
 63. **`Lesson.teacher_id` semantics flip to pin-only.** `[P0]` The column already exists and is already nullable; today null means "auto-assign will fill it before solve" (the production HTTP route runs `auto_assign_teachers_for_lessons` on `POST /generate-lessons`). After this change, null means "let the solver decide; not pinned." No DDL migration; the change is in route handler + solver wire-format semantics only. Solver-py wire-format extension (item 64) is the matching change.
 
 ### Wire-format phase
