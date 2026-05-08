@@ -214,9 +214,7 @@ proptest! {
             seed: 42,
             deadline: Some(Duration::from_secs(60)),
             max_iterations: Some(200),
-            lahc_rr_period: None,
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();
@@ -324,8 +322,7 @@ proptest! {
             deadline: Some(Duration::from_secs(60)),
             max_iterations: Some(200),
             lahc_rr_period: Some(5),
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
         let a = solve_with_config(&p, &cfg).unwrap();
         let b = solve_with_config(&p, &cfg).unwrap();

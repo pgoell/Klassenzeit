@@ -45,6 +45,10 @@ pub struct SolveConfig {
     /// 21 sweeps the value to find the Pareto frontier on (feasibility,
     /// soft-score median).
     pub lahc_rr_k: u32,
+    /// Maximum chain length per Kempe attempt. Active default is `8`. The
+    /// bake-off bench's `--kempe-max-chain` flag overrides this; promoted from
+    /// the private `KEMPE_MAX_CHAIN` constant under OPEN_THINGS item 23.
+    pub lahc_kempe_max_chain: u32,
 }
 
 impl Default for SolveConfig {
@@ -57,6 +61,7 @@ impl Default for SolveConfig {
             lahc_rr_period: None,
             lahc_kempe_period: None,
             lahc_rr_k: 5,
+            lahc_kempe_max_chain: 8,
         }
     }
 }
