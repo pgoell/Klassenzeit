@@ -45,6 +45,8 @@ from klassenzeit_solver import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -114,6 +116,49 @@ async def _resolve_anchor_class(db: AsyncSession, class_id: UUID | None) -> Scho
             detail="no school classes configured; cannot solve",
         )
     return first
+
+
+def _candidates_for_lesson(
+    lesson: Lesson,
+    teacher_qualifications: Sequence[TeacherQualification],
+    teacher_availabilities: Sequence[TeacherAvailability],
+    class_tb_ids: set[UUID],
+) -> list[str]:
+    """Compute the per-Lesson candidate teacher set (item 64).
+
+    A teacher is a candidate iff they are qualified for the lesson's subject
+    AND their availability overlaps at least one of the WeekScheme's time
+    blocks. A teacher with NO ``TeacherAvailability`` row at all is treated as
+    universally available (matching the no-blocked-times convention used to
+    build ``teacher_blocked_times``); any explicit row, available or blocked,
+    flips the teacher into the must-overlap-explicitly regime.
+
+    Output is sorted by teacher uuid ascending; the pin (if set and
+    qualifying) is moved to the front so the algorithm-phase PR (item 68) can
+    iterate the list in determined order.
+    """
+    qualified: set[UUID] = {
+        q.teacher_id for q in teacher_qualifications if q.subject_id == lesson.subject_id
+    }
+    teachers_with_any_row: set[UUID] = set()
+    available_by_teacher: dict[UUID, set[UUID]] = {}
+    for a in teacher_availabilities:
+        teachers_with_any_row.add(a.teacher_id)
+        if a.status == "available":
+            available_by_teacher.setdefault(a.teacher_id, set()).add(a.time_block_id)
+
+    def _has_overlap(tid: UUID) -> bool:
+        if tid not in teachers_with_any_row:
+            # No availability rows = universally available (production convention).
+            return True
+        return bool(available_by_teacher.get(tid, set()) & class_tb_ids)
+
+    candidates: list[UUID] = sorted(tid for tid in qualified if _has_overlap(tid))
+    pin = lesson.teacher_id
+    if pin is not None and pin in candidates:
+        candidates.remove(pin)
+        candidates.insert(0, pin)
+    return [str(t) for t in candidates]
 
 
 async def build_problem_json(
@@ -203,7 +248,7 @@ async def build_problem_json(
             detail="no rooms configured; cannot solve",
         )
 
-    teacher_ids = {lesson.teacher_id for lesson in lessons}
+    pinned_teacher_ids = {lesson.teacher_id for lesson in lessons if lesson.teacher_id is not None}
     subject_ids = {lesson.subject_id for lesson in lessons}
     # Sentinel UUID used when a filter set is empty: SQLAlchemy's
     # ``in_(empty_set)`` raises on some driver combinations, so we pass a set
@@ -211,11 +256,6 @@ async def build_problem_json(
     # while ensuring no spurious matches.
     sentinel: set[UUID] = {UUID(int=0)}
 
-    teachers = (
-        ((await db.execute(select(Teacher).where(Teacher.id.in_(teacher_ids)))).scalars().all())
-        if teacher_ids
-        else []
-    )
     subjects = (
         ((await db.execute(select(Subject).where(Subject.id.in_(subject_ids)))).scalars().all())
         if subject_ids
@@ -225,17 +265,27 @@ async def build_problem_json(
     time_block_ids = {tb.id for tb in time_blocks}
     room_ids = {r.id for r in rooms}
 
+    # Load every TeacherQualification for the lessons' subjects so the per-Lesson
+    # candidate set (item 64) considers all qualified teachers, not just the pin.
     teacher_qualifications = (
         (
             await db.execute(
                 select(TeacherQualification).where(
-                    TeacherQualification.teacher_id.in_(teacher_ids or sentinel),
                     TeacherQualification.subject_id.in_(subject_ids or sentinel),
                 )
             )
         )
         .scalars()
         .all()
+    )
+
+    qualified_teacher_ids = {q.teacher_id for q in teacher_qualifications}
+    teacher_ids = pinned_teacher_ids | qualified_teacher_ids
+
+    teachers = (
+        ((await db.execute(select(Teacher).where(Teacher.id.in_(teacher_ids)))).scalars().all())
+        if teacher_ids
+        else []
     )
 
     teacher_availabilities = (
@@ -329,7 +379,13 @@ async def build_problem_json(
                 "id": str(lesson.id),
                 "school_class_ids": [str(cid) for cid in classes_by_lesson.get(lesson.id, [])],
                 "subject_id": str(lesson.subject_id),
-                "teacher_id": str(lesson.teacher_id),
+                "teacher_candidates": _candidates_for_lesson(
+                    lesson,
+                    teacher_qualifications,
+                    teacher_availabilities,
+                    time_block_ids,
+                ),
+                "teacher_pin": str(lesson.teacher_id) if lesson.teacher_id else None,
                 "hours_per_week": lesson.hours_per_week,
                 "preferred_block_size": lesson.preferred_block_size,
                 "lesson_group_id": (

@@ -533,7 +533,8 @@ def _minimal_runnable_problem() -> dict:
                 "id": lesson,
                 "school_class_ids": [klass],
                 "subject_id": subject,
-                "teacher_id": teacher,
+                "teacher_candidates": [teacher],
+                "teacher_pin": teacher,
                 "hours_per_week": 1,
             }
         ],
@@ -1126,6 +1127,63 @@ async def test_build_problem_json_omits_pinned_placements_defaults_to_empty_list
     problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
     parsed = json.loads(problem_json)
     assert parsed["pinned_placements"] == []
+
+
+async def test_build_problem_json_emits_teacher_candidates_and_pin(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """``build_problem_json`` emits per-Lesson ``teacher_candidates`` + ``teacher_pin``.
+
+    Candidates: qualified teachers whose availability overlaps the class's
+    time blocks; sorted by teacher uuid ascending; the pin appears first.
+    The legacy ``teacher_id`` key is gone.
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    await create_room()
+    teacher_a = await create_teacher()
+    teacher_b = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher_a.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher_a.id, subject_id=subject.id))
+    db_session.add(TeacherQualification(teacher_id=teacher_b.id, subject_id=subject.id))
+    db_session.add(
+        TeacherAvailability(teacher_id=teacher_a.id, time_block_id=tb.id, status="available")
+    )
+    db_session.add(
+        TeacherAvailability(teacher_id=teacher_b.id, time_block_id=tb.id, status="available")
+    )
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem = json.loads(problem_json)
+    [emitted_lesson] = [item for item in problem["lessons"] if item["id"] == str(lesson.id)]
+    assert "teacher_candidates" in emitted_lesson
+    assert "teacher_pin" in emitted_lesson
+    assert emitted_lesson["teacher_pin"] == str(teacher_a.id)
+    assert str(teacher_a.id) in emitted_lesson["teacher_candidates"]
+    assert str(teacher_b.id) in emitted_lesson["teacher_candidates"]
+    # Pin appears first in the candidate list.
+    assert emitted_lesson["teacher_candidates"][0] == str(teacher_a.id)
+    # The legacy teacher_id key is gone.
+    assert "teacher_id" not in emitted_lesson
 
 
 async def test_collect_pinned_placements_returns_empty_when_all_excluded(
