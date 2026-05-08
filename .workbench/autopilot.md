@@ -16,6 +16,14 @@ Squash: yes
 Hooks:
 - post_pr: python3 .claude/commands/post_brainstorm_comments.py {{pr}}
 
+## Required skills
+
+| Step | Skill | Action |
+|---|---|---|
+| 6 | `fewer-permission-prompts` | additional |
+
+`fewer-permission-prompts` is a Claude-Code-specific tooling skill that scans recent transcripts for read-only commands and merges them into `.claude/settings.json`. Klassenzeit runs it at step 6 (after the session-learnings + improver pair) so the allowlist stays in sync with actual usage.
+
 ## Project-specific rules
 
 **Solver-binding rebuild discipline.** When a subagent runs Python or backend integration tests that consume `klassenzeit_solver` (the maturin-built PyO3 binding) AFTER an earlier task in the same autopilot run touched `solver/solver-core/` or `solver/solver-py/`, the agent's prompt MUST include `mise run solver:rebuild` as an explicit step before pytest. Otherwise the binding is stale and the agent observes phantom wire-format bugs (a Sprint A subagent misdiagnosed a non-existent `kind`-as-tagged-dict bug from a stale binding). Same shape applies to `mise run fe:types` after backend Pydantic schema changes if the next task touches frontend types.
@@ -28,5 +36,8 @@ Hooks:
 - When the item that ships was promoted from a `## Open <topic> follow-ups` stub (the stub's body says `[Promoted to P0, see active-sprint item N]` or similar), DELETE the stub too. The promoted-and-shipped chain leaves no trace.
 - PR-number references that name PRs from the lifetime of an open item (e.g., "the regression PR #171 left this xfail behind") are fine: those name a still-relevant historical anchor for an open item. The rule is about closed items, not historical references.
 - `## Reference data` (e.g., the Hessen Grundschule reference table) is research that future sprints consume and stays in the file.
+- When closing an item that takes a previously-unassigned ADR number, `grep -n "ADR <NNNN>" docs/OPEN_THINGS.md` and refresh every stale reference in the same commit. Items can pre-claim an ADR number in their bodies (e.g., item 47 said "open ADR 0035 (next-available number)" before item 55 actually claimed 0035), and stale references can sit in unrelated items' bodies, in section preambles, and in the active-sprint header. The plan's edit list often only enumerates references inside the closing item itself, missing the others.
 
 **`DONE_WITH_CONCERNS` triage.** If a subagent reports `DONE_WITH_CONCERNS` and the concern is in-scope (perf-budget regression on a solver task, an unfixed lint, a missing test the spec required), fix it before committing, either in the main session or by re-dispatching with the gap added to the acceptance criteria. Do not carry the concern into the PR. For algorithm-phase work specifically, include the BASELINE.md 20% regression budget as an explicit acceptance criterion in the subagent prompt so the agent knows to optimise within its own task rather than surface the breach.
+
+**Upstream-state check on tool-named P0 spikes.** When a P0 OPEN_THINGS item names a specific external tool (Timefold, Choco Solver, OptaPlanner successor, etc.), do a quick PyPI / GitHub status check before brainstorming the integration path. Upstream archive status, Python-version compatibility against `mise.toml`'s pin, and EOL signals can flip the spike's outcome from "integrate" to "document and reject with concrete reasons". Item 55 (ADR 0035) flipped to rejection because Timefold's Python binding was archived 2025-10-06, supports Python 3.10-3.12 only (we pin 3.14.2), and the Java path violated the item's "bounded spike, do not let this become a product rewrite" framing.
