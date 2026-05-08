@@ -16,14 +16,6 @@ Squash: yes
 Hooks:
 - post_pr: python3 .claude/commands/post_brainstorm_comments.py {{pr}}
 
-## Required skills
-
-| Step | Skill | Action |
-|---|---|---|
-| 6 | `fewer-permission-prompts` | additional |
-
-`fewer-permission-prompts` is a Claude-Code-specific tooling skill that scans recent transcripts for read-only commands and merges them into `.claude/settings.json`. Klassenzeit runs it at step 6 (after the session-learnings + improver pair) so the allowlist stays in sync with actual usage.
-
 ## Project-specific rules
 
 **Solver-binding rebuild discipline.** When a subagent runs Python or backend integration tests that consume `klassenzeit_solver` (the maturin-built PyO3 binding) AFTER an earlier task in the same autopilot run touched `solver/solver-core/` or `solver/solver-py/`, the agent's prompt MUST include `mise run solver:rebuild` as an explicit step before pytest. Otherwise the binding is stale and the agent observes phantom wire-format bugs (a Sprint A subagent misdiagnosed a non-existent `kind`-as-tagged-dict bug from a stale binding). Same shape applies to `mise run fe:types` after backend Pydantic schema changes if the next task touches frontend types.

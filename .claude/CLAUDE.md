@@ -30,7 +30,7 @@ Before opening a PR, run `agent-system-management:capturing-session-learnings` i
 
 Keep things that are out of scope for a step, or that you notice as tech debt or todos, in `docs/OPEN_THINGS.md`, ordered by importance. Don't add duplicates.
 
-**`workbench:autopilot`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. The reusable loop lives in the workbench plugin; Klassenzeit-specific overrides (automerge mode, post-PR brainstorm comment hook, solver-rebuild discipline, OPEN_THINGS hygiene, `fewer-permission-prompts` as additional step-6 skill) live in `.workbench/autopilot.md`. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
+**`workbench:autopilot`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. The reusable loop lives in the workbench plugin; Klassenzeit-specific overrides (automerge mode, post-PR brainstorm comment hook, solver-rebuild discipline, OPEN_THINGS hygiene) live in `.workbench/autopilot.md`. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
 
 ## Work selection: quality first, tidy first
 
