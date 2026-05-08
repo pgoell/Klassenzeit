@@ -5,6 +5,10 @@ commit-msg:
 
 pre-commit:
   commands:
+    openthings-html:
+      glob: "docs/OPEN_THINGS.md"
+      run: mise run gen:openthings-html
+      stage_fixed: true
     lint:
       run: mise run lint
 
