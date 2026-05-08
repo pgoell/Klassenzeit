@@ -438,6 +438,11 @@ pub struct Placement {
     pub time_block_id: TimeBlockId,
     /// Room the lesson was placed into.
     pub room_id: RoomId,
+    /// Teacher chosen by the solver from the lesson's `teacher_candidates`.
+    /// When `Lesson.teacher_pin` is `Some`, this matches the pin; otherwise
+    /// the solver picks (algorithm-phase PR for item 68 widens the picker;
+    /// today the solver picks via `Lesson::assigned_teacher_id`).
+    pub teacher_id: TeacherId,
 }
 
 /// A single hard-constraint violation recorded by the solver.
@@ -681,6 +686,7 @@ mod tests {
                 lesson_id: lesson_id(),
                 time_block_id: TimeBlockId(Uuid::nil()),
                 room_id: RoomId(Uuid::nil()),
+                teacher_id: TeacherId(Uuid::nil()),
             }],
             violations: vec![Violation {
                 kind: ViolationKind::TeacherOverCapacity,

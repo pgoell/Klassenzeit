@@ -6,11 +6,11 @@
 //! emits `NoQualifiedTeacher` violations for every lesson whose teacher lacks
 //! the subject qualification.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::Error;
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::types::{Placement, Problem, Violation, ViolationKind};
+use crate::types::{Lesson, Placement, Problem, Violation, ViolationKind};
 
 /// Validate a `Problem` against purely structural rules: non-empty core
 /// collections, unique IDs, known references, `hours_per_week > 0`.
@@ -523,6 +523,43 @@ pub fn validate_no_double_booking(
     Ok(())
 }
 
+/// Post-condition validator: every Placement.teacher_id is in the corresponding
+/// Lesson's teacher_candidates, and matches teacher_pin when the pin is set.
+///
+/// A failure here indicates a solver bug, not malformed input. Pattern matches
+/// `validate_no_double_booking` / `validate_no_room_hopping` /
+/// `validate_daily_caps`: returns `Err(Error::Input)` so the caller can `?`-bail.
+pub fn validate_placement_teacher_in_candidates(
+    problem: &Problem,
+    placements: &[Placement],
+) -> Result<(), Error> {
+    let lesson_by_id: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    for placement in placements {
+        let lesson = lesson_by_id.get(&placement.lesson_id).ok_or_else(|| {
+            Error::Input(format!(
+                "placement references unknown lesson {:?}",
+                placement.lesson_id
+            ))
+        })?;
+        if let Some(pin) = lesson.teacher_pin {
+            if placement.teacher_id != pin {
+                return Err(Error::Input(format!(
+                    "placement teacher {:?} does not match lesson pin {:?}",
+                    placement.teacher_id, pin
+                )));
+            }
+        }
+        if !lesson.teacher_candidates.contains(&placement.teacher_id) {
+            return Err(Error::Input(format!(
+                "placement teacher {:?} not in lesson candidates {:?}",
+                placement.teacher_id, lesson.teacher_candidates
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Scan lessons for teacher / subject pairs that are not in
 /// `teacher_qualifications` and record one `NoQualifiedTeacher` violation per
 /// hour on the affected lesson.
@@ -857,11 +894,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         validate_daily_caps(&p, &placements).unwrap();
@@ -876,11 +915,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_daily_caps(&p, &placements).unwrap_err();
@@ -901,11 +942,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[2].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_daily_caps(&p, &placements).unwrap_err();
@@ -921,11 +964,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         validate_daily_caps(&p, &placements).unwrap();
@@ -946,11 +991,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         validate_no_double_booking(&p, &placements).unwrap();
@@ -976,11 +1023,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1012,11 +1061,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1056,11 +1107,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1093,11 +1146,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1119,6 +1174,7 @@ mod tests {
             lesson_id: p.lessons[0].id,
             time_block_id: p.time_blocks[0].id,
             room_id: p.rooms[0].id,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         validate_no_double_booking(&p, &placements).unwrap();
     }
@@ -1142,16 +1198,19 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[2].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1175,11 +1234,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1206,11 +1267,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[1].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1234,11 +1297,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[1].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1281,11 +1346,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[1].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         validate_no_double_booking(&p, &placements).unwrap();
@@ -1324,11 +1391,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[1].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1362,11 +1431,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[1].id,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();

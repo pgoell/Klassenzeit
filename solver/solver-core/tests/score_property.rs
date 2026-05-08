@@ -170,7 +170,7 @@ proptest! {
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
         };
-        let placements = [Placement { lesson_id, time_block_id: tb_id, room_id }];
+        let placements = [Placement { lesson_id, time_block_id: tb_id, room_id, teacher_id }];
         let weights = ConstraintWeights {
             prefer_early_period: weight,
             ..ConstraintWeights::default()
@@ -223,7 +223,7 @@ proptest! {
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
         };
-        let placements = [Placement { lesson_id, time_block_id: tb_id, room_id }];
+        let placements = [Placement { lesson_id, time_block_id: tb_id, room_id, teacher_id }];
         let weights = ConstraintWeights {
             avoid_first_period: weight,
             ..ConstraintWeights::default()

@@ -17,7 +17,7 @@ use crate::types::{
 };
 use crate::validate::{
     pre_solve_violations, validate_daily_caps, validate_no_double_booking,
-    validate_no_room_hopping, validate_structural,
+    validate_no_room_hopping, validate_placement_teacher_in_candidates, validate_structural,
 };
 
 #[cfg(feature = "solver-trace")]
@@ -294,6 +294,7 @@ pub fn solve_with_config_stats(
     validate_no_room_hopping(problem, &solution.placements)?;
     validate_no_double_booking(problem, &solution.placements)?;
     validate_daily_caps(problem, &solution.placements)?;
+    validate_placement_teacher_in_candidates(problem, &solution.placements)?;
 
     // state.search_score_slice is the LAHC running slice (class_gap +
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted
@@ -830,6 +831,7 @@ pub(crate) fn try_place_block(
             lesson_id: lesson.id,
             time_block_id: tb.id,
             room_id: c.room_id,
+            teacher_id: teacher,
         });
         state.used_teacher.insert((teacher, tb.id));
         for class in class_ids {
@@ -1217,16 +1219,16 @@ fn try_place_group(
 
     for (member_pos, member) in members.iter().enumerate() {
         let room_id = c.rooms[member_pos];
+        let member_teacher = member.assigned_teacher_id();
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
             placements.push(Placement {
                 lesson_id: member.id,
                 time_block_id: tb.id,
                 room_id,
+                teacher_id: member_teacher,
             });
-            state
-                .used_teacher
-                .insert((member.assigned_teacher_id(), tb.id));
+            state.used_teacher.insert((member_teacher, tb.id));
             state.used_room.insert((room_id, tb.id));
         }
         *state
@@ -1407,11 +1409,13 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
             continue;
         }
 
+        let pin_teacher = lesson.assigned_teacher_id();
         for pin in &pins {
             seed.push(Placement {
                 lesson_id: pin.lesson_id,
                 time_block_id: pin.time_block_id,
                 room_id: pin.room_id,
+                teacher_id: pin_teacher,
             });
         }
         pinned_set.insert(lesson_id);

@@ -679,6 +679,7 @@ fn apply_change_move(
         lesson_id: old_p.lesson_id,
         time_block_id: new_tb.id,
         room_id: new_room_id,
+        teacher_id: teacher,
     };
 
     for class in class_ids {
@@ -1698,6 +1699,7 @@ fn kempe_apply_block(
             lesson_id: lesson.id,
             time_block_id: tb_id,
             room_id,
+            teacher_id: teacher,
         });
         state.used_teacher.insert((teacher, tb_id));
         for class in &lesson.school_class_ids {
@@ -2450,6 +2452,7 @@ mod tests {
             lesson_id,
             time_block_id: tb.id,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.used_teacher.insert((teacher, tb.id));
@@ -2512,11 +2515,13 @@ mod tests {
                 lesson_id: lesson_a,
                 time_block_id: tb_a.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_b,
                 time_block_id: tb_b.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -2567,11 +2572,13 @@ mod tests {
                 lesson_id,
                 time_block_id: tb_a.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id,
                 time_block_id: tb_b.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -2660,16 +2667,19 @@ mod tests {
                 lesson_id: lesson_free,
                 time_block_id: tbs[0].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_pinned,
                 time_block_id: tbs[1].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_grouped,
                 time_block_id: tbs[2].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
 
@@ -2785,6 +2795,7 @@ mod tests {
             lesson_id,
             time_block_id: old_tb.id,
             room_id: old_room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.class_positions.insert((class, 0), vec_part(&[0]));
@@ -2899,6 +2910,7 @@ mod tests {
             lesson_id: lesson,
             time_block_id: tb_zero,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.class_positions.insert((class, 0), vec_part(&[0]));
@@ -3026,11 +3038,13 @@ mod tests {
                 lesson_id: lesson,
                 time_block_id: tb_zero,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson,
                 time_block_id: tb_one,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -3198,11 +3212,13 @@ mod tests {
                 lesson_id: lesson_a,
                 time_block_id: tb_zero,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_b,
                 time_block_id: tb_zero,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -3600,11 +3616,13 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let teacher0 = problem_for_attempt.lessons[0].assigned_teacher_id();
@@ -3757,16 +3775,19 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[2],
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -3814,11 +3835,13 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -3862,11 +3885,13 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -4038,21 +4063,25 @@ mod tests {
                 lesson_id: l0,
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l0,
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l1,
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l2,
                 time_block_id: tb_d1_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
 
@@ -4158,6 +4187,7 @@ mod tests {
                 lesson_id: lesson_ids[i as usize],
                 time_block_id: if i % 2 == 0 { tb_d0 } else { tb_d1 },
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             })
             .collect();
 
@@ -4346,21 +4376,25 @@ mod tests {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -4656,21 +4690,25 @@ mod tests {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p0,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p0,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_lock_d1,
                 time_block_id: tb_d1_p0,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_lock_d0,
                 time_block_id: tb_d0_p0,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state_pre = crate::solve::GreedyState::new();
@@ -4886,6 +4924,7 @@ mod tests {
             lesson_id: lesson,
             time_block_id: tb_d0_p4,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
             problem.lessons.iter().map(|l| (l.id, l)).collect();

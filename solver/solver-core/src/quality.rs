@@ -498,6 +498,7 @@ mod tests {
             lesson_id: LessonId(quality_uuid(lesson_id)),
             time_block_id: TimeBlockId(quality_uuid(tb_id)),
             room_id: RoomId(quality_uuid(room_id)),
+            teacher_id: TeacherId(quality_uuid(20)),
         }
     }
 

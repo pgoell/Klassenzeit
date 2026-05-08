@@ -580,6 +580,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(lesson_id)),
             time_block_id: TimeBlockId(score_uuid(tb_id)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(score_uuid(20)),
         }
     }
 
@@ -899,6 +900,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(11)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements, &weights), 2);
     }
@@ -915,6 +917,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(10)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements_at_zero, &weights), 7);
         // At position 1: contribution = 0.
@@ -922,6 +925,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(11)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements_at_one, &weights), 0);
     }
@@ -1099,6 +1103,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(10)),
             room_id: RoomId(score_uuid(31)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements, &weights), 7);
     }
@@ -1331,6 +1336,7 @@ mod tests {
             lesson_id,
             time_block_id: TimeBlockId(score_uuid(tb)),
             room_id,
+            teacher_id: TeacherId(Uuid::nil()),
         };
         // p(11) is day 0 max (pos 1); p(14) is day 1 max (pos 2). Two hits at
         // weight 3 = 6.
