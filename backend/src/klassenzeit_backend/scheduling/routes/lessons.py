@@ -5,7 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
@@ -14,7 +14,7 @@ from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
-from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
+from klassenzeit_backend.db.models.teacher import Teacher
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.lesson import (
@@ -24,9 +24,6 @@ from klassenzeit_backend.scheduling.schemas.lesson import (
     LessonSubjectResponse,
     LessonTeacherResponse,
     LessonUpdate,
-)
-from klassenzeit_backend.scheduling.teacher_assignment import (
-    auto_assign_teachers_for_lessons,
 )
 
 logger = logging.getLogger(__name__)
@@ -388,40 +385,6 @@ async def generate_lessons_from_stundentafel(
     )
     await db.flush()
 
-    teachers_result = await db.execute(
-        select(Teacher).where(Teacher.is_active.is_(True)).order_by(Teacher.short_code, Teacher.id)
-    )
-    teachers = list(teachers_result.scalars().all())
-
-    quals_result = await db.execute(
-        select(TeacherQualification.subject_id, TeacherQualification.teacher_id)
-    )
-    qualified_teacher_ids_by_subject: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for subject_id, teacher_id in quals_result.all():
-        qualified_teacher_ids_by_subject.setdefault(subject_id, set()).add(teacher_id)
-
-    used_result = await db.execute(
-        select(Lesson.teacher_id, func.sum(Lesson.hours_per_week))
-        .where(Lesson.teacher_id.is_not(None))
-        .group_by(Lesson.teacher_id)
-    )
-    capacity_used_by_teacher: dict[uuid.UUID, int] = {
-        row[0]: int(row[1] or 0) for row in used_result.all()
-    }
-    for teacher in teachers:
-        capacity_used_by_teacher.setdefault(teacher.id, 0)
-
-    assignments = auto_assign_teachers_for_lessons(
-        lessons=created,
-        teachers=teachers,
-        qualified_teacher_ids_by_subject=qualified_teacher_ids_by_subject,
-        capacity_used_by_teacher=capacity_used_by_teacher,
-    )
-    for lesson in created:
-        teacher_id = assignments.get(lesson.id)
-        if teacher_id is not None:
-            lesson.teacher_id = teacher_id
-
     await db.commit()
 
     logger.info(
@@ -429,7 +392,6 @@ async def generate_lessons_from_stundentafel(
         extra={
             "school_class_id": str(class_id),
             "lessons_created": len(created),
-            "teachers_assigned": len(assignments),
         },
     )
 
