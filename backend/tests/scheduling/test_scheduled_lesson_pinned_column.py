@@ -12,14 +12,15 @@ from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 @pytest.mark.asyncio
 async def test_scheduled_lesson_pinned_defaults_false(
     db_session: AsyncSession,
-    seeded_lesson_for_pinning: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    seeded_lesson_for_pinning: tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID],
 ) -> None:
-    lesson_id, time_block_id, room_id = seeded_lesson_for_pinning
+    lesson_id, time_block_id, room_id, teacher_id = seeded_lesson_for_pinning
     db_session.add(
         ScheduledLesson(
             lesson_id=lesson_id,
             time_block_id=time_block_id,
             room_id=room_id,
+            teacher_id=teacher_id,
         )
     )
     await db_session.flush()
@@ -34,14 +35,15 @@ async def test_scheduled_lesson_pinned_defaults_false(
 @pytest.mark.asyncio
 async def test_scheduled_lesson_pinned_round_trips_true(
     db_session: AsyncSession,
-    seeded_lesson_for_pinning: tuple[uuid.UUID, uuid.UUID, uuid.UUID],
+    seeded_lesson_for_pinning: tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID],
 ) -> None:
-    lesson_id, time_block_id, room_id = seeded_lesson_for_pinning
+    lesson_id, time_block_id, room_id, teacher_id = seeded_lesson_for_pinning
     db_session.add(
         ScheduledLesson(
             lesson_id=lesson_id,
             time_block_id=time_block_id,
             room_id=room_id,
+            teacher_id=teacher_id,
             pinned=True,
         )
     )

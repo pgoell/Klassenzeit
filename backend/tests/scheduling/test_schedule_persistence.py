@@ -33,10 +33,10 @@ async def _seed_class_with_lesson(
     create_school_class,
     *,
     class_name: str,
-) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
     """Seed one class with one lesson, one time_block, one room.
 
-    Returns ``(class_id, lesson_id, time_block_id, room_id)``.
+    Returns ``(class_id, lesson_id, time_block_id, room_id, teacher_id)``.
     """
     subject = await create_subject()
     week_scheme = await create_week_scheme()
@@ -64,7 +64,7 @@ async def _seed_class_with_lesson(
     await db_session.flush()
     db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
     await db_session.flush()
-    return cls.id, lesson.id, tb.id, room.id
+    return cls.id, lesson.id, tb.id, room.id, teacher.id
 
 
 async def test_persist_writes_rows_for_placements(
@@ -77,7 +77,7 @@ async def test_persist_writes_rows_for_placements(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_id, lesson_id, tb_id, room_id = await _seed_class_with_lesson(
+    class_id, lesson_id, tb_id, room_id, teacher_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -90,7 +90,12 @@ async def test_persist_writes_rows_for_placements(
     )
     filtered = {
         "placements": [
-            {"lesson_id": str(lesson_id), "time_block_id": str(tb_id), "room_id": str(room_id)},
+            {
+                "lesson_id": str(lesson_id),
+                "time_block_id": str(tb_id),
+                "room_id": str(room_id),
+                "teacher_id": str(teacher_id),
+            },
         ],
         "violations": [],
     }
@@ -113,7 +118,7 @@ async def test_persist_replaces_existing_rows_for_class(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_id, lesson_id, tb_id, room_id = await _seed_class_with_lesson(
+    class_id, lesson_id, tb_id, room_id, teacher_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -127,7 +132,12 @@ async def test_persist_replaces_existing_rows_for_class(
     other_room = await create_room()
     first = {
         "placements": [
-            {"lesson_id": str(lesson_id), "time_block_id": str(tb_id), "room_id": str(room_id)},
+            {
+                "lesson_id": str(lesson_id),
+                "time_block_id": str(tb_id),
+                "room_id": str(room_id),
+                "teacher_id": str(teacher_id),
+            },
         ],
         "violations": [],
     }
@@ -137,6 +147,7 @@ async def test_persist_replaces_existing_rows_for_class(
                 "lesson_id": str(lesson_id),
                 "time_block_id": str(tb_id),
                 "room_id": str(other_room.id),
+                "teacher_id": str(teacher_id),
             },
         ],
         "violations": [],
@@ -160,7 +171,7 @@ async def test_persist_empty_result_clears_rows(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_id, lesson_id, tb_id, room_id = await _seed_class_with_lesson(
+    class_id, lesson_id, tb_id, room_id, teacher_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -173,7 +184,12 @@ async def test_persist_empty_result_clears_rows(
     )
     filtered_first = {
         "placements": [
-            {"lesson_id": str(lesson_id), "time_block_id": str(tb_id), "room_id": str(room_id)},
+            {
+                "lesson_id": str(lesson_id),
+                "time_block_id": str(tb_id),
+                "room_id": str(room_id),
+                "teacher_id": str(teacher_id),
+            },
         ],
         "violations": [],
     }
@@ -196,7 +212,7 @@ async def test_persist_class_a_does_not_touch_class_b_rows(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_a_id, lesson_a_id, tb_a_id, room_a_id = await _seed_class_with_lesson(
+    class_a_id, lesson_a_id, tb_a_id, room_a_id, teacher_a_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -207,7 +223,7 @@ async def test_persist_class_a_does_not_touch_class_b_rows(
         create_school_class,
         class_name="1a-persist-isolate-A",
     )
-    class_b_id, lesson_b_id, tb_b_id, room_b_id = await _seed_class_with_lesson(
+    class_b_id, lesson_b_id, tb_b_id, room_b_id, teacher_b_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -224,6 +240,7 @@ async def test_persist_class_a_does_not_touch_class_b_rows(
                 "lesson_id": str(lesson_a_id),
                 "time_block_id": str(tb_a_id),
                 "room_id": str(room_a_id),
+                "teacher_id": str(teacher_a_id),
             },
         ],
         "violations": [],
@@ -234,6 +251,7 @@ async def test_persist_class_a_does_not_touch_class_b_rows(
                 "lesson_id": str(lesson_b_id),
                 "time_block_id": str(tb_b_id),
                 "room_id": str(room_b_id),
+                "teacher_id": str(teacher_b_id),
             },
         ],
         "violations": [],
@@ -260,7 +278,7 @@ async def test_read_returns_empty_list_for_never_scheduled_class(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_id, _lesson_id, _tb_id, _room_id = await _seed_class_with_lesson(
+    class_id, _lesson_id, _tb_id, _room_id, _teacher_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -285,7 +303,7 @@ async def test_read_returns_only_rows_for_requested_class(
     create_stundentafel,
     create_school_class,
 ) -> None:
-    class_a_id, lesson_a_id, tb_a_id, room_a_id = await _seed_class_with_lesson(
+    class_a_id, lesson_a_id, tb_a_id, room_a_id, teacher_a_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -296,7 +314,7 @@ async def test_read_returns_only_rows_for_requested_class(
         create_school_class,
         class_name="1a-read-scope-A",
     )
-    class_b_id, lesson_b_id, tb_b_id, room_b_id = await _seed_class_with_lesson(
+    class_b_id, lesson_b_id, tb_b_id, room_b_id, teacher_b_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -316,6 +334,7 @@ async def test_read_returns_only_rows_for_requested_class(
                     "lesson_id": str(lesson_a_id),
                     "time_block_id": str(tb_a_id),
                     "room_id": str(room_a_id),
+                    "teacher_id": str(teacher_a_id),
                 },
             ],
             "violations": [],
@@ -330,6 +349,7 @@ async def test_read_returns_only_rows_for_requested_class(
                     "lesson_id": str(lesson_b_id),
                     "time_block_id": str(tb_b_id),
                     "room_id": str(room_b_id),
+                    "teacher_id": str(teacher_b_id),
                 },
             ],
             "violations": [],
@@ -347,6 +367,52 @@ async def test_read_raises_404_for_missing_class(db_session: AsyncSession) -> No
     assert excinfo.value.status_code == 404
 
 
+async def test_scheduled_lesson_persists_teacher_id_from_placement(
+    db_session: AsyncSession,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """``persist_solution_for_class`` writes ``Placement.teacher_id`` onto the row.
+
+    Item 65 contract: every ScheduledLesson row carries the teacher the solver
+    picked. Today this matches Lesson.teacher_id because auto-assign runs at
+    the route handler boundary, but the persistence layer always reads the
+    value out of the wire-format placement, not the lesson row.
+    """
+    class_id, lesson_id, tb_id, room_id, teacher_id = await _seed_class_with_lesson(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-persist-teacher",
+    )
+    filtered = {
+        "placements": [
+            {
+                "lesson_id": str(lesson_id),
+                "time_block_id": str(tb_id),
+                "room_id": str(room_id),
+                "teacher_id": str(teacher_id),
+            },
+        ],
+        "violations": [],
+    }
+    await persist_solution_for_class(db_session, class_id, filtered)
+    await db_session.flush()
+    rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].teacher_id == teacher_id
+
+
 async def test_read_schedule_surfaces_pinned_flag(
     db_session: AsyncSession,
     create_subject,
@@ -362,7 +428,7 @@ async def test_read_schedule_surfaces_pinned_flag(
     Regression guard: the helper previously dropped the field when building
     ``PlacementResponse``, masking pin state from per-class GET responses.
     """
-    class_id, lesson_id, tb_id, room_id = await _seed_class_with_lesson(
+    class_id, lesson_id, tb_id, room_id, teacher_id = await _seed_class_with_lesson(
         db_session,
         create_subject,
         create_week_scheme,
@@ -378,6 +444,7 @@ async def test_read_schedule_surfaces_pinned_flag(
             lesson_id=lesson_id,
             time_block_id=tb_id,
             room_id=room_id,
+            teacher_id=teacher_id,
             pinned=True,
         )
     )

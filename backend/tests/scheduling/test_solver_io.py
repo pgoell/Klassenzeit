@@ -1054,8 +1054,18 @@ async def test_collect_pinned_placements_excludes_target_class(
         [
             LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
             LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=class_b.id),
-            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb_a.id, room_id=room_a.id),
-            ScheduledLesson(lesson_id=lesson_b.id, time_block_id=tb_b.id, room_id=room_b.id),
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb_a.id,
+                room_id=room_a.id,
+                teacher_id=teacher.id,
+            ),
+            ScheduledLesson(
+                lesson_id=lesson_b.id,
+                time_block_id=tb_b.id,
+                room_id=room_b.id,
+                teacher_id=teacher.id,
+            ),
         ]
     )
     await db_session.flush()
@@ -1216,7 +1226,12 @@ async def test_collect_pinned_placements_returns_empty_when_all_excluded(
     db_session.add_all(
         [
             LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=class_a.id),
-            ScheduledLesson(lesson_id=lesson_a.id, time_block_id=tb.id, room_id=room.id),
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb.id,
+                room_id=room.id,
+                teacher_id=teacher.id,
+            ),
         ]
     )
     await db_session.flush()
@@ -1285,11 +1300,13 @@ async def test_persist_solution_for_all_classes_writes_every_class(
                 "lesson_id": str(lesson_a.id),
                 "time_block_id": str(tb_a.id),
                 "room_id": str(room.id),
+                "teacher_id": str(teacher.id),
             },
             {
                 "lesson_id": str(lesson_b.id),
                 "time_block_id": str(tb_b.id),
                 "room_id": str(room.id),
+                "teacher_id": str(teacher.id),
             },
         ],
         "violations": [],
@@ -1365,6 +1382,7 @@ async def test_read_schedule_for_teacher_returns_placements_for_teachers_lessons
             lesson_id=lesson.id,
             time_block_id=block.id,
             room_id=room.id,
+            teacher_id=teacher.id,
         )
     )
     await db_session.flush()
@@ -1459,6 +1477,7 @@ async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
             lesson_id=lesson.id,
             time_block_id=block.id,
             room_id=room.id,
+            teacher_id=teacher.id,
         )
     )
     await db_session.flush()

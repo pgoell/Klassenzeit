@@ -16,12 +16,17 @@ class ScheduledLesson(Base):
     legitimately occupy the same time block twice. ``room_id`` is a dependent
     attribute of the pairing, not part of the key.
 
-    All three FKs use ``ON DELETE CASCADE`` because an orphan placement has no
+    All FKs use ``ON DELETE CASCADE`` because an orphan placement has no
     user-facing meaning. The next solve rebuilds whatever placements are still
     consistent with the updated schema.
 
     ``pinned`` flags placements that the user has manually fixed. The solver
     treats pinned placements as immovable on subsequent runs (Sprint C).
+
+    ``teacher_id`` records the teacher the solver picked for this placement
+    (item 65). Today this matches ``Lesson.teacher_id`` because
+    ``auto_assign_teachers_for_lessons`` runs at the route handler boundary;
+    item 68's algorithm change widens this to a real candidate-aware pick.
     """
 
     __tablename__ = "scheduled_lessons"
@@ -33,5 +38,8 @@ class ScheduledLesson(Base):
         ForeignKey("time_blocks.id", ondelete="CASCADE"), primary_key=True
     )
     room_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rooms.id", ondelete="CASCADE"))
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False
+    )
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

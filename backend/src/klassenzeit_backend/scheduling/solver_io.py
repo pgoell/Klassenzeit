@@ -655,6 +655,7 @@ async def persist_solution_for_class(
             lesson_id=UUID(p["lesson_id"]),
             time_block_id=UUID(p["time_block_id"]),
             room_id=UUID(p["room_id"]),
+            teacher_id=UUID(p["teacher_id"]),
             pinned=(UUID(p["lesson_id"]), UUID(p["time_block_id"])) in pin_lookup,
         )
         for p in filtered["placements"]
@@ -755,6 +756,7 @@ async def persist_solution_for_all_classes(
                 lesson_id=lesson_uuid,
                 time_block_id=time_block_uuid,
                 room_id=UUID(p["room_id"]),
+                teacher_id=UUID(p["teacher_id"]),
                 pinned=(lesson_uuid, time_block_uuid) in pin_lookup,
             )
         )
