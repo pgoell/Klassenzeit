@@ -208,9 +208,7 @@ async def build_problem_json(
             detail="class's week_scheme has no time_blocks configured",
         )
 
-    lessons = (
-        (await db.execute(select(Lesson).where(Lesson.teacher_id.is_not(None)))).scalars().all()
-    )
+    lessons = (await db.execute(select(Lesson))).scalars().all()
 
     lesson_ids = [lesson.id for lesson in lessons]
     memberships: list[LessonSchoolClass] = []
