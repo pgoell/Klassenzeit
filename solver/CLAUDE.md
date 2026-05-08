@@ -1,6 +1,6 @@
 # Klassenzeit: Solver Rules
 
-Applies to the `solver/` Cargo workspace (`solver-core` + `solver-py` + `solver-bench`). Assumes the cross-cutting rules in the root `/.claude/CLAUDE.md` (no bare catchalls, unique function names, no dynamic imports, Dockerfile context rules, SHA-pinned third-party actions, Conventional Commits).
+Applies to the `solver/` Cargo workspace (`solver-core` + `solver-py` + `solver-bench`). Assumes the cross-cutting rules in the root `.claude/CLAUDE.md` (no bare catchalls, unique function names, no dynamic imports, Dockerfile context rules, SHA-pinned third-party actions, Conventional Commits).
 
 ## Workspace layout
 
@@ -163,4 +163,4 @@ Bare `solver` scope only when a paired change genuinely spans both crates (e.g.,
 - ADR 0001: monorepo with Cargo and uv workspaces.
 - ADR 0002: solver split into `solver-core` and `solver-py`.
 - Branch `archive/v2` (not merged) holds a prior scheduler iteration under `scheduler/` with LAHC local search, construction + optimisation phases, and a richer violation taxonomy (`ViolationKind::TeacherConflict`, `TeacherGap`, etc.). Useful reference for follow-ups: First-Fit Decreasing ordering, optimisation phase, structured violation names.
-- `docs/OPEN_THINGS.md`: current sprint items and cross-entity validation debate.
+- `docs/OPEN_THINGS.md`: active sprint program, open follow-ups, acknowledged deferrals, and the backlog tiers.

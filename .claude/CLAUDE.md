@@ -30,14 +30,14 @@ Before opening a PR, run `agent-system-management:capturing-session-learnings` i
 
 Keep things that are out of scope for a step, or that you notice as tech debt or todos, in `docs/OPEN_THINGS.md`, ordered by importance. Don't add duplicates.
 
-**`workbench:autopilot`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. The reusable loop lives in the workbench plugin; Klassenzeit-specific overrides (automerge mode, post-PR brainstorm comment hook, solver-rebuild discipline, OPEN_THINGS hygiene, auto-memory refresh, `fewer-permission-prompts` as additional step-6 skill) live in `.workbench/autopilot.md`. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
+**`workbench:autopilot`** runs the full flow end-to-end (brainstorm, spec, plan, implementation, PR, green CI) without checking in at each step. The reusable loop lives in the workbench plugin; Klassenzeit-specific overrides (automerge mode, post-PR brainstorm comment hook, solver-rebuild discipline, OPEN_THINGS hygiene) live in `.workbench/autopilot.md`. Use it whenever the user describes a feature or chore they'd otherwise expect you to walk through step-by-step.
 
 ## Work selection: quality first, tidy first
 
 When picking the next item off `docs/OPEN_THINGS.md` without a more specific directive from the user, prefer **tech debt and quality work over new user-facing features**. Follow Kent Beck's "Tidy First?" heuristic: small structural refactors that make subsequent feature work cheaper and safer come before the features themselves. Concretely:
 
-1. Read OPEN_THINGS.md top to bottom. Skim the "Product capabilities" section last.
-2. Pick the highest-impact item from the "CI / repo automation", "Testing", "Toolchain & build friction", "Auth maintenance", or "Production readiness" sections that is unblocked and fits a single PR.
+1. Read OPEN_THINGS.md top to bottom. The current `## Active sprint program: ...`, `## Open <topic> follow-ups`, and the quality-tier subsections of `## Backlog` (`### CI / repo automation`, `### Testing`, `### Toolchain & build friction`, `### Auth maintenance`, `### Production readiness`) come first; skim `### Product capabilities` last.
+2. Pick the highest-impact item from the active sprint, an open follow-ups section, or one of the quality-tier backlog subsections that is unblocked and fits a single PR.
 3. Structural refactors that remove duplication, collapse drift between near-identical call sites, or replace alert/ad-hoc patterns with shared primitives count as tidy-first and are preferred over feature work.
 4. A structural change and a behavioral change never ship in the same commit. If a tidy-first refactor uncovers a behavior bug, surface the bug and fix it in a separate commit with its own typed prefix (`fix(...)`), not folded into the refactor.
 5. Behavior must be preserved across a tidy commit: tests that passed before must pass after without modification, except where the only change is a test's import path or a mock signature rendered obsolete by the refactor.
