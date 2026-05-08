@@ -59,3 +59,4 @@ sections, and add the new entry to the index below.
 | 0033 | [Solver daily caps and optimum-aware deadline](0033-solver-daily-caps-and-early-exit.md) | Accepted |
 | 0034 | [Bench cell-subprocess architecture and observability columns](0034-bench-cell-subprocess-and-observability.md) | Accepted |
 | 0035 | [Reject Timefold backend](0035-reject-timefold-backend.md) | Accepted |
+| 0036 | [Move teacher assignment to solver decision variable](0036-solver-driven-teacher-assignment.md) | Accepted |
