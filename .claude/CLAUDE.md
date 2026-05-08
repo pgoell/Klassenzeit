@@ -74,16 +74,6 @@ If every quality item in OPEN_THINGS.md is blocked or out of scope for one PR, f
 - **`gh run view --log` returns empty output here** (both the run-level form and the `--job=<id>` form), even on green runs whose job timestamps are visible via `--json jobs`. The same warning interaction that breaks `gh pr edit` appears to short-circuit the streaming-log code path. Workaround: fetch each Test job's full log with `gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs` (where `<job-id>` comes from `gh run view <run-id> --json jobs -q '.jobs[] | select(.name=="Test") | .databaseId'`), then grep for the line of interest (e.g., `Pytest wall-clock:` for the duration-budget gate). Same pattern works for any per-step log line; the API-level endpoint never silently empties.
 - **Ad-hoc Python snippets with third-party deps.** The system `python3` has no `pyyaml`, `coloraide`, or similar. For one-off verification or conversion scripts (YAML diffs of workflow permissions, OKLCH to sRGB hex conversion for `frontend/DESIGN.md` updates, etc.), invoke via `uv run --with <pkg1> --with <pkg2> python3 - <<'EOF' ... EOF` so the pinned `uv` provides the dep. Recurring pairs: `--with pyyaml` (YAML parsing), `--with coloraide` (OKLCH ↔ sRGB hex for DESIGN.md / app.css work).
 
-## Simplicity first
-
-Write the minimum code that solves the problem. Nothing speculative.
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
 ## Coding standards
 
 - **No bare catchalls.** No untyped `catch` in TypeScript, no `Result<_, _>` swallowed with `_` in Rust. Catch the specific error you can handle; let the rest propagate. (Python framing lives in `backend/CLAUDE.md`.)
