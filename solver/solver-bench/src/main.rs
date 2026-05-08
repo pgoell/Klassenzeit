@@ -822,10 +822,11 @@ fn run_lahc_cell(
             None
         },
         rr_period: lahc_rr_period,
-        // Echo the column only when the override was explicitly requested.
-        // Without `--kempe-max-chain`, the cell renders the default depth
-        // internally but reports `None` so the markdown column stays hidden.
-        kempe_max_chain: kempe_max_chain_override,
+        kempe_max_chain: if lahc_kempe_period.is_some() {
+            kempe_max_chain_override
+        } else {
+            None
+        },
     }
 }
 
@@ -1429,6 +1430,13 @@ fn sweep_pareto_non_dominated(cells: &[&CellResult]) -> Vec<SweepTuple> {
 /// (only cells where the cell has feasibility_count > 0 and a soft_score_median).
 /// A (k, period) is eligible only if it appears feasible on every fixture.
 /// Pick min mean; ties broken by smallest period, then smallest K.
+///
+/// Chain-depth axis is not part of the recommendation tie-break: a sweep that
+/// mixes multiple `--kempe-max-chain` values on the same fixture+(K, period)
+/// collapses all depths into one mean. Extending `SweepTuple` to include chain
+/// depth would either widen the tuple for non-Kempe `LahcRr` cells (which never
+/// carry chain depth) or split into parallel groupings; land that if a future
+/// Kempe-tuning sweep proves the simplification harmful.
 fn sweep_recommend(rr_cells: &[(&str, &CellResult)], fixture_count: usize) -> Option<SweepTuple> {
     use std::collections::BTreeMap;
     // (period, k) -> Vec<(fixture, soft)>
