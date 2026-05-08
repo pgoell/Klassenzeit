@@ -1979,6 +1979,8 @@ export interface components {
             week_scheme_id: string;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Class Teacher Id */
+            class_teacher_id?: string | null;
             /** Max Lessons Per Day */
             max_lessons_per_day?: number | null;
         };
@@ -2008,6 +2010,8 @@ export interface components {
             week_scheme_id: string;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Class Teacher Id */
+            class_teacher_id?: string | null;
             /** Max Lessons Per Day */
             max_lessons_per_day?: number | null;
             /**
@@ -2036,6 +2040,8 @@ export interface components {
             week_scheme_id?: string | null;
             /** Home Room Id */
             home_room_id?: string | null;
+            /** Class Teacher Id */
+            class_teacher_id?: string | null;
             /** Max Lessons Per Day */
             max_lessons_per_day?: number | null;
         };

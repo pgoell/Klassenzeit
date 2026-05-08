@@ -22,6 +22,9 @@ class SchoolClass(Base):
     home_room_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True
     )
+    class_teacher_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("teachers.id", ondelete="SET NULL"), nullable=True
+    )
     max_lessons_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

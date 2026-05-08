@@ -63,7 +63,7 @@ If every quality item in OPEN_THINGS.md is blocked or out of scope for one PR, f
 - `mise run fe:types` — regenerate frontend OpenAPI types from the backend
 - `mise run db:up` / `db:stop` / `db:reset` / `db:migrate` — Postgres lifecycle
 - `mise run bench:tests` — time the backend pytest suite, compare to `.test-duration-budget` (PR-2 ratchet, mirrors `.coverage-baseline`). CI runs `pytest --durations=30` plus a budget gate; budget tightens once two or three master runs land at the new floor.
-- **`docs/OPEN_THINGS.html` is auto-rendered from `docs/OPEN_THINGS.md`** (`scripts/render_open_things_html.py`, surfaced via `mise run gen:openthings-html`). Pre-commit runs both `mise run lint` (which calls `check:openthings-html --check` and FAILS hard if the HTML is out of sync) and a separate `openthings-html` lefthook task (which regens with `stage_fixed: true`). The two run in parallel; the `--check` failure aborts the commit before the regen-and-stage task can rescue it. Practical workflow: after editing `docs/OPEN_THINGS.md`, run `mise run gen:openthings-html` BEFORE staging, then `git add docs/OPEN_THINGS.md docs/OPEN_THINGS.html` together. Skipping this just means the commit fails once, the dedicated lefthook task regens, and the retry succeeds — but the proactive regen is cleaner. Surfaced 2026-05-08 closing OPEN_THINGS item 61 (the ADR 0036 PR).
+- **`docs/OPEN_THINGS.html` is auto-rendered from `docs/OPEN_THINGS.md`** (`scripts/render_open_things_html.py`, surfaced via `mise run gen:openthings-html`). Pre-commit runs both `mise run lint` (which calls `check:openthings-html --check` and FAILS hard if the HTML is out of sync) and a separate `openthings-html` lefthook task (which regens with `stage_fixed: true`). The two run in parallel; the `--check` failure aborts the commit before the regen-and-stage task can rescue it. Practical workflow: after editing `docs/OPEN_THINGS.md`, run `mise run gen:openthings-html` BEFORE staging, then `git add docs/OPEN_THINGS.md docs/OPEN_THINGS.html` together. Skipping this just means the commit fails once, the dedicated lefthook task regens, and the retry succeeds; the proactive regen is cleaner. Surfaced 2026-05-08 closing OPEN_THINGS item 61 (the ADR 0036 PR).
 
 - **Rust toolchain** is a hard prerequisite (required for the PyO3 bindings and for the dev tools below).
 - **Git hook runner:** [Lefthook](https://github.com/evilmartians/lefthook). Config lives at `.config/lefthook.yaml` (lefthook auto-discovers this path).
@@ -73,16 +73,6 @@ If every quality item in OPEN_THINGS.md is blocked or out of scope for one PR, f
 - **`gh pr edit` silently no-ops in this repo** because the GitHub classic-projects deprecation prints a GraphQL warning that gh treats as terminal: the command exits 0 without applying the edit. Workaround: `gh api -X PATCH repos/<owner>/<repo>/pulls/<N> -f title='...'` (and `-f body='...'`). Same shape applies to other gh commands that mutate PRs through GraphQL. Revisit when classic projects are sunset on this repo.
 - **`gh run view --log` returns empty output here** (both the run-level form and the `--job=<id>` form), even on green runs whose job timestamps are visible via `--json jobs`. The same warning interaction that breaks `gh pr edit` appears to short-circuit the streaming-log code path. Workaround: fetch each Test job's full log with `gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs` (where `<job-id>` comes from `gh run view <run-id> --json jobs -q '.jobs[] | select(.name=="Test") | .databaseId'`), then grep for the line of interest (e.g., `Pytest wall-clock:` for the duration-budget gate). Same pattern works for any per-step log line; the API-level endpoint never silently empties.
 - **Ad-hoc Python snippets with third-party deps.** The system `python3` has no `pyyaml`, `coloraide`, or similar. For one-off verification or conversion scripts (YAML diffs of workflow permissions, OKLCH to sRGB hex conversion for `frontend/DESIGN.md` updates, etc.), invoke via `uv run --with <pkg1> --with <pkg2> python3 - <<'EOF' ... EOF` so the pinned `uv` provides the dep. Recurring pairs: `--with pyyaml` (YAML parsing), `--with coloraide` (OKLCH ↔ sRGB hex for DESIGN.md / app.css work).
-
-## Simplicity first
-
-Write the minimum code that solves the problem. Nothing speculative.
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
 
 ## Coding standards
 

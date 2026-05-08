@@ -5,7 +5,9 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.teacher import Teacher
 from klassenzeit_backend.db.models.user import User
 
 pytestmark = pytest.mark.anyio
@@ -512,3 +514,232 @@ async def test_create_school_class_grade_level_too_high(
         },
     )
     assert response.status_code == 422
+
+
+async def _create_teacher_for_classes(client: AsyncClient, short_code: str) -> str:
+    """Create a Teacher via the API and return its ID.
+
+    Args:
+        client: The async test HTTP client (must already be authenticated).
+        short_code: Unique short code for the teacher.
+
+    Returns:
+        The UUID string of the created Teacher.
+    """
+    resp = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Klassen",
+            "last_name": "Lehrer",
+            "short_code": short_code,
+            "max_hours_per_week": 24,
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+async def test_create_school_class_omitted_class_teacher_defaults_to_null(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes without class_teacher_id stores None and echoes null."""
+    await create_test_user(email="admin@sc-ct1.com", role="admin")
+    await login_as("admin@sc-ct1.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT1", 5)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT1")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "5a-CT1",
+            "grade_level": 5,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["class_teacher_id"] is None
+
+
+async def test_create_school_class_with_explicit_class_teacher_persists(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes with class_teacher_id stores the FK and echoes it on subsequent GET."""
+    await create_test_user(email="admin@sc-ct2.com", role="admin")
+    await login_as("admin@sc-ct2.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT2", 6)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT2")
+    teacher_id = await _create_teacher_for_classes(client, "CT2")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "6a-CT2",
+            "grade_level": 6,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "class_teacher_id": teacher_id,
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["class_teacher_id"] == teacher_id
+    class_id = body["id"]
+    get_resp = await client.get(f"/api/classes/{class_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["class_teacher_id"] == teacher_id
+
+
+async def test_create_school_class_with_unknown_class_teacher_returns_409(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes with a class_teacher_id that does not exist returns 409."""
+    await create_test_user(email="admin@sc-ct3.com", role="admin")
+    await login_as("admin@sc-ct3.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT3", 7)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT3")
+    response = await client.post(
+        "/api/classes",
+        json={
+            "name": "7a-CT3",
+            "grade_level": 7,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "class_teacher_id": str(uuid.uuid4()),
+        },
+    )
+    assert response.status_code == 409
+
+
+async def test_patch_school_class_set_class_teacher(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} sets class_teacher_id from null to a Teacher."""
+    await create_test_user(email="admin@sc-ct4.com", role="admin")
+    await login_as("admin@sc-ct4.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT4", 8)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT4")
+    teacher_id = await _create_teacher_for_classes(client, "CT4")
+    create_resp = await client.post(
+        "/api/classes",
+        json={
+            "name": "8a-CT4",
+            "grade_level": 8,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+        },
+    )
+    class_id = create_resp.json()["id"]
+    patch_resp = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"class_teacher_id": teacher_id},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["class_teacher_id"] == teacher_id
+
+
+async def test_patch_school_class_clear_class_teacher(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} with explicit null class_teacher_id clears the FK."""
+    await create_test_user(email="admin@sc-ct5.com", role="admin")
+    await login_as("admin@sc-ct5.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT5", 9)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT5")
+    teacher_id = await _create_teacher_for_classes(client, "CT5")
+    create_resp = await client.post(
+        "/api/classes",
+        json={
+            "name": "9a-CT5",
+            "grade_level": 9,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "class_teacher_id": teacher_id,
+        },
+    )
+    class_id = create_resp.json()["id"]
+    patch_resp = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"class_teacher_id": None},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["class_teacher_id"] is None
+
+
+async def test_patch_school_class_omit_class_teacher_preserves_existing(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /classes/{id} without class_teacher_id key leaves the existing FK in place."""
+    await create_test_user(email="admin@sc-ct6.com", role="admin")
+    await login_as("admin@sc-ct6.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT6", 10)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT6")
+    teacher_id = await _create_teacher_for_classes(client, "CT6")
+    create_resp = await client.post(
+        "/api/classes",
+        json={
+            "name": "10a-CT6",
+            "grade_level": 10,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "class_teacher_id": teacher_id,
+        },
+    )
+    class_id = create_resp.json()["id"]
+    patch_resp = await client.patch(
+        f"/api/classes/{class_id}",
+        json={"name": "10a-CT6-renamed"},
+    )
+    assert patch_resp.status_code == 200
+    body = patch_resp.json()
+    assert body["name"] == "10a-CT6-renamed"
+    assert body["class_teacher_id"] == teacher_id
+
+
+async def test_delete_teacher_sets_class_teacher_to_null(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """Hard-deleting a Teacher row clears class_teacher_id on referencing SchoolClass.
+
+    The ``DELETE /api/teachers/{id}`` route is a soft delete (sets ``is_active=False``)
+    and never triggers the FK cascade, so this test exercises the schema-level
+    ``ON DELETE SET NULL`` directly via the session.
+    """
+    await create_test_user(email="admin@sc-ct7.com", role="admin")
+    await login_as("admin@sc-ct7.com", "testpassword123")
+    tafel_id = await _setup_stundentafel_for_classes(client, "Tafel SC-CT7", 11)
+    scheme_id = await _setup_week_scheme_for_classes(client, "Scheme SC-CT7")
+    teacher_id = await _create_teacher_for_classes(client, "CT7")
+    create_resp = await client.post(
+        "/api/classes",
+        json={
+            "name": "11a-CT7",
+            "grade_level": 11,
+            "stundentafel_id": tafel_id,
+            "week_scheme_id": scheme_id,
+            "class_teacher_id": teacher_id,
+        },
+    )
+    class_id = create_resp.json()["id"]
+    teacher = await db_session.get(Teacher, uuid.UUID(teacher_id))
+    assert teacher is not None
+    await db_session.delete(teacher)
+    await db_session.flush()
+    # Expire the cached SchoolClass so the next GET reloads from DB.
+    db_session.expire_all()
+    get_resp = await client.get(f"/api/classes/{class_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["class_teacher_id"] is None

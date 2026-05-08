@@ -14,6 +14,7 @@ class SchoolClassCreate(BaseModel):
     stundentafel_id: uuid.UUID
     week_scheme_id: uuid.UUID
     home_room_id: uuid.UUID | None = None
+    class_teacher_id: uuid.UUID | None = None
     max_lessons_per_day: int | None = Field(default=None, ge=1, le=20)
 
 
@@ -25,6 +26,7 @@ class SchoolClassUpdate(BaseModel):
     stundentafel_id: uuid.UUID | None = None
     week_scheme_id: uuid.UUID | None = None
     home_room_id: uuid.UUID | None = None
+    class_teacher_id: uuid.UUID | None = None
     max_lessons_per_day: int | None = Field(default=None, ge=1, le=20)
 
 
@@ -37,6 +39,7 @@ class SchoolClassResponse(BaseModel):
     stundentafel_id: uuid.UUID
     week_scheme_id: uuid.UUID
     home_room_id: uuid.UUID | None = None
+    class_teacher_id: uuid.UUID | None = None
     max_lessons_per_day: int | None = None
     created_at: datetime
     updated_at: datetime
