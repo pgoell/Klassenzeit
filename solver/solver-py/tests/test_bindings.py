@@ -50,7 +50,8 @@ def _minimal_problem() -> dict:
                 "id": lesson,
                 "school_class_ids": [class_id],
                 "subject_id": subject,
-                "teacher_id": teacher,
+                "teacher_candidates": [teacher],
+                "teacher_pin": teacher,
                 "hours_per_week": 1,
             }
         ],
