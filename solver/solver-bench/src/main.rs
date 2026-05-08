@@ -117,6 +117,8 @@ struct CellResult {
     rr_k: Option<u32>,
     #[serde(default)]
     rr_period: Option<u32>,
+    #[serde(default)]
+    kempe_max_chain: Option<u32>,
 }
 
 struct SupervisorArgs {
@@ -127,6 +129,7 @@ struct SupervisorArgs {
     backends: Option<Vec<BenchBackend>>,
     rr_k_values: Option<Vec<u32>>,
     rr_period_values: Option<Vec<u32>>,
+    kempe_max_chain_values: Option<Vec<u32>>,
     append: bool,
 }
 
@@ -139,6 +142,7 @@ fn default_supervisor_args() -> SupervisorArgs {
         backends: None,
         rr_k_values: None,
         rr_period_values: None,
+        kempe_max_chain_values: None,
         append: false,
     }
 }
@@ -210,6 +214,10 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
                 let v = iter.next().ok_or("--rr-period needs a value")?;
                 args.rr_period_values = Some(parse_u32_csv("--rr-period", &v)?);
             }
+            "--kempe-max-chain" => {
+                let v = iter.next().ok_or("--kempe-max-chain needs a value")?;
+                args.kempe_max_chain_values = Some(parse_u32_csv("--kempe-max-chain", &v)?);
+            }
             "--append" => {
                 args.append = true;
             }
@@ -226,6 +234,7 @@ struct CellArgs {
     seeds: u64,
     rr_k: Option<u32>,
     rr_period: Option<u32>,
+    kempe_max_chain: Option<u32>,
 }
 
 fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
@@ -235,6 +244,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
     let mut seeds: Option<u64> = None;
     let mut rr_k: Option<u32> = None;
     let mut rr_period: Option<u32> = None;
+    let mut kempe_max_chain: Option<u32> = None;
     let mut iter = raw.into_iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
@@ -275,6 +285,16 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
                         .map_err(|e| format!("--rr-period must be a positive integer: {e}"))?,
                 );
             }
+            "--kempe-max-chain" => {
+                kempe_max_chain = Some(
+                    iter.next()
+                        .ok_or("--kempe-max-chain needs a value")?
+                        .parse::<u32>()
+                        .map_err(|e| {
+                            format!("--kempe-max-chain must be a positive integer: {e}")
+                        })?,
+                );
+            }
             other => return Err(format!("unknown cell flag '{other}'")),
         }
     }
@@ -285,6 +305,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
         seeds: seeds.ok_or("--seeds <n> required")?,
         rr_k,
         rr_period,
+        kempe_max_chain,
     })
 }
 
@@ -297,15 +318,19 @@ fn main() -> ExitCode {
 }
 
 /// One unit of work scheduled by the supervisor: a (fixture, backend) pair plus
-/// optional `(rr_k, rr_period)` overrides. RR backends with a sweep grid expand
-/// to one CellSpec per (k, period) pair; non-RR backends always produce one
-/// CellSpec with `rr_k = rr_period = None`.
+/// optional `(rr_k, rr_period)` overrides and an optional Kempe chain-depth
+/// override. RR backends with a sweep grid expand to one CellSpec per
+/// (k, period) pair; non-RR backends always produce one CellSpec with
+/// `rr_k = rr_period = None`. Kempe-using backends with a chain-depth sweep
+/// expand by an outer loop over depths, leaving non-Kempe backends with
+/// `kempe_max_chain = None` (renders `-`).
 #[derive(Debug, Clone)]
 struct CellSpec {
     fixture: &'static str,
     backend: BenchBackend,
     rr_k: Option<u32>,
     rr_period: Option<u32>,
+    kempe_max_chain: Option<u32>,
 }
 
 fn build_plan(
@@ -313,6 +338,7 @@ fn build_plan(
     backends: &[BenchBackend],
     rr_k_values: Option<&[u32]>,
     rr_period_values: Option<&[u32]>,
+    kempe_max_chain_values: Option<&[u32]>,
 ) -> Vec<CellSpec> {
     let mut plan: Vec<CellSpec> = Vec::new();
     for (name, _) in FIXTURES.iter() {
@@ -320,30 +346,46 @@ fn build_plan(
             continue;
         }
         for backend in backends {
-            match backend {
-                BenchBackend::LahcRr | BenchBackend::LahcRrKempe => {
-                    let ks: Vec<u32> = rr_k_values.map(|v| v.to_vec()).unwrap_or_else(|| vec![5]);
-                    let ps: Vec<u32> = rr_period_values
-                        .map(|v| v.to_vec())
-                        .unwrap_or_else(|| vec![25]);
-                    for k in &ks {
-                        for p in &ps {
-                            plan.push(CellSpec {
-                                fixture: name,
-                                backend: *backend,
-                                rr_k: Some(*k),
-                                rr_period: Some(*p),
-                            });
+            // Outer loop: Kempe chain-depth sweep applies only to Kempe-using
+            // backends. For non-Kempe backends or when the flag is absent, we
+            // emit a single None so the existing single-cell shape is preserved.
+            let chain_values: Vec<Option<u32>> = match kempe_max_chain_values {
+                Some(vs)
+                    if matches!(backend, BenchBackend::LahcKempe | BenchBackend::LahcRrKempe) =>
+                {
+                    vs.iter().map(|v| Some(*v)).collect()
+                }
+                _ => vec![None],
+            };
+            for k_chain in &chain_values {
+                match backend {
+                    BenchBackend::LahcRr | BenchBackend::LahcRrKempe => {
+                        let ks: Vec<u32> =
+                            rr_k_values.map(|v| v.to_vec()).unwrap_or_else(|| vec![5]);
+                        let ps: Vec<u32> = rr_period_values
+                            .map(|v| v.to_vec())
+                            .unwrap_or_else(|| vec![25]);
+                        for k in &ks {
+                            for p in &ps {
+                                plan.push(CellSpec {
+                                    fixture: name,
+                                    backend: *backend,
+                                    rr_k: Some(*k),
+                                    rr_period: Some(*p),
+                                    kempe_max_chain: *k_chain,
+                                });
+                            }
                         }
                     }
-                }
-                _ => {
-                    plan.push(CellSpec {
-                        fixture: name,
-                        backend: *backend,
-                        rr_k: None,
-                        rr_period: None,
-                    });
+                    _ => {
+                        plan.push(CellSpec {
+                            fixture: name,
+                            backend: *backend,
+                            rr_k: None,
+                            rr_period: None,
+                            kempe_max_chain: *k_chain,
+                        });
+                    }
                 }
             }
         }
@@ -372,15 +414,21 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         .backends
         .clone()
         .unwrap_or_else(|| BenchBackend::ALL.to_vec());
-    let sweep_mode = args.rr_k_values.is_some() && args.rr_period_values.is_some();
+    let sweep_mode = (args.rr_k_values.is_some() && args.rr_period_values.is_some())
+        || args
+            .kempe_max_chain_values
+            .as_ref()
+            .is_some_and(|v| v.len() > 1);
 
     let plan = build_plan(
         &args.fixtures,
         &backends_owned,
         args.rr_k_values.as_deref(),
         args.rr_period_values.as_deref(),
+        args.kempe_max_chain_values.as_deref(),
     );
     let cells_attempted = plan.len();
+    let render_kempe_chain_col = plan.iter().any(|c| c.kempe_max_chain.is_some());
 
     let mut markdown = String::new();
     if !args.append {
@@ -389,13 +437,19 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
     } else {
         markdown.push_str(&format!("\n## RR sweep {}\n\n", today_yyyy_mm_dd()));
     }
-    write_table_header(&mut markdown);
+    write_table_header(&mut markdown, render_kempe_chain_col);
 
     let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
     let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
         spawn_cell(&exe, spec, args.budget, args.seeds)
     };
-    let successes = render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
+    let successes = render_cells_with_specs(
+        &plan,
+        &mut runner,
+        &mut markdown,
+        &mut all_results,
+        render_kempe_chain_col,
+    );
 
     if sweep_mode {
         write_pareto_and_recommendation(&mut markdown, &args.fixtures, &all_results);
@@ -449,6 +503,9 @@ fn spawn_cell(
     if let Some(p) = spec.rr_period {
         cmd.arg("--rr-period").arg(p.to_string());
     }
+    if let Some(c) = spec.kempe_max_chain {
+        cmd.arg("--kempe-max-chain").arg(c.to_string());
+    }
     cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
     let child = cmd.spawn().map_err(|e| format!("spawn cell: {e}"))?;
     let output = child
@@ -467,6 +524,7 @@ fn render_cells_with_specs<F>(
     runner: &mut F,
     markdown: &mut String,
     all_results: &mut Vec<(CellSpec, CellResult)>,
+    render_kempe_chain_col: bool,
 ) -> usize
 where
     F: FnMut(&CellSpec) -> Result<CellResult, String>,
@@ -514,7 +572,13 @@ where
                         .map(|v| format!("{v}/4"))
                         .unwrap_or_else(|| "-".to_string()),
                 );
-                write_row(markdown, spec.fixture, spec.backend, &cell);
+                write_row(
+                    markdown,
+                    spec.fixture,
+                    spec.backend,
+                    &cell,
+                    render_kempe_chain_col,
+                );
                 all_results.push((spec.clone(), cell));
                 successes += 1;
             }
@@ -524,7 +588,13 @@ where
                     spec.fixture,
                     spec.backend.label()
                 );
-                write_error_row(markdown, spec.fixture, spec.backend, &reason);
+                write_error_row(
+                    markdown,
+                    spec.fixture,
+                    spec.backend,
+                    &reason,
+                    render_kempe_chain_col,
+                );
             }
         }
     }
@@ -556,8 +626,11 @@ fn run_cell_child(raw: Vec<String>) -> ExitCode {
             expected,
             args.budget,
             args.seeds,
-            args.rr_k,
-            args.rr_period,
+            LahcCellOverrides {
+                rr_k: args.rr_k,
+                rr_period: args.rr_period,
+                kempe_max_chain: args.kempe_max_chain,
+            },
         ),
     };
     let json = serde_json::to_string(&cell).expect("serialise CellResult");
@@ -583,15 +656,27 @@ fn read_self_peak_kb() -> u64 {
     }
 }
 
+/// Per-cell overrides forwarded from the supervisor's CLI flags into the
+/// LAHC dispatch. `None` means "use `SolveConfig::default()` for this knob".
+struct LahcCellOverrides {
+    rr_k: Option<u32>,
+    rr_period: Option<u32>,
+    kempe_max_chain: Option<u32>,
+}
+
 fn run_lahc_cell(
     backend: BenchBackend,
     problem: &Problem,
     expected: u64,
     budget: Duration,
     seeds: u64,
-    rr_k_override: Option<u32>,
-    rr_period_override: Option<u32>,
+    overrides: LahcCellOverrides,
 ) -> CellResult {
+    let LahcCellOverrides {
+        rr_k: rr_k_override,
+        rr_period: rr_period_override,
+        kempe_max_chain: kempe_max_chain_override,
+    } = overrides;
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
         weights: weights.clone(),
@@ -627,6 +712,12 @@ fn run_lahc_cell(
         None => None,
     };
     let lahc_rr_k = rr_k_override.unwrap_or(SolveConfig::default().lahc_rr_k);
+    // Kempe-chain override applies to Kempe-using backends only; on non-Kempe
+    // backends the dispatch returns `lahc_kempe_period = None` and the chain
+    // depth is unused inside the solver, but we still write the field so the
+    // SolveConfig literal stays uniform.
+    let lahc_kempe_max_chain =
+        kempe_max_chain_override.unwrap_or(SolveConfig::default().lahc_kempe_max_chain);
 
     for seed in 1..=seeds {
         let cfg = SolveConfig {
@@ -636,6 +727,7 @@ fn run_lahc_cell(
             lahc_rr_period,
             lahc_kempe_period,
             lahc_rr_k,
+            lahc_kempe_max_chain,
             ..SolveConfig::default()
         };
         let start = Instant::now();
@@ -730,6 +822,11 @@ fn run_lahc_cell(
             None
         },
         rr_period: lahc_rr_period,
+        kempe_max_chain: if lahc_kempe_period.is_some() {
+            kempe_max_chain_override
+        } else {
+            None
+        },
     }
 }
 
@@ -918,6 +1015,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         prefer_late_units_median,
         rr_k: None,
         rr_period: None,
+        kempe_max_chain: None,
     }
 }
 
@@ -1075,16 +1173,31 @@ fn write_title_and_intro(out: &mut String) {
     out.push_str("<!-- Regenerated by `mise run bench:bakeoff`. Do not hand-edit. -->\n\n");
 }
 
-fn write_table_header(out: &mut String) {
-    out.push_str(
-        "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
-    );
-    out.push_str(
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
-    );
+fn write_table_header(out: &mut String, render_kempe_chain_col: bool) {
+    if render_kempe_chain_col {
+        out.push_str(
+            "| Fixture | Backend | RR_K | Period | Kempe Chain | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+        );
+        out.push_str(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+        );
+    } else {
+        out.push_str(
+            "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+        );
+        out.push_str(
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+        );
+    }
 }
 
-fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &CellResult) {
+fn write_row(
+    out: &mut String,
+    fixture: &str,
+    backend: BenchBackend,
+    cell: &CellResult,
+    render_kempe_chain_col: bool,
+) {
     let soft = match cell.soft_score_median {
         Some(s) => s.to_string(),
         None => "-".to_string(),
@@ -1141,25 +1254,57 @@ fn write_row(out: &mut String, fixture: &str, backend: BenchBackend, cell: &Cell
         Some(v) => v.to_string(),
         None => "-".to_string(),
     };
-    out.push_str(&format!(
-        "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
-        backend = backend.label(),
-        seeds = cell.seeds,
-        n = cell.feasibility_count,
-        hard = cell.hard_violations_median,
-        placed = cell.placements_total_median,
-        expected = cell.placements_expected,
-        ffd = cell.ffd_ms_median,
-        total = cell.total_ms_median,
-        peak = cell.peak_kb,
-    ));
+    if render_kempe_chain_col {
+        let kempe_chain_col = match cell.kempe_max_chain {
+            Some(v) => v.to_string(),
+            None => "-".to_string(),
+        };
+        out.push_str(&format!(
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {kempe_chain_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+            backend = backend.label(),
+            seeds = cell.seeds,
+            n = cell.feasibility_count,
+            hard = cell.hard_violations_median,
+            placed = cell.placements_total_median,
+            expected = cell.placements_expected,
+            ffd = cell.ffd_ms_median,
+            total = cell.total_ms_median,
+            peak = cell.peak_kb,
+        ));
+    } else {
+        out.push_str(&format!(
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+            backend = backend.label(),
+            seeds = cell.seeds,
+            n = cell.feasibility_count,
+            hard = cell.hard_violations_median,
+            placed = cell.placements_total_median,
+            expected = cell.placements_expected,
+            ffd = cell.ffd_ms_median,
+            total = cell.total_ms_median,
+            peak = cell.peak_kb,
+        ));
+    }
 }
 
-fn write_error_row(out: &mut String, fixture: &str, backend: BenchBackend, _reason: &str) {
-    out.push_str(&format!(
-        "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
-        backend = backend.label(),
-    ));
+fn write_error_row(
+    out: &mut String,
+    fixture: &str,
+    backend: BenchBackend,
+    _reason: &str,
+    render_kempe_chain_col: bool,
+) {
+    if render_kempe_chain_col {
+        out.push_str(&format!(
+            "| {fixture} | {backend} | - | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            backend = backend.label(),
+        ));
+    } else {
+        out.push_str(&format!(
+            "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            backend = backend.label(),
+        ));
+    }
 }
 
 fn write_footer(out: &mut String) {
@@ -1285,6 +1430,13 @@ fn sweep_pareto_non_dominated(cells: &[&CellResult]) -> Vec<SweepTuple> {
 /// (only cells where the cell has feasibility_count > 0 and a soft_score_median).
 /// A (k, period) is eligible only if it appears feasible on every fixture.
 /// Pick min mean; ties broken by smallest period, then smallest K.
+///
+/// Chain-depth axis is not part of the recommendation tie-break: a sweep that
+/// mixes multiple `--kempe-max-chain` values on the same fixture+(K, period)
+/// collapses all depths into one mean. Extending `SweepTuple` to include chain
+/// depth would either widen the tuple for non-Kempe `LahcRr` cells (which never
+/// carry chain depth) or split into parallel groupings; land that if a future
+/// Kempe-tuning sweep proves the simplification harmful.
 fn sweep_recommend(rr_cells: &[(&str, &CellResult)], fixture_count: usize) -> Option<SweepTuple> {
     use std::collections::BTreeMap;
     // (period, k) -> Vec<(fixture, soft)>
@@ -1504,7 +1656,7 @@ mod tests {
     #[test]
     fn write_header_includes_three_new_columns() {
         let mut out = String::new();
-        write_table_header(&mut out);
+        write_table_header(&mut out, false);
         assert!(out.contains("Peak RSS (kB)"), "missing peak header: {out}");
         assert!(
             out.contains("Time to first feasible"),
@@ -1543,9 +1695,16 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
+        write_row(
+            &mut out,
+            "grundschule",
+            BenchBackend::LahcRrKempe,
+            &cell,
+            false,
+        );
         assert!(out.contains("| 49152 |"), "missing peak: {out}");
         assert!(out.contains("| 0 |"), "missing ttf rounded to 0 ms: {out}");
         assert!(out.contains("| 1500 |"), "missing tto: {out}");
@@ -1581,9 +1740,10 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
+        write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell, false);
         assert!(out.contains("| 0/20 |"));
         assert!(out.contains("| 49152 |"));
         // Three dash-cells in a row: soft_score, ttf, tto.
@@ -1620,6 +1780,7 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let s = serde_json::to_string(&cell).unwrap();
         let back: CellResult = serde_json::from_str(&s).unwrap();
@@ -1629,7 +1790,7 @@ mod tests {
     #[test]
     fn write_header_includes_five_quality_columns() {
         let mut out = String::new();
-        write_table_header(&mut out);
+        write_table_header(&mut out, false);
         assert!(
             out.contains("Worst spread (median)"),
             "missing worst-spread header: {out}"
@@ -1682,9 +1843,16 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::LahcRrKempe, &cell);
+        write_row(
+            &mut out,
+            "grundschule",
+            BenchBackend::LahcRrKempe,
+            &cell,
+            false,
+        );
         assert!(out.contains("| 2 |"), "missing worst spread: {out}");
         assert!(out.contains("| 0.75 |"), "missing home-room ratio: {out}");
         assert!(out.contains("| 1 |"), "missing interior gaps: {out}");
@@ -1725,9 +1893,10 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let mut out = String::new();
-        write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell);
+        write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell, false);
         // Five dash-cells appended at the right end (worst spread, home-room
         // ratio, interior gaps, late-period, quality).
         let dash_count = out.matches("| - |").count();
@@ -1805,6 +1974,7 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         }
     }
 
@@ -1818,6 +1988,7 @@ mod tests {
             backend,
             rr_k,
             rr_period,
+            kempe_max_chain: None,
         }
     }
 
@@ -1838,7 +2009,7 @@ mod tests {
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes =
-            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
+            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results, false);
         assert_eq!(successes, 2, "two cells should have succeeded");
         assert!(
             markdown.contains("| grundschule | lahc | - | - | 20 | 20/20 |"),
@@ -1866,7 +2037,7 @@ mod tests {
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes =
-            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results);
+            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results, false);
         assert_eq!(successes, 0);
         let panic_row_count = markdown.matches("| panic |").count();
         assert_eq!(
@@ -1919,6 +2090,7 @@ mod tests {
             prefer_late_units_median: Some(8),
             rr_k: None,
             rr_period: None,
+            kempe_max_chain: None,
         };
         let json = serde_json::to_string(&cell).expect("serialise");
         let parsed: CellResult = serde_json::from_str(&json).expect("parse");
@@ -2020,6 +2192,7 @@ mod tests {
             prefer_late_units_median: None,
             rr_k: Some(k),
             rr_period: Some(period),
+            kempe_max_chain: None,
         }
     }
 

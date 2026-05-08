@@ -171,6 +171,7 @@ pub(crate) fn run(
                 class_max_lessons_per_day,
                 &lahc_list,
                 iter,
+                config.lahc_kempe_max_chain as usize,
             );
         } else {
             // Always consume two random draws per Change iteration so the RNG
@@ -1299,11 +1300,6 @@ fn replay_placement(
     // once per snapshot.
 }
 
-/// Maximum chain length per Kempe attempt. Hardcoded today; a follow-up
-/// promotes this to `SolveConfig.lahc_kempe_max_chain` if `BENCH_RESULTS.md`
-/// shows depth-sensitivity.
-const KEMPE_MAX_CHAIN: usize = 8;
-
 /// Outcome of `kempe_build_chain`. `Built(chain)` carries the mapping from
 /// each chain member's lesson-id to its destination day; `Aborted` signals
 /// that the BFS hit a non-eligible placement (pin, group, missing window,
@@ -1318,8 +1314,9 @@ enum ChainBuild {
 /// over the teacher+class conflict graph at the destination window. Pure:
 /// reads `placements`, `lesson_lookup`, `tb_lookup`, `pinned`, `start_pos`;
 /// does not mutate. Returns `ChainBuild::Aborted` on any of: chain hits a
-/// pinned or group-tagged placement, chain length exceeds `KEMPE_MAX_CHAIN`,
-/// or a chain neighbour's destination window has missing positions.
+/// pinned or group-tagged placement, chain length exceeds
+/// `config.lahc_kempe_max_chain` (passed as `max_chain`), or a chain
+/// neighbour's destination window has missing positions.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper
 fn kempe_build_chain(
     seed_lesson: LessonId,
@@ -1331,6 +1328,7 @@ fn kempe_build_chain(
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
     pinned: &HashSet<LessonId>,
+    max_chain: usize,
 ) -> ChainBuild {
     let mut chain: HashMap<LessonId, u8> = HashMap::new();
     chain.insert(seed_lesson, dest_day);
@@ -1451,7 +1449,7 @@ fn kempe_build_chain(
                     // loops in deterministic LessonId.0 order; chain ordering is
                     // unobservable (HashMap, used only for membership / dest lookup).
                     chain.insert(placement.lesson_id, neighbour_dest);
-                    if chain.len() > KEMPE_MAX_CHAIN {
+                    if chain.len() > max_chain {
                         return ChainBuild::Aborted;
                     }
                 }
@@ -1762,6 +1760,7 @@ fn kempe_attempt(
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     lahc_list: &[u32],
     iter: u64,
+    max_chain: usize,
 ) -> bool {
     let pre_slice = state.search_score_slice;
     let pre_canonical = state.canonical_score;
@@ -1859,6 +1858,7 @@ fn kempe_attempt(
         tb_lookup,
         tb_by_day_pos,
         pinned,
+        max_chain,
     ) {
         ChainBuild::Built(c) => c,
         ChainBuild::Aborted => return false,
@@ -2909,14 +2909,11 @@ mod tests {
                 avoid_first_period: 1,
                 ..ConstraintWeights::default()
             },
-            seed: 0,
             deadline: Some(std::time::Duration::from_millis(50)),
             // 600 iterations fill the entire 500-slot LAHC list with the
             // optimal score (0) so worsening moves are no longer accepted.
             max_iterations: Some(600),
-            lahc_rr_period: None,
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
 
         state.locked_room.insert((class, 0, subject), (room, 1));
@@ -3049,12 +3046,9 @@ mod tests {
                 avoid_first_period: 1,
                 ..ConstraintWeights::default()
             },
-            seed: 0,
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
-            lahc_rr_period: None,
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
 
         state.locked_room.insert((class, 0, subject), (room, 2));
@@ -3226,12 +3220,9 @@ mod tests {
                 avoid_first_period: 1,
                 ..ConstraintWeights::default()
             },
-            seed: 0,
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
-            lahc_rr_period: None,
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
 
         state.locked_room.insert((class_a, 0, subject), (room_a, 1));
@@ -3391,8 +3382,7 @@ mod tests {
         // sort of cached indices is not enough; the solver must look up each
         // anchor's current placement index at ruin time.
         use crate::types::{
-            ConstraintWeights, Lesson, Problem, Room, SchoolClass, Subject, Teacher,
-            TeacherQualification,
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
         };
 
         let class = SchoolClassId(lahc_uuid(50));
@@ -3475,13 +3465,11 @@ mod tests {
         };
 
         let cfg = SolveConfig {
-            weights: ConstraintWeights::default(),
             seed: 42,
             deadline: Some(std::time::Duration::from_millis(50)),
             max_iterations: Some(2000),
             lahc_rr_period: Some(1),
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         };
 
         let result = crate::solve_with_config(&problem, &cfg);
@@ -3696,6 +3684,7 @@ mod tests {
                 &HashMap::new(),
                 &lahc_list,
                 0,
+                8,
             );
             if ok {
                 let p0 = snap_placements
@@ -3790,6 +3779,7 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         ) {
             ChainBuild::Built(c) => c,
             ChainBuild::Aborted => panic!("chain build aborted unexpectedly"),
@@ -3842,6 +3832,7 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
     }
@@ -3888,6 +3879,7 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
     }
@@ -4071,6 +4063,7 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         );
         assert!(
             matches!(outcome, ChainBuild::Aborted),
@@ -4084,7 +4077,7 @@ mod tests {
         // has {C_i, C_(i+1) mod 10}); the daisy-chain via class overlap lets
         // BFS hop alternately between days. Even-id lessons start at
         // (D=0, P=0), odd-id at (D=1, P=0); each hop adds the next neighbour
-        // and the chain exceeds KEMPE_MAX_CHAIN = 8.
+        // and the chain exceeds the default `config.lahc_kempe_max_chain` of 8.
         use crate::types::{
             Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
         };
@@ -4143,7 +4136,8 @@ mod tests {
 
         // Place even lessons at (D=0, P=0), odd at (D=1, P=0). With class
         // overlap between consecutive lessons, BFS hops chain alternately
-        // between days, length will exceed KEMPE_MAX_CHAIN=8.
+        // between days; length will exceed the default
+        // `config.lahc_kempe_max_chain` of 8.
         let placements: Vec<Placement> = (0..N)
             .map(|i| Placement {
                 lesson_id: lesson_ids[i as usize],
@@ -4193,8 +4187,38 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_chain_capped_at_config_value() {
+        // Item 23: end-to-end check that `SolveConfig.lahc_kempe_max_chain`
+        // flows from public config into the BFS chain-cap. Use the same
+        // 4-lesson same-class fixture as the other integration-style Kempe
+        // tests (greedy places all four; LAHC then runs Kempe-only
+        // iterations) and run with a non-default `lahc_kempe_max_chain: 2`.
+        // Each Kempe attempt either builds a chain of length <= 2 or aborts
+        // and rolls back; the run must not crash and the post-condition
+        // validators (`validate_no_double_booking` etc.) must pass, which
+        // they would not if a chain-cap bypass ever placed two same-day
+        // same-class lessons.
+        let (problem, _lessons, _tbs, _room) = kempe_one_class_fixture(4, 4);
+
+        let cfg = SolveConfig {
+            lahc_kempe_max_chain: 2,
+            lahc_kempe_period: Some(1),
+            deadline: Some(std::time::Duration::from_millis(100)),
+            max_iterations: Some(2_000),
+            ..SolveConfig::default()
+        };
+        let solution = crate::solve_with_config(&problem, &cfg).expect("solve must not panic");
+        assert!(
+            solution.violations.is_empty(),
+            "validators must hold under non-default lahc_kempe_max_chain; got {:?}",
+            solution.violations,
+        );
     }
 
     #[test]
@@ -4400,6 +4424,7 @@ mod tests {
                 &HashMap::new(),
                 &lahc_list,
                 0,
+                8,
             );
             if ok {
                 let l0_tbs: HashSet<TimeBlockId> = snap_p
@@ -4736,6 +4761,7 @@ mod tests {
                 &HashMap::new(),
                 &lahc_list,
                 0,
+                8,
             );
             if accepted {
                 continue;
@@ -4862,6 +4888,7 @@ mod tests {
             &tb_lookup,
             &tb_by_day_pos,
             &pinned,
+            8,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
     }

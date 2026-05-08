@@ -135,8 +135,7 @@ fn rr_does_not_drop_packed_block() {
             deadline: Some(Duration::from_millis(50)),
             max_iterations: Some(50),
             lahc_rr_period: Some(1),
-            lahc_kempe_period: None,
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         },
     )
     .unwrap();
@@ -169,9 +168,8 @@ fn kempe_does_not_drop_packed_block() {
             seed: 7,
             deadline: Some(Duration::from_millis(50)),
             max_iterations: Some(50),
-            lahc_rr_period: None,
             lahc_kempe_period: Some(1),
-            lahc_rr_k: 5,
+            ..SolveConfig::default()
         },
     )
     .unwrap();
@@ -315,8 +313,8 @@ fn rr_attempt_clamps_chosen_count_to_lahc_rr_k() {
                 deadline: Some(Duration::from_millis(50)),
                 max_iterations: Some(1),
                 lahc_rr_period: Some(1),
-                lahc_kempe_period: None,
                 lahc_rr_k: k,
+                ..SolveConfig::default()
             },
         )
         .unwrap();
