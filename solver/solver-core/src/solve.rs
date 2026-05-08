@@ -156,7 +156,7 @@ pub fn solve_with_config_stats(
         }
         // Skip placements for lessons with pre-solve violations; `pre_solve_violations`
         // already recorded one violation per hour.
-        if !idx.teacher_qualified(lesson.teacher_id, lesson.subject_id) {
+        if !idx.teacher_qualified(lesson.assigned_teacher_id(), lesson.subject_id) {
             continue;
         }
 
@@ -170,7 +170,7 @@ pub fn solve_with_config_stats(
             } else {
                 let unqualified_member = member_indices.iter().any(|&mi| {
                     let m = &problem.lessons[mi];
-                    !idx.teacher_qualified(m.teacher_id, m.subject_id)
+                    !idx.teacher_qualified(m.assigned_teacher_id(), m.subject_id)
                 });
                 let n = lesson.preferred_block_size;
                 let block_count = lesson.hours_per_week / n;
@@ -197,7 +197,9 @@ pub fn solve_with_config_stats(
                     if !placed {
                         for &mi in &member_indices {
                             let member = &problem.lessons[mi];
-                            if !idx.teacher_qualified(member.teacher_id, member.subject_id) {
+                            if !idx
+                                .teacher_qualified(member.assigned_teacher_id(), member.subject_id)
+                            {
                                 continue;
                             }
                             solution.violations.push(Violation {
@@ -431,7 +433,7 @@ pub(crate) fn try_place_block(
     days: u8,
 ) -> bool {
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
-    let teacher = lesson.teacher_id;
+    let teacher = lesson.assigned_teacher_id();
     let subject = problem
         .subjects
         .iter()
@@ -884,17 +886,20 @@ fn unplaced_kind(
     hours_by_teacher: &HashMap<TeacherId, u8>,
 ) -> ViolationKind {
     let current = hours_by_teacher
-        .get(&lesson.teacher_id)
+        .get(&lesson.assigned_teacher_id())
         .copied()
         .unwrap_or(0);
-    let max = teacher_max.get(&lesson.teacher_id).copied().unwrap_or(0);
+    let max = teacher_max
+        .get(&lesson.assigned_teacher_id())
+        .copied()
+        .unwrap_or(0);
     if current >= max {
         return ViolationKind::TeacherOverCapacity;
     }
 
     let any_slot_open = problem.time_blocks.iter().any(|tb| {
-        !used_teacher.contains(&(lesson.teacher_id, tb.id))
-            && !idx.teacher_blocked(lesson.teacher_id, tb.id)
+        !used_teacher.contains(&(lesson.assigned_teacher_id(), tb.id))
+            && !idx.teacher_blocked(lesson.assigned_teacher_id(), tb.id)
             && lesson
                 .school_class_ids
                 .iter()
@@ -966,8 +971,10 @@ fn try_place_group(
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[outer_pos + k]];
             for member in &members {
-                if state.used_teacher.contains(&(member.teacher_id, tb.id))
-                    || idx.teacher_blocked(member.teacher_id, tb.id)
+                if state
+                    .used_teacher
+                    .contains(&(member.assigned_teacher_id(), tb.id))
+                    || idx.teacher_blocked(member.assigned_teacher_id(), tb.id)
                 {
                     continue 'outer;
                 }
@@ -981,10 +988,13 @@ fn try_place_group(
         for member in &members {
             let current = state
                 .hours_by_teacher
-                .get(&member.teacher_id)
+                .get(&member.assigned_teacher_id())
                 .copied()
                 .unwrap_or(0);
-            let max = teacher_max.get(&member.teacher_id).copied().unwrap_or(0);
+            let max = teacher_max
+                .get(&member.assigned_teacher_id())
+                .copied()
+                .unwrap_or(0);
             if current.saturating_add(n) > max {
                 continue 'outer;
             }
@@ -1127,7 +1137,7 @@ fn try_place_group(
         for member in &members {
             let teacher_partition = state
                 .teacher_positions
-                .get(&(member.teacher_id, first_tb.day_of_week));
+                .get(&(member.assigned_teacher_id(), first_tb.day_of_week));
             let teacher_old = match teacher_partition {
                 Some(p) => crate::score::gap_count(p),
                 None => 0,
@@ -1214,10 +1224,15 @@ fn try_place_group(
                 time_block_id: tb.id,
                 room_id,
             });
-            state.used_teacher.insert((member.teacher_id, tb.id));
+            state
+                .used_teacher
+                .insert((member.assigned_teacher_id(), tb.id));
             state.used_room.insert((room_id, tb.id));
         }
-        *state.hours_by_teacher.entry(member.teacher_id).or_insert(0) += n;
+        *state
+            .hours_by_teacher
+            .entry(member.assigned_teacher_id())
+            .or_insert(0) += n;
     }
     for k in 0..n_usize {
         let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
@@ -1235,7 +1250,7 @@ fn try_place_group(
     for member in &members {
         let part = state
             .teacher_positions
-            .entry((member.teacher_id, c.day))
+            .entry((member.assigned_teacher_id(), c.day))
             .or_default();
         for pos in c.start_pos..=c.end_pos {
             let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
@@ -1420,12 +1435,17 @@ fn seed_greedy_state_from_pins(
     for pl in placements {
         let lesson = lessons_by_id[&pl.lesson_id];
         let tb = tb_by_id[&pl.time_block_id];
-        state.used_teacher.insert((lesson.teacher_id, tb.id));
+        state
+            .used_teacher
+            .insert((lesson.assigned_teacher_id(), tb.id));
         state.used_room.insert((pl.room_id, tb.id));
         for class in &lesson.school_class_ids {
             state.used_class.insert((*class, tb.id));
         }
-        *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+        *state
+            .hours_by_teacher
+            .entry(lesson.assigned_teacher_id())
+            .or_insert(0) += 1;
         for class in &lesson.school_class_ids {
             let part = state
                 .class_positions
@@ -1460,7 +1480,7 @@ fn seed_greedy_state_from_pins(
         }
         let part = state
             .teacher_positions
-            .entry((lesson.teacher_id, tb.day_of_week))
+            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
             .or_default();
         let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
         if part.get(ins).copied() != Some(tb.position) {
@@ -1538,7 +1558,8 @@ mod tests {
                 id: LessonId(solve_uuid(60)),
                 school_class_ids: vec![SchoolClassId(solve_uuid(50))],
                 subject_id: SubjectId(solve_uuid(40)),
-                teacher_id: TeacherId(solve_uuid(20)),
+                teacher_candidates: vec![TeacherId(solve_uuid(20))],
+                teacher_pin: Some(TeacherId(solve_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -1652,7 +1673,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(41)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1686,7 +1708,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(41)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1720,7 +1743,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(51))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(21)),
+            teacher_candidates: vec![TeacherId(solve_uuid(21))],
+            teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1794,7 +1818,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(41)),
-            teacher_id: TeacherId(solve_uuid(21)),
+            teacher_candidates: vec![TeacherId(solve_uuid(21))],
+            teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1860,7 +1885,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(51))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2139,7 +2165,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(51))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(21)),
+            teacher_candidates: vec![TeacherId(solve_uuid(21))],
+            teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2200,7 +2227,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(51))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(21)),
+            teacher_candidates: vec![TeacherId(solve_uuid(21))],
+            teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: Some(group_id),
@@ -2298,7 +2326,8 @@ mod tests {
             id: LessonId(solve_uuid(62)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(41)),
-            teacher_id: TeacherId(solve_uuid(22)),
+            teacher_candidates: vec![TeacherId(solve_uuid(22))],
+            teacher_pin: Some(TeacherId(solve_uuid(22))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2370,7 +2399,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(41)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2544,7 +2574,8 @@ mod tests {
             id: LessonId(solve_uuid(60)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 4,
             preferred_block_size: 2,
             lesson_group_id: None,
@@ -2643,7 +2674,8 @@ mod tests {
             id: LessonId(solve_uuid(61)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2652,7 +2684,8 @@ mod tests {
             id: LessonId(solve_uuid(62)),
             school_class_ids: vec![SchoolClassId(solve_uuid(50))],
             subject_id: SubjectId(solve_uuid(40)),
-            teacher_id: TeacherId(solve_uuid(20)),
+            teacher_candidates: vec![TeacherId(solve_uuid(20))],
+            teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2745,7 +2778,8 @@ mod tests {
             lessons: vec![Lesson {
                 id: lesson_id,
                 subject_id,
-                teacher_id,
+                teacher_candidates: vec![teacher_id],
+                teacher_pin: Some(teacher_id),
                 school_class_ids: vec![class_id],
                 hours_per_week: 1,
                 preferred_block_size: 1,
@@ -2864,7 +2898,8 @@ mod tests {
             lessons: vec![Lesson {
                 id: lesson_id,
                 subject_id,
-                teacher_id,
+                teacher_candidates: vec![teacher_id],
+                teacher_pin: Some(teacher_id),
                 school_class_ids: vec![class_id],
                 hours_per_week: 1,
                 preferred_block_size: 1,
@@ -3040,7 +3075,8 @@ mod tests {
                     id: lesson_a,
                     school_class_ids: vec![class_id],
                     subject_id,
-                    teacher_id,
+                    teacher_candidates: vec![teacher_id],
+                    teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3049,7 +3085,8 @@ mod tests {
                     id: lesson_b,
                     school_class_ids: vec![class_id],
                     subject_id,
-                    teacher_id,
+                    teacher_candidates: vec![teacher_id],
+                    teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3058,7 +3095,8 @@ mod tests {
                     id: lesson_c,
                     school_class_ids: vec![class_id],
                     subject_id,
-                    teacher_id,
+                    teacher_candidates: vec![teacher_id],
+                    teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3067,7 +3105,8 @@ mod tests {
                     id: lesson_d,
                     school_class_ids: vec![class_id],
                     subject_id,
-                    teacher_id,
+                    teacher_candidates: vec![teacher_id],
+                    teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3076,7 +3115,8 @@ mod tests {
                     id: lesson_e,
                     school_class_ids: vec![class_id],
                     subject_id,
-                    teacher_id,
+                    teacher_candidates: vec![teacher_id],
+                    teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,

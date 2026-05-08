@@ -70,7 +70,7 @@ pub fn score_solution(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.teacher_id, tb.day_of_week))
+            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
             .or_default()
             .push(tb.position);
     }
@@ -558,7 +558,8 @@ mod tests {
                 id: LessonId(score_uuid(60)),
                 school_class_ids: vec![SchoolClassId(score_uuid(50))],
                 subject_id: SubjectId(score_uuid(40)),
-                teacher_id: TeacherId(score_uuid(20)),
+                teacher_candidates: vec![TeacherId(score_uuid(20))],
+                teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 2,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -869,7 +870,8 @@ mod tests {
                 id: LessonId(score_uuid(60)),
                 school_class_ids: vec![SchoolClassId(score_uuid(50))],
                 subject_id: SubjectId(score_uuid(40)),
-                teacher_id: TeacherId(score_uuid(20)),
+                teacher_candidates: vec![TeacherId(score_uuid(20))],
+                teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -952,7 +954,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -974,7 +977,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -997,7 +1001,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1021,7 +1026,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1049,7 +1055,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![c1, c2, c3],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1305,7 +1312,8 @@ mod tests {
                 id: lesson_id,
                 school_class_ids: vec![class_id],
                 subject_id,
-                teacher_id,
+                teacher_candidates: vec![teacher_id],
+                teacher_pin: Some(teacher_id),
                 hours_per_week: 4,
                 preferred_block_size: 1,
                 lesson_group_id: None,
