@@ -175,7 +175,7 @@ run = "bash scripts/apply-github-settings.sh"
 
 [tasks.lint]
 description = "Run all linters"
-depends = ["lint:rust", "lint:py", "fe:lint", "lint:design", "check:commit-types", "check:actions"]
+depends = ["lint:rust", "lint:py", "fe:lint", "lint:design", "check:commit-types", "check:openthings-html", "check:actions"]
 
 [tasks."gen:commit-types"]
 description = "Regenerate commit-types-derived sections in pr-title.yml and CONTRIBUTING.md"
@@ -184,6 +184,14 @@ run = "uv run python scripts/gen_commit_types.py --write"
 [tasks."check:commit-types"]
 description = "Verify pr-title.yml and CONTRIBUTING.md match .github/commit-types.yml"
 run = "uv run python scripts/gen_commit_types.py"
+
+[tasks."gen:openthings-html"]
+description = "Regenerate docs/OPEN_THINGS.html from docs/OPEN_THINGS.md"
+run = "uv run python scripts/render_open_things_html.py"
+
+[tasks."check:openthings-html"]
+description = "Verify docs/OPEN_THINGS.html matches the rendered docs/OPEN_THINGS.md"
+run = "uv run python scripts/render_open_things_html.py --check"
 
 [tasks."check:actions"]
 description = "Lint GitHub Actions workflows with actionlint"
