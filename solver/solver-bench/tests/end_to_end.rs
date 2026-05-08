@@ -100,3 +100,37 @@ fn supervisor_emits_observability_and_quality_columns() {
     );
     let _ = std::fs::remove_file(&out);
 }
+
+#[test]
+fn supervisor_renders_kempe_chain_column_in_sweep_mode() {
+    let out = unique_outfile("kempe-sweep");
+    let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "1s",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc_kempe",
+            "--kempe-max-chain",
+            "4,8",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("solver-bench runs");
+    assert!(status.success(), "solver-bench exit was non-zero");
+
+    let body = std::fs::read_to_string(&out).expect("output file");
+    assert!(
+        body.contains("| Kempe Chain |"),
+        "expected `| Kempe Chain |` column header in output:\n{body}",
+    );
+    assert!(
+        body.contains("| 4 |") && body.contains("| 8 |"),
+        "expected both depth cells in output:\n{body}",
+    );
+    let _ = std::fs::remove_file(&out);
+}
