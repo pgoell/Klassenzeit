@@ -435,10 +435,10 @@ async def seeded_lesson_for_pinning(
     create_room: CreateRoomFn,
     create_teacher: CreateTeacherFn,
     create_school_class: CreateSchoolClassFn,
-) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
     """Seed one Lesson + one TimeBlock + one Room for ScheduledLesson.pinned tests.
 
-    Returns ``(lesson_id, time_block_id, room_id)``.
+    Returns ``(lesson_id, time_block_id, room_id, teacher_id)``.
     """
     subject = await create_subject()
     week_scheme = await create_week_scheme()
@@ -453,7 +453,7 @@ async def seeded_lesson_for_pinning(
     )
     db_session.add(lesson)
     await db_session.flush()
-    return lesson.id, time_block.id, room.id
+    return lesson.id, time_block.id, room.id, teacher.id
 
 
 @pytest.fixture
@@ -508,12 +508,14 @@ async def seeded_class_with_two_placements(
                 lesson_id=pinned_lesson.id,
                 time_block_id=tb_pinned.id,
                 room_id=room.id,
+                teacher_id=teacher.id,
                 pinned=True,
             ),
             ScheduledLesson(
                 lesson_id=unpinned_lesson.id,
                 time_block_id=tb_unpinned.id,
                 room_id=room.id,
+                teacher_id=teacher.id,
                 pinned=False,
             ),
         ]
@@ -583,6 +585,7 @@ async def seeded_movable_placement(
             lesson_id=lesson.id,
             time_block_id=source_tb.id,
             room_id=room.id,
+            teacher_id=teacher.id,
             pinned=False,
         )
     )
@@ -636,6 +639,7 @@ async def seeded_movable_placement_cross_week(
             lesson_id=lesson.id,
             time_block_id=source_tb.id,
             room_id=room.id,
+            teacher_id=teacher.id,
             pinned=False,
         )
     )
@@ -699,12 +703,14 @@ async def seeded_two_placements_for_swap(
                 lesson_id=lesson_a.id,
                 time_block_id=tb_a.id,
                 room_id=room.id,
+                teacher_id=teacher.id,
                 pinned=False,
             ),
             ScheduledLesson(
                 lesson_id=lesson_b.id,
                 time_block_id=tb_b.id,
                 room_id=room.id,
+                teacher_id=teacher.id,
                 pinned=False,
             ),
         ]
@@ -808,6 +814,7 @@ async def seeded_dreizuegig_with_one_pin(
                 lesson_id=lesson_a.id,
                 time_block_id=tb_1.id,
                 room_id=room_a.id,
+                teacher_id=teacher_a.id,
                 pinned=True,
             ),
         ]

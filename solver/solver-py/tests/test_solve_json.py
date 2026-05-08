@@ -1,4 +1,9 @@
-"""Binding contract test: pinned_placements wire field round-trips."""
+"""Binding contract test: Placement.teacher_id round-trips via solve_json.
+
+OPEN_THINGS items 64 + 65: every Placement emitted by the LAHC core carries
+an explicit teacher_id matching the lesson's teacher_pin (set transitionally
+by the route handler's auto_assign_teachers_for_lessons).
+"""
 
 import json
 import uuid
@@ -6,20 +11,18 @@ import uuid
 from klassenzeit_solver import solve_json_with_config
 
 
-def _pin_uuid(n: int) -> str:
+def _solve_json_test_uuid(n: int) -> str:
     return str(uuid.UUID(bytes=bytes([n]) * 16))
 
 
-def test_solve_json_round_trips_pinned_placement() -> None:
-    """Problem JSON with one pinned_placement yields a Solution where the pin
-    appears verbatim in placements; deadline_ms=None per the solver/CLAUDE.md
-    binding-contract rule (skip the 200 ms LAHC pass)."""
-    lesson_id = _pin_uuid(60)
-    tb_id = _pin_uuid(10)
-    room_id = _pin_uuid(30)
-    teacher_id = _pin_uuid(20)
-    subject_id = _pin_uuid(40)
-    class_id = _pin_uuid(50)
+def test_solve_json_placement_carries_teacher_id() -> None:
+    """Every Placement must carry a teacher_id matching the lesson's pin."""
+    teacher_id = _solve_json_test_uuid(20)
+    class_id = _solve_json_test_uuid(50)
+    subject_id = _solve_json_test_uuid(40)
+    room_id = _solve_json_test_uuid(30)
+    tb_id = _solve_json_test_uuid(10)
+    lesson_id = _solve_json_test_uuid(60)
 
     problem = {
         "time_blocks": [{"id": tb_id, "day_of_week": 0, "position": 0}],
@@ -49,13 +52,11 @@ def test_solve_json_round_trips_pinned_placement() -> None:
         "teacher_blocked_times": [],
         "room_blocked_times": [],
         "room_subject_suitabilities": [],
-        "pinned_placements": [{"lesson_id": lesson_id, "time_block_id": tb_id, "room_id": room_id}],
+        "pinned_placements": [],
     }
 
-    solution_json = solve_json_with_config(json.dumps(problem), None)
-    solution = json.loads(solution_json)
-
-    pinned = [p for p in solution["placements"] if p["lesson_id"] == lesson_id]
-    assert len(pinned) == 1
-    assert pinned[0]["time_block_id"] == tb_id
-    assert pinned[0]["room_id"] == room_id
+    solution = json.loads(solve_json_with_config(json.dumps(problem), None))
+    assert solution["placements"], "expected at least one placement"
+    for p in solution["placements"]:
+        assert "teacher_id" in p, "Placement missing teacher_id"
+        assert p["teacher_id"] == teacher_id

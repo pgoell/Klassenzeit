@@ -183,7 +183,7 @@ fn same_room_eligibility(
             let mut run: usize = 0;
             let mut fits = false;
             for tb in day_tbs.iter() {
-                if !idx.teacher_blocked(lesson.teacher_id, tb.id)
+                if !idx.teacher_blocked(lesson.assigned_teacher_id(), tb.id)
                     && !idx.room_blocked(room.id, tb.id)
                 {
                     run += 1;
@@ -313,7 +313,8 @@ mod tests {
             id: LessonId(ord_uuid(70)),
             school_class_ids: vec![SchoolClassId(ord_uuid(50))],
             subject_id: SubjectId(ord_uuid(40)),
-            teacher_id: TeacherId(ord_uuid(20)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20))],
+            teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -322,7 +323,8 @@ mod tests {
             id: LessonId(ord_uuid(71)),
             school_class_ids: vec![SchoolClassId(ord_uuid(51))],
             subject_id: SubjectId(ord_uuid(41)),
-            teacher_id: TeacherId(ord_uuid(21)),
+            teacher_candidates: vec![TeacherId(ord_uuid(21))],
+            teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -344,7 +346,8 @@ mod tests {
             id: LessonId(ord_uuid(81)),
             school_class_ids: vec![SchoolClassId(ord_uuid(50))],
             subject_id: SubjectId(ord_uuid(40)),
-            teacher_id: TeacherId(ord_uuid(20)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20))],
+            teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -353,7 +356,8 @@ mod tests {
             id: LessonId(ord_uuid(80)),
             school_class_ids: vec![SchoolClassId(ord_uuid(51))],
             subject_id: SubjectId(ord_uuid(41)),
-            teacher_id: TeacherId(ord_uuid(21)),
+            teacher_candidates: vec![TeacherId(ord_uuid(21))],
+            teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -372,7 +376,8 @@ mod tests {
                 id: LessonId(ord_uuid(90 + k)),
                 school_class_ids: vec![SchoolClassId(ord_uuid(50))],
                 subject_id: SubjectId(ord_uuid(40)),
-                teacher_id: TeacherId(ord_uuid(20)),
+                teacher_candidates: vec![TeacherId(ord_uuid(20))],
+                teacher_pin: Some(TeacherId(ord_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -406,7 +411,8 @@ mod tests {
             id: LessonId(ord_uuid(95)),
             school_class_ids: vec![SchoolClassId(ord_uuid(50))],
             subject_id: SubjectId(ord_uuid(41)),
-            teacher_id: TeacherId(ord_uuid(20)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20))],
+            teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -477,7 +483,8 @@ mod tests {
             id: LessonId(ord_uuid(71)),
             school_class_ids: vec![SchoolClassId(ord_uuid(50))],
             subject_id: SubjectId(ord_uuid(40)),
-            teacher_id: TeacherId(ord_uuid(20)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20))],
+            teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 2,
             preferred_block_size: 2,
             lesson_group_id: None,
@@ -486,7 +493,8 @@ mod tests {
             id: LessonId(ord_uuid(70)),
             school_class_ids: vec![SchoolClassId(ord_uuid(51))],
             subject_id: SubjectId(ord_uuid(41)),
-            teacher_id: TeacherId(ord_uuid(21)),
+            teacher_candidates: vec![TeacherId(ord_uuid(21))],
+            teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 2,
             preferred_block_size: 2,
             lesson_group_id: None,

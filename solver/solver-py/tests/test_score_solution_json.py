@@ -41,7 +41,8 @@ def _trivial_one_lesson_problem() -> str:
                 "id": lesson_id,
                 "school_class_ids": [class_id],
                 "subject_id": subject_id,
-                "teacher_id": teacher_id,
+                "teacher_candidates": [teacher_id],
+                "teacher_pin": teacher_id,
                 "hours_per_week": 1,
                 "preferred_block_size": 1,
             }

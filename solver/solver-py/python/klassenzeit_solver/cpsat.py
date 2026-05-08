@@ -237,7 +237,7 @@ def _create_anchor_vars(
 
     for lesson in problem["lessons"]:
         l_id = lesson["id"]
-        teacher_id = lesson["teacher_id"]
+        teacher_id = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
         subject_id = lesson["subject_id"]
         n = lesson["preferred_block_size"]
         if (teacher_id, subject_id) not in teacher_qualifies:
@@ -336,7 +336,8 @@ def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup adds bookkeeping bra
                     elif l_id == cur[0]:
                         cur[1].append(var)
                     # else: a later (higher) l_id; ignore so only the first member contributes
-                teacher_terms[lesson["teacher_id"]].append(var)
+                lesson_teacher = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
+                teacher_terms[lesson_teacher].append(var)
                 room_terms[r_id].append(var)
             class_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
             for (c_id, _g), (_l, vars_list) in class_group_first.items():
@@ -363,7 +364,8 @@ def _emit_teacher_max_hours(
     teacher_anchor_terms: dict[str, list[tuple[cp_model.IntVar, int]]] = defaultdict(list)
     for (l_id, _d, _p, _r), var in anchor_vars.items():
         lesson = lesson_lookup[l_id]
-        teacher_anchor_terms[lesson["teacher_id"]].append((var, lesson["preferred_block_size"]))
+        lesson_teacher = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
+        teacher_anchor_terms[lesson_teacher].append((var, lesson["preferred_block_size"]))
     for t_id, terms in teacher_anchor_terms.items():
         if t_id in teacher_max_hours:
             model.add(sum(var * n for var, n in terms) <= teacher_max_hours[t_id])
@@ -572,7 +574,7 @@ def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-da
         if scope_kind == "class":
             owners: list[str] = list(lesson["school_class_ids"])
         else:
-            owners = [lesson["teacher_id"]]
+            owners = [lesson.get("teacher_pin") or lesson["teacher_candidates"][0]]
         for offset in range(n):
             p = start_pos + offset
             for owner in owners:
@@ -763,7 +765,9 @@ def _extract_placements(
     for (lesson_id, day, start_pos, room_id), var in anchor_vars.items():
         if solver.value(var) != 1:
             continue
-        n = meta["lesson_lookup"][lesson_id]["preferred_block_size"]
+        lesson = meta["lesson_lookup"][lesson_id]
+        n = lesson["preferred_block_size"]
+        teacher_id = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
         for i in range(n):
             tb_id = meta["tb_at"][(day, start_pos + i)]
             out.append(
@@ -771,6 +775,7 @@ def _extract_placements(
                     "lesson_id": lesson_id,
                     "time_block_id": tb_id,
                     "room_id": room_id,
+                    "teacher_id": teacher_id,
                 }
             )
     return out

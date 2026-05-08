@@ -122,12 +122,14 @@ async def move_placement_route(
     if body.time_block_id != time_block_id:
         # Drop the old composite-PK row before inserting the new one to avoid
         # a transient duplicate during the same transaction.
+        prior_teacher_id = placement.teacher_id
         await db.delete(placement)
         await db.flush()
         placement = ScheduledLesson(
             lesson_id=lesson_id,
             time_block_id=body.time_block_id,
             room_id=body.room_id,
+            teacher_id=prior_teacher_id,
             pinned=True,
         )
         db.add(placement)
@@ -170,6 +172,8 @@ async def swap_placements_route(
     await _assert_lesson_week_scheme_matches(db, body.b.lesson_id, b_target_tb)
     a_room = placement_a.room_id
     b_room = placement_b.room_id
+    a_teacher = placement_a.teacher_id
+    b_teacher = placement_b.teacher_id
     await db.delete(placement_a)
     await db.delete(placement_b)
     await db.flush()
@@ -177,12 +181,14 @@ async def swap_placements_route(
         lesson_id=body.a.lesson_id,
         time_block_id=body.b.time_block_id,
         room_id=b_room,
+        teacher_id=a_teacher,
         pinned=True,
     )
     new_b = ScheduledLesson(
         lesson_id=body.b.lesson_id,
         time_block_id=body.a.time_block_id,
         room_id=a_room,
+        teacher_id=b_teacher,
         pinned=True,
     )
     db.add(new_a)

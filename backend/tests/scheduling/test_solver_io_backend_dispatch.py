@@ -36,7 +36,8 @@ def _minimal_runnable_problem_json() -> str:
                     "id": lesson,
                     "school_class_ids": [klass],
                     "subject_id": subject,
-                    "teacher_id": teacher,
+                    "teacher_candidates": [teacher],
+                    "teacher_pin": teacher,
                     "hours_per_week": 1,
                     "preferred_block_size": 1,
                 }

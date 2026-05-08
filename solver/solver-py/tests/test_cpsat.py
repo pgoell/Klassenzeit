@@ -28,7 +28,8 @@ def _cpsat_trivial_one_lesson_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 1,
                     "preferred_block_size": 1,
                 }
@@ -67,7 +68,8 @@ def _cpsat_doppelstunde_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 2,
                     "preferred_block_size": 2,
                 }
@@ -99,7 +101,8 @@ def _cpsat_infeasible_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 5,
                     "preferred_block_size": 1,
                 }
@@ -195,7 +198,8 @@ def _cpsat_lesson_group_multi_class_problem() -> str:
                     "id": _cpsat_uuid(60 + i),
                     "school_class_ids": classes,
                     "subject_id": subjects[i],
-                    "teacher_id": teachers[i],
+                    "teacher_candidates": [teachers[i]],
+                    "teacher_pin": teachers[i],
                     "hours_per_week": 1,
                     "preferred_block_size": 1,
                     "lesson_group_id": group_id,
@@ -303,7 +307,8 @@ def _cpsat_doppelstunde_with_prefer_late_subject() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 2,
                     "preferred_block_size": 2,
                 }
@@ -368,7 +373,8 @@ def _cpsat_home_room_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50), _cpsat_uuid(51)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 2,
                     "preferred_block_size": 1,
                 }
@@ -428,7 +434,8 @@ def _cpsat_forced_class_gap_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 1,
                     "preferred_block_size": 1,
                 },
@@ -436,7 +443,8 @@ def _cpsat_forced_class_gap_problem() -> str:
                     "id": _cpsat_uuid(61),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 1,
                     "preferred_block_size": 1,
                 },
@@ -499,7 +507,8 @@ def _cpsat_forced_lopsided_spread_problem() -> str:
                     "id": _cpsat_uuid(60),
                     "school_class_ids": [_cpsat_uuid(50)],
                     "subject_id": _cpsat_uuid(40),
-                    "teacher_id": _cpsat_uuid(20),
+                    "teacher_candidates": [_cpsat_uuid(20)],
+                    "teacher_pin": _cpsat_uuid(20),
                     "hours_per_week": 3,
                     "preferred_block_size": 1,
                 }
@@ -528,3 +537,18 @@ def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem(
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
     assert out["model_objective_value"] == 15
+
+
+def test_solve_cpsat_placement_carries_teacher_id() -> None:
+    """CP-SAT must stamp teacher_id on every Placement matching the pin.
+
+    OPEN_THINGS items 64 + 65: the CP-SAT bridge writes the lesson's
+    teacher_pin into every emitted Placement so the persistence layer can
+    record the solver's pick without dereferencing the input.
+    """
+    out = solve_cpsat_json(_cpsat_trivial_one_lesson_problem(), deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["violations"] == []
+    assert sol["placements"], "expected at least one placement"
+    for p in sol["placements"]:
+        assert p.get("teacher_id") == _cpsat_uuid(20)

@@ -281,7 +281,7 @@ fn try_change_move(
     }
 
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
-    let teacher = lesson.teacher_id;
+    let teacher = lesson.assigned_teacher_id();
 
     if state.used_teacher.contains(&(teacher, new_tb.id)) {
         return false;
@@ -679,6 +679,7 @@ fn apply_change_move(
         lesson_id: old_p.lesson_id,
         time_block_id: new_tb.id,
         room_id: new_room_id,
+        teacher_id: teacher,
     };
 
     for class in class_ids {
@@ -1202,9 +1203,8 @@ fn rr_remove_row_bookkeeping(
         .expect("removed row's tb resolves");
     let day = tb.day_of_week;
     let position = tb.position;
-    state
-        .used_teacher
-        .remove(&(lesson.teacher_id, row.time_block_id));
+    let teacher = lesson.assigned_teacher_id();
+    state.used_teacher.remove(&(teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
         state.used_class.remove(&(*class, row.time_block_id));
         if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
@@ -1217,15 +1217,15 @@ fn rr_remove_row_bookkeeping(
         }
     }
     state.used_room.remove(&(row.room_id, row.time_block_id));
-    if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
+    if let Some(part) = state.teacher_positions.get_mut(&(teacher, day)) {
         if let Ok(j) = part.binary_search(&position) {
             part.remove(j);
         }
         if part.is_empty() {
-            state.teacher_positions.remove(&(lesson.teacher_id, day));
+            state.teacher_positions.remove(&(teacher, day));
         }
     }
-    if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
+    if let Some(h) = state.hours_by_teacher.get_mut(&teacher) {
         *h = h.saturating_sub(1);
     }
     for class in &lesson.school_class_ids {
@@ -1266,10 +1266,9 @@ fn replay_placement(
     let day = tb.day_of_week;
     let position = tb.position;
 
+    let teacher = lesson.assigned_teacher_id();
     placements.push(row.clone());
-    state
-        .used_teacher
-        .insert((lesson.teacher_id, row.time_block_id));
+    state.used_teacher.insert((teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
         state.used_class.insert((*class, row.time_block_id));
         let part = state.class_positions.entry((*class, day)).or_default();
@@ -1279,15 +1278,12 @@ fn replay_placement(
         }
     }
     state.used_room.insert((row.room_id, row.time_block_id));
-    let part = state
-        .teacher_positions
-        .entry((lesson.teacher_id, day))
-        .or_default();
+    let part = state.teacher_positions.entry((teacher, day)).or_default();
     let ins = part.binary_search(&position).unwrap_or_else(|i| i);
     if part.get(ins).copied() != Some(position) {
         part.insert(ins, position);
     }
-    *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+    *state.hours_by_teacher.entry(teacher).or_insert(0) += 1;
     for class in &lesson.school_class_ids {
         let key = (*class, day, lesson.subject_id);
         let entry = state.locked_room.entry(key).or_insert((row.room_id, 0));
@@ -1382,7 +1378,8 @@ fn kempe_build_chain(
                     Some(l) => *l,
                     None => return ChainBuild::Aborted,
                 };
-                let teacher_conflict = other.teacher_id == popped_lesson.teacher_id;
+                let teacher_conflict =
+                    other.assigned_teacher_id() == popped_lesson.assigned_teacher_id();
                 let class_conflict = other
                     .school_class_ids
                     .iter()
@@ -1430,7 +1427,8 @@ fn kempe_build_chain(
                         Some(l) => l,
                         None => return false,
                     };
-                    let teacher_conflict = existing_lesson.teacher_id == other.teacher_id;
+                    let teacher_conflict =
+                        existing_lesson.assigned_teacher_id() == other.assigned_teacher_id();
                     let class_conflict = existing_lesson
                         .school_class_ids
                         .iter()
@@ -1571,16 +1569,17 @@ fn kempe_snapshot_pre_score(
                 source_days.insert(tb.day_of_week);
             }
         }
+        let teacher = lesson.assigned_teacher_id();
         for src in &source_days {
             for class in &lesson.school_class_ids {
                 class_keys.insert((*class, *src));
             }
-            teacher_keys.insert((lesson.teacher_id, *src));
+            teacher_keys.insert((teacher, *src));
         }
         for class in &lesson.school_class_ids {
             class_keys.insert((*class, *dest_day));
         }
-        teacher_keys.insert((lesson.teacher_id, *dest_day));
+        teacher_keys.insert((teacher, *dest_day));
     }
 
     let mut class_pre: HashMap<(SchoolClassId, u8), u32> = HashMap::new();
@@ -1692,6 +1691,7 @@ fn kempe_apply_block(
     state: &mut crate::solve::GreedyState,
 ) {
     let n = lesson.preferred_block_size;
+    let teacher = lesson.assigned_teacher_id();
     for k in 0..n {
         let pos = start_pos + k;
         let tb_id = tb_by_day_pos[&(dest_day, pos)];
@@ -1699,8 +1699,9 @@ fn kempe_apply_block(
             lesson_id: lesson.id,
             time_block_id: tb_id,
             room_id,
+            teacher_id: teacher,
         });
-        state.used_teacher.insert((lesson.teacher_id, tb_id));
+        state.used_teacher.insert((teacher, tb_id));
         for class in &lesson.school_class_ids {
             state.used_class.insert((*class, tb_id));
             let part = state.class_positions.entry((*class, dest_day)).or_default();
@@ -1712,13 +1713,13 @@ fn kempe_apply_block(
         state.used_room.insert((room_id, tb_id));
         let part = state
             .teacher_positions
-            .entry((lesson.teacher_id, dest_day))
+            .entry((teacher, dest_day))
             .or_default();
         let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
         if part.get(ins).copied() != Some(pos) {
             part.insert(ins, pos);
         }
-        *state.hours_by_teacher.entry(lesson.teacher_id).or_insert(0) += 1;
+        *state.hours_by_teacher.entry(teacher).or_insert(0) += 1;
         for class in &lesson.school_class_ids {
             let key = (*class, dest_day, lesson.subject_id);
             let entry = state.locked_room.entry(key).or_insert((room_id, 0));
@@ -2239,6 +2240,7 @@ fn kempe_rollback(
             .get(lesson_id)
             .expect("recreated lesson resolves");
         let n = lesson.preferred_block_size;
+        let teacher = lesson.assigned_teacher_id();
         // Identify the exact (lesson, time_block_id) rows we added at the
         // destination window. Remove them in reverse order so vec indices
         // do not shift while we operate on later rows.
@@ -2262,9 +2264,7 @@ fn kempe_rollback(
                 .expect("rollback tb resolves");
             let day = tb.day_of_week;
             let position = tb.position;
-            state
-                .used_teacher
-                .remove(&(lesson.teacher_id, p.time_block_id));
+            state.used_teacher.remove(&(teacher, p.time_block_id));
             for class in &lesson.school_class_ids {
                 state.used_class.remove(&(*class, p.time_block_id));
                 if let Some(part) = state.class_positions.get_mut(&(*class, day)) {
@@ -2277,15 +2277,15 @@ fn kempe_rollback(
                 }
             }
             state.used_room.remove(&(p.room_id, p.time_block_id));
-            if let Some(part) = state.teacher_positions.get_mut(&(lesson.teacher_id, day)) {
+            if let Some(part) = state.teacher_positions.get_mut(&(teacher, day)) {
                 if let Ok(j) = part.binary_search(&position) {
                     part.remove(j);
                 }
                 if part.is_empty() {
-                    state.teacher_positions.remove(&(lesson.teacher_id, day));
+                    state.teacher_positions.remove(&(teacher, day));
                 }
             }
-            if let Some(h) = state.hours_by_teacher.get_mut(&lesson.teacher_id) {
+            if let Some(h) = state.hours_by_teacher.get_mut(&teacher) {
                 *h = h.saturating_sub(1);
             }
             for class in &lesson.school_class_ids {
@@ -2376,7 +2376,7 @@ fn running_slice_from_placements(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.teacher_id, tb.day_of_week))
+            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
             .or_default()
             .push(tb.position);
         let max_pos = max_position_per_day
@@ -2441,7 +2441,8 @@ mod tests {
             id: lesson_id,
             school_class_ids: vec![class],
             subject_id: subject,
-            teacher_id: teacher,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2451,6 +2452,7 @@ mod tests {
             lesson_id,
             time_block_id: tb.id,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.used_teacher.insert((teacher, tb.id));
@@ -2501,7 +2503,8 @@ mod tests {
             id: lesson_a,
             school_class_ids: vec![class],
             subject_id: subject,
-            teacher_id: teacher,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -2512,11 +2515,13 @@ mod tests {
                 lesson_id: lesson_a,
                 time_block_id: tb_a.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_b,
                 time_block_id: tb_b.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -2555,7 +2560,8 @@ mod tests {
             id: lesson_id,
             school_class_ids: vec![class],
             subject_id: subject,
-            teacher_id: teacher,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
             lesson_group_id: None,
@@ -2566,11 +2572,13 @@ mod tests {
                 lesson_id,
                 time_block_id: tb_a.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id,
                 time_block_id: tb_b.id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -2616,7 +2624,8 @@ mod tests {
                 id: lesson_free,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -2625,7 +2634,8 @@ mod tests {
                 id: lesson_pinned,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -2634,7 +2644,8 @@ mod tests {
                 id: lesson_grouped,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: Some(group_id),
@@ -2656,16 +2667,19 @@ mod tests {
                 lesson_id: lesson_free,
                 time_block_id: tbs[0].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_pinned,
                 time_block_id: tbs[1].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_grouped,
                 time_block_id: tbs[2].id,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
 
@@ -2781,6 +2795,7 @@ mod tests {
             lesson_id,
             time_block_id: old_tb.id,
             room_id: old_room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.class_positions.insert((class, 0), vec_part(&[0]));
@@ -2874,7 +2889,8 @@ mod tests {
                 id: lesson,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -2894,6 +2910,7 @@ mod tests {
             lesson_id: lesson,
             time_block_id: tb_zero,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let mut state = crate::solve::GreedyState::new();
         state.class_positions.insert((class, 0), vec_part(&[0]));
@@ -2998,7 +3015,8 @@ mod tests {
                 id: lesson,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 2,
                 preferred_block_size: 2,
                 lesson_group_id: None,
@@ -3020,11 +3038,13 @@ mod tests {
                 lesson_id: lesson,
                 time_block_id: tb_zero,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson,
                 time_block_id: tb_one,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -3153,7 +3173,8 @@ mod tests {
                     id: lesson_a,
                     school_class_ids: vec![class_a, class_b],
                     subject_id: subject,
-                    teacher_id: teacher_a,
+                    teacher_candidates: vec![teacher_a],
+                    teacher_pin: Some(teacher_a),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: Some(group_id),
@@ -3162,7 +3183,8 @@ mod tests {
                     id: lesson_b,
                     school_class_ids: vec![class_a, class_b],
                     subject_id: subject,
-                    teacher_id: teacher_b,
+                    teacher_candidates: vec![teacher_b],
+                    teacher_pin: Some(teacher_b),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: Some(group_id),
@@ -3190,11 +3212,13 @@ mod tests {
                 lesson_id: lesson_a,
                 time_block_id: tb_zero,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_b,
                 time_block_id: tb_zero,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -3433,7 +3457,8 @@ mod tests {
                     id: lesson_a,
                     school_class_ids: vec![class],
                     subject_id: subject,
-                    teacher_id: teacher_a,
+                    teacher_candidates: vec![teacher_a],
+                    teacher_pin: Some(teacher_a),
                     hours_per_week: 4,
                     preferred_block_size: 2,
                     lesson_group_id: None,
@@ -3442,7 +3467,8 @@ mod tests {
                     id: lesson_b,
                     school_class_ids: vec![class],
                     subject_id: subject,
-                    teacher_id: teacher_b,
+                    teacher_candidates: vec![teacher_b],
+                    teacher_pin: Some(teacher_b),
                     hours_per_week: 2,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3520,7 +3546,8 @@ mod tests {
                 id: LessonId(lahc_uuid(60 + i)),
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teachers_v[i as usize].id,
+                teacher_candidates: vec![teachers_v[i as usize].id],
+                teacher_pin: Some(teachers_v[i as usize].id),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -3589,15 +3616,17 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
-        let teacher0 = problem_for_attempt.lessons[0].teacher_id;
-        let teacher1 = problem_for_attempt.lessons[1].teacher_id;
+        let teacher0 = problem_for_attempt.lessons[0].assigned_teacher_id();
+        let teacher1 = problem_for_attempt.lessons[1].assigned_teacher_id();
         let class = problem_for_attempt.lessons[0].school_class_ids[0];
         let subject = problem_for_attempt.lessons[0].subject_id;
         let mut state = crate::solve::GreedyState::new();
@@ -3746,16 +3775,19 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[2],
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -3803,11 +3835,13 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -3851,11 +3885,13 @@ mod tests {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
@@ -3975,7 +4011,8 @@ mod tests {
                     id: l0,
                     school_class_ids: vec![class_a],
                     subject_id: subject,
-                    teacher_id: t0,
+                    teacher_candidates: vec![t0],
+                    teacher_pin: Some(t0),
                     hours_per_week: 2,
                     preferred_block_size: 2,
                     lesson_group_id: None,
@@ -3984,7 +4021,8 @@ mod tests {
                     id: l1,
                     school_class_ids: vec![class_a],
                     subject_id: subject,
-                    teacher_id: t1,
+                    teacher_candidates: vec![t1],
+                    teacher_pin: Some(t1),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -3993,7 +4031,8 @@ mod tests {
                     id: l2,
                     school_class_ids: vec![class_a],
                     subject_id: subject,
-                    teacher_id: t2,
+                    teacher_candidates: vec![t2],
+                    teacher_pin: Some(t2),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -4024,21 +4063,25 @@ mod tests {
                 lesson_id: l0,
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l0,
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l1,
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: l2,
                 time_block_id: tb_d1_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
 
@@ -4112,7 +4155,8 @@ mod tests {
                 id: LessonId(lahc_uuid(60 + i)),
                 school_class_ids: vec![classes[i as usize].id, classes[((i + 1) % N) as usize].id],
                 subject_id: subject,
-                teacher_id: teachers_v[i as usize].id,
+                teacher_candidates: vec![teachers_v[i as usize].id],
+                teacher_pin: Some(teachers_v[i as usize].id),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -4143,6 +4187,7 @@ mod tests {
                 lesson_id: lesson_ids[i as usize],
                 time_block_id: if i % 2 == 0 { tb_d0 } else { tb_d1 },
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             })
             .collect();
 
@@ -4294,7 +4339,8 @@ mod tests {
                     id: lesson0,
                     school_class_ids: vec![class],
                     subject_id: subject,
-                    teacher_id: teacher0,
+                    teacher_candidates: vec![teacher0],
+                    teacher_pin: Some(teacher0),
                     hours_per_week: 2,
                     preferred_block_size: 2,
                     lesson_group_id: None,
@@ -4303,7 +4349,8 @@ mod tests {
                     id: lesson1,
                     school_class_ids: vec![class],
                     subject_id: subject,
-                    teacher_id: teacher1,
+                    teacher_candidates: vec![teacher1],
+                    teacher_pin: Some(teacher1),
                     hours_per_week: 2,
                     preferred_block_size: 2,
                     lesson_group_id: None,
@@ -4329,21 +4376,25 @@ mod tests {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p0,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p1,
                 room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -4557,7 +4608,8 @@ mod tests {
                     id: lesson0,
                     school_class_ids: vec![class_chain],
                     subject_id: subject,
-                    teacher_id: teacher0,
+                    teacher_candidates: vec![teacher0],
+                    teacher_pin: Some(teacher0),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -4566,7 +4618,8 @@ mod tests {
                     id: lesson1,
                     school_class_ids: vec![class_chain],
                     subject_id: subject,
-                    teacher_id: teacher1,
+                    teacher_candidates: vec![teacher1],
+                    teacher_pin: Some(teacher1),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -4575,7 +4628,8 @@ mod tests {
                     id: lesson_lock_d1,
                     school_class_ids: vec![class_lock],
                     subject_id: subject,
-                    teacher_id: teacher_lock,
+                    teacher_candidates: vec![teacher_lock],
+                    teacher_pin: Some(teacher_lock),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -4584,7 +4638,8 @@ mod tests {
                     id: lesson_lock_d0,
                     school_class_ids: vec![class_lock],
                     subject_id: subject,
-                    teacher_id: teacher_lock,
+                    teacher_candidates: vec![teacher_lock],
+                    teacher_pin: Some(teacher_lock),
                     hours_per_week: 1,
                     preferred_block_size: 1,
                     lesson_group_id: None,
@@ -4635,21 +4690,25 @@ mod tests {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p0,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p0,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_lock_d1,
                 time_block_id: tb_d1_p0,
                 room_id: room_a,
+                teacher_id: TeacherId(Uuid::nil()),
             },
             Placement {
                 lesson_id: lesson_lock_d0,
                 time_block_id: tb_d0_p0,
                 room_id: room_b,
+                teacher_id: TeacherId(Uuid::nil()),
             },
         ];
         let mut state_pre = crate::solve::GreedyState::new();
@@ -4846,7 +4905,8 @@ mod tests {
                 id: lesson,
                 school_class_ids: vec![class],
                 subject_id: subject,
-                teacher_id: teacher,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -4864,6 +4924,7 @@ mod tests {
             lesson_id: lesson,
             time_block_id: tb_d0_p4,
             room_id: room,
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         let lesson_lookup: HashMap<LessonId, &Lesson> =
             problem.lessons.iter().map(|l| (l.id, l)).collect();

@@ -118,15 +118,16 @@ fn assert_every_placement_is_feasible_and_no_double_booking(p: &Problem, s: &Sol
 
     for pl in &s.placements {
         let lesson = lesson_by_id.get(&pl.lesson_id).unwrap();
-        assert!(qualifications.contains(&(lesson.teacher_id, lesson.subject_id)));
-        assert!(!teacher_blocked.contains(&(lesson.teacher_id, pl.time_block_id)));
+        let teacher = lesson.assigned_teacher_id();
+        assert!(qualifications.contains(&(teacher, lesson.subject_id)));
+        assert!(!teacher_blocked.contains(&(teacher, pl.time_block_id)));
         assert!(!room_blocked.contains(&(pl.room_id, pl.time_block_id)));
         match room_suit.get(&pl.room_id) {
             None => {}
             Some(set) => assert!(set.contains(&lesson.subject_id)),
         }
         assert!(
-            teacher_slot.insert((lesson.teacher_id, pl.time_block_id)),
+            teacher_slot.insert((teacher, pl.time_block_id)),
             "teacher double-book"
         );
         for class_id in &lesson.school_class_ids {
@@ -143,7 +144,11 @@ fn assert_every_placement_is_feasible_and_no_double_booking(p: &Problem, s: &Sol
 }
 
 fn assert_teacher_hours_respected(p: &Problem, s: &Solution) {
-    let teacher_of: HashMap<_, _> = p.lessons.iter().map(|l| (l.id, l.teacher_id)).collect();
+    let teacher_of: HashMap<_, _> = p
+        .lessons
+        .iter()
+        .map(|l| (l.id, l.assigned_teacher_id()))
+        .collect();
     let teacher_max: HashMap<_, _> = p
         .teachers
         .iter()
@@ -230,7 +235,8 @@ proptest! {
                 id: LessonId(Uuid::from_bytes([60; 16])),
                 school_class_ids: vec![class.id],
                 subject_id: subject.id,
-                teacher_id: teacher.id,
+                teacher_candidates: vec![teacher.id],
+                teacher_pin: Some(teacher.id),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -239,7 +245,8 @@ proptest! {
                 id: LessonId(Uuid::from_bytes([61; 16])),
                 school_class_ids: vec![class.id],
                 subject_id: subject.id,
-                teacher_id: teacher.id,
+                teacher_candidates: vec![teacher.id],
+                teacher_pin: Some(teacher.id),
                 hours_per_week: 2,
                 preferred_block_size: 2,
                 lesson_group_id: None,
@@ -248,7 +255,8 @@ proptest! {
                 id: LessonId(Uuid::from_bytes([62; 16])),
                 school_class_ids: vec![class.id],
                 subject_id: subject.id,
-                teacher_id: teacher.id,
+                teacher_candidates: vec![teacher.id],
+                teacher_pin: Some(teacher.id),
                 hours_per_week: 4,
                 preferred_block_size: 2,
                 lesson_group_id: None,

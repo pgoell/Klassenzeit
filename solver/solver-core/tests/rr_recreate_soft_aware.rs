@@ -78,7 +78,8 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
         lessons: vec![Lesson {
             id: l1,
             subject_id: s_math,
-            teacher_id: t1,
+            teacher_candidates: vec![t1],
+            teacher_pin: Some(t1),
             school_class_ids: vec![c0],
             hours_per_week: 2,
             preferred_block_size: 1,

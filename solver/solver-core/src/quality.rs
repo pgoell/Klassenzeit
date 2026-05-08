@@ -138,7 +138,7 @@ pub fn quality_report(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.teacher_id, tb.day_of_week))
+            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
             .or_default()
             .push(tb.position);
     }
@@ -476,7 +476,8 @@ mod tests {
                 id: LessonId(quality_uuid(60)),
                 school_class_ids: vec![SchoolClassId(quality_uuid(50))],
                 subject_id: SubjectId(quality_uuid(40)),
-                teacher_id: TeacherId(quality_uuid(20)),
+                teacher_candidates: vec![TeacherId(quality_uuid(20))],
+                teacher_pin: Some(TeacherId(quality_uuid(20))),
                 hours_per_week: 2,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -497,6 +498,7 @@ mod tests {
             lesson_id: LessonId(quality_uuid(lesson_id)),
             time_block_id: TimeBlockId(quality_uuid(tb_id)),
             room_id: RoomId(quality_uuid(room_id)),
+            teacher_id: TeacherId(quality_uuid(20)),
         }
     }
 

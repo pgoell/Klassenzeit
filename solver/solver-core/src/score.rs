@@ -70,7 +70,7 @@ pub fn score_solution(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.teacher_id, tb.day_of_week))
+            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
             .or_default()
             .push(tb.position);
     }
@@ -558,7 +558,8 @@ mod tests {
                 id: LessonId(score_uuid(60)),
                 school_class_ids: vec![SchoolClassId(score_uuid(50))],
                 subject_id: SubjectId(score_uuid(40)),
-                teacher_id: TeacherId(score_uuid(20)),
+                teacher_candidates: vec![TeacherId(score_uuid(20))],
+                teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 2,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -579,6 +580,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(lesson_id)),
             time_block_id: TimeBlockId(score_uuid(tb_id)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(score_uuid(20)),
         }
     }
 
@@ -869,7 +871,8 @@ mod tests {
                 id: LessonId(score_uuid(60)),
                 school_class_ids: vec![SchoolClassId(score_uuid(50))],
                 subject_id: SubjectId(score_uuid(40)),
-                teacher_id: TeacherId(score_uuid(20)),
+                teacher_candidates: vec![TeacherId(score_uuid(20))],
+                teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -897,6 +900,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(11)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements, &weights), 2);
     }
@@ -913,6 +917,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(10)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements_at_zero, &weights), 7);
         // At position 1: contribution = 0.
@@ -920,6 +925,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(11)),
             room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements_at_one, &weights), 0);
     }
@@ -952,7 +958,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -974,7 +981,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -997,7 +1005,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1021,7 +1030,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![class_id],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1049,7 +1059,8 @@ mod tests {
             id: LessonId(score_uuid(60)),
             school_class_ids: vec![c1, c2, c3],
             subject_id: SubjectId(score_uuid(40)),
-            teacher_id: TeacherId(score_uuid(20)),
+            teacher_candidates: vec![TeacherId(score_uuid(20))],
+            teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
             lesson_group_id: None,
@@ -1092,6 +1103,7 @@ mod tests {
             lesson_id: LessonId(score_uuid(60)),
             time_block_id: TimeBlockId(score_uuid(10)),
             room_id: RoomId(score_uuid(31)),
+            teacher_id: TeacherId(Uuid::nil()),
         }];
         assert_eq!(score_solution(&p, &placements, &weights), 7);
     }
@@ -1305,7 +1317,8 @@ mod tests {
                 id: lesson_id,
                 school_class_ids: vec![class_id],
                 subject_id,
-                teacher_id,
+                teacher_candidates: vec![teacher_id],
+                teacher_pin: Some(teacher_id),
                 hours_per_week: 4,
                 preferred_block_size: 1,
                 lesson_group_id: None,
@@ -1323,6 +1336,7 @@ mod tests {
             lesson_id,
             time_block_id: TimeBlockId(score_uuid(tb)),
             room_id,
+            teacher_id: TeacherId(Uuid::nil()),
         };
         // p(11) is day 0 max (pos 1); p(14) is day 1 max (pos 2). Two hits at
         // weight 3 = 6.

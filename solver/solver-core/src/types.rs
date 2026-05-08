@@ -311,8 +311,20 @@ pub struct Lesson {
     pub school_class_ids: Vec<SchoolClassId>,
     /// Subject taught in this lesson.
     pub subject_id: SubjectId,
-    /// Teacher assigned to this lesson.
-    pub teacher_id: TeacherId,
+    /// Teachers the solver may pick from. Precomputed by the backend
+    /// (`build_problem_json` in `scheduling/solver_io.py`) as the qualified
+    /// teachers whose availability overlaps at least one of the lesson's
+    /// class's available time blocks. Must be non-empty when `teacher_pin`
+    /// is `None`. When `teacher_pin` is `Some`, the pin appears first in the
+    /// list. The algorithm-phase PR (item 68) iterates this list to pick a
+    /// teacher; until then, the solver picks `teacher_pin` via
+    /// `assigned_teacher_id`.
+    pub teacher_candidates: Vec<TeacherId>,
+    /// Optional pin: when `Some`, the user has fixed the teacher choice and
+    /// the solver must honour it. When `None`, the solver picks freely from
+    /// `teacher_candidates`. Wire format: matches `Lesson.teacher_id` (the
+    /// ORM column) when non-null in the route handler.
+    pub teacher_pin: Option<TeacherId>,
     /// Number of hours of this lesson to place per week.
     pub hours_per_week: u8,
     /// Preferred block size for placement. `1` means single-hour placements;
@@ -329,6 +341,26 @@ pub struct Lesson {
     /// `None` value means the lesson is independent.
     #[serde(default)]
     pub lesson_group_id: Option<LessonGroupId>,
+}
+
+impl Lesson {
+    /// The teacher this lesson is currently assigned to. Returns the pin when
+    /// set; otherwise the first candidate. Panics if both `teacher_pin` is
+    /// `None` and `teacher_candidates` is empty (an invariant violation
+    /// `validate_structural` is responsible for catching upstream).
+    ///
+    /// The algorithm-phase PR (item 68) widens this helper into a real
+    /// candidate-aware picker; until then, every call site reads through this
+    /// method so the eventual change is localized.
+    pub fn assigned_teacher_id(&self) -> TeacherId {
+        match self.teacher_pin {
+            Some(t) => t,
+            None => *self
+                .teacher_candidates
+                .first()
+                .expect("Lesson has neither teacher_pin nor teacher_candidates"),
+        }
+    }
 }
 
 fn default_preferred_block_size() -> u8 {
@@ -406,6 +438,11 @@ pub struct Placement {
     pub time_block_id: TimeBlockId,
     /// Room the lesson was placed into.
     pub room_id: RoomId,
+    /// Teacher chosen by the solver from the lesson's `teacher_candidates`.
+    /// When `Lesson.teacher_pin` is `Some`, this matches the pin; otherwise
+    /// the solver picks (algorithm-phase PR for item 68 widens the picker;
+    /// today the solver picks via `Lesson::assigned_teacher_id`).
+    pub teacher_id: TeacherId,
 }
 
 /// A single hard-constraint violation recorded by the solver.
@@ -531,7 +568,8 @@ mod tests {
     #[test]
     fn lesson_accepts_preferred_block_size_field() {
         let json = format!(
-            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_id":"{}","hours_per_week":4,"preferred_block_size":2}}"#,
+            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_candidates":["{}"],"teacher_pin":"{}","hours_per_week":4,"preferred_block_size":2}}"#,
+            Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
@@ -544,7 +582,8 @@ mod tests {
     #[test]
     fn lesson_defaults_preferred_block_size_to_one_when_field_omitted() {
         let json = format!(
-            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_id":"{}","hours_per_week":1}}"#,
+            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_candidates":["{}"],"teacher_pin":"{}","hours_per_week":1}}"#,
+            Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
@@ -558,9 +597,10 @@ mod tests {
     fn lesson_accepts_school_class_ids_with_one_element() {
         let class_id = Uuid::from_bytes([1; 16]);
         let json = format!(
-            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_id":"{}","hours_per_week":1}}"#,
+            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_candidates":["{}"],"teacher_pin":"{}","hours_per_week":1}}"#,
             Uuid::nil(),
             class_id,
+            Uuid::nil(),
             Uuid::nil(),
             Uuid::nil()
         );
@@ -576,11 +616,12 @@ mod tests {
         let c2 = Uuid::from_bytes([2; 16]);
         let c3 = Uuid::from_bytes([3; 16]);
         let json = format!(
-            r#"{{"id":"{}","school_class_ids":["{}","{}","{}"],"subject_id":"{}","teacher_id":"{}","hours_per_week":1}}"#,
+            r#"{{"id":"{}","school_class_ids":["{}","{}","{}"],"subject_id":"{}","teacher_candidates":["{}"],"teacher_pin":"{}","hours_per_week":1}}"#,
             Uuid::nil(),
             c1,
             c2,
             c3,
+            Uuid::nil(),
             Uuid::nil(),
             Uuid::nil()
         );
@@ -595,7 +636,8 @@ mod tests {
     fn lesson_round_trips_lesson_group_id_when_present() {
         let group_id = Uuid::from_bytes([7; 16]);
         let json = format!(
-            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_id":"{}","hours_per_week":1,"lesson_group_id":"{}"}}"#,
+            r#"{{"id":"{}","school_class_ids":["{}"],"subject_id":"{}","teacher_candidates":["{}"],"teacher_pin":"{}","hours_per_week":1,"lesson_group_id":"{}"}}"#,
+            Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
             Uuid::nil(),
@@ -644,6 +686,7 @@ mod tests {
                 lesson_id: lesson_id(),
                 time_block_id: TimeBlockId(Uuid::nil()),
                 room_id: RoomId(Uuid::nil()),
+                teacher_id: TeacherId(Uuid::nil()),
             }],
             violations: vec![Violation {
                 kind: ViolationKind::TeacherOverCapacity,
