@@ -1139,6 +1139,53 @@ async def test_build_problem_json_omits_pinned_placements_defaults_to_empty_list
     assert parsed["pinned_placements"] == []
 
 
+async def test_build_problem_json_includes_null_teacher_lessons(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """build_problem_json includes Lessons with teacher_id=None.
+
+    The Lesson is emitted with teacher_pin=None and a non-empty
+    teacher_candidates list (qualified active teachers with availability
+    that overlaps the class's slots). Per OPEN_THINGS item 63, null on the
+    Lesson means "let the solver decide", not "exclude from the problem."
+    """
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    tb = await create_time_block(week_scheme_id=scheme.id, position=1)
+    await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=None,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    db_session.add(
+        TeacherAvailability(teacher_id=teacher.id, time_block_id=tb.id, status="available")
+    )
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem = json.loads(problem_json)
+    [emitted_lesson] = [item for item in problem["lessons"] if item["id"] == str(lesson.id)]
+    assert emitted_lesson["teacher_pin"] is None
+    assert len(emitted_lesson["teacher_candidates"]) >= 1
+    assert str(teacher.id) in emitted_lesson["teacher_candidates"]
+
+
 async def test_build_problem_json_emits_teacher_candidates_and_pin(
     db_session: AsyncSession,
     create_subject: CreateSubjectFn,

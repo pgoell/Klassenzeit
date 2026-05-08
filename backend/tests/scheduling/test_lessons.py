@@ -551,30 +551,35 @@ async def test_generate_lessons_skips_existing(
     assert body[0]["subject"]["id"] == subj2_id
 
 
-async def test_generate_lessons_assigns_qualified_teacher(
+async def test_generate_lessons_leaves_teacher_id_null(
     client: AsyncClient,
     create_test_user: CreateUserFn,
     login_as: LoginFn,
 ) -> None:
-    """POST /classes/{id}/generate-lessons pins a qualified teacher with spare capacity.
+    """POST /classes/{id}/generate-lessons leaves teacher_id null on every Lesson.
+
+    Per OPEN_THINGS item 63, the route no longer auto-assigns a teacher; the
+    solver picks among qualified candidates at solve time. A qualified active
+    Teacher is seeded to prove null is the default regardless of teacher
+    availability (not a fallback for "no qualified teacher").
 
     Args:
         client: The async test HTTP client.
         create_test_user: Factory fixture for inserting a User into the DB.
         login_as: Factory fixture for authenticating via /auth/login.
     """
-    await create_test_user(email="admin@les-aa1.com", role="admin")
-    await login_as("admin@les-aa1.com", "testpassword123")
+    await create_test_user(email="admin@les-pin1.com", role="admin")
+    await login_as("admin@les-pin1.com", "testpassword123")
 
-    subject_id = await _create_subject(client, "Mathematik-AA", "MaAA")
-    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme LAA1")
-    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel LAA1", 5)
+    subject_id = await _create_subject(client, "Mathematik-PIN", "MaPIN")
+    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme LPIN1")
+    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel LPIN1", 5)
     await client.post(
         f"/api/stundentafeln/{tafel_id}/entries",
         json={"subject_id": subject_id, "hours_per_week": 4, "preferred_block_size": 1},
     )
-    class_id = await _create_school_class(client, "5a-LAA1", 5, tafel_id, scheme_id)
-    teacher_id = await _create_teacher(client, "Anna", "Auto", "AUT1")
+    class_id = await _create_school_class(client, "5a-LPIN1", 5, tafel_id, scheme_id)
+    teacher_id = await _create_teacher(client, "Pia", "Pinner", "PIN1")
     qual_resp = await client.put(
         f"/api/teachers/{teacher_id}/qualifications",
         json={"subject_ids": [subject_id]},
@@ -585,106 +590,7 @@ async def test_generate_lessons_assigns_qualified_teacher(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert len(body) == 1
-    assert body[0]["teacher"] is not None
-    assert body[0]["teacher"]["id"] == teacher_id
-
-
-async def test_generate_lessons_leaves_teacher_null_when_no_qualified_teacher(
-    client: AsyncClient,
-    create_test_user: CreateUserFn,
-    login_as: LoginFn,
-) -> None:
-    """POST /classes/{id}/generate-lessons leaves teacher null when no teacher is qualified.
-
-    Args:
-        client: The async test HTTP client.
-        create_test_user: Factory fixture for inserting a User into the DB.
-        login_as: Factory fixture for authenticating via /auth/login.
-    """
-    await create_test_user(email="admin@les-aa2.com", role="admin")
-    await login_as("admin@les-aa2.com", "testpassword123")
-
-    subject_id = await _create_subject(client, "Astronomie-AA", "AsAA")
-    other_subject_id = await _create_subject(client, "Geographie-AA", "GeAA")
-    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme LAA2")
-    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel LAA2", 6)
-    await client.post(
-        f"/api/stundentafeln/{tafel_id}/entries",
-        json={"subject_id": subject_id, "hours_per_week": 2, "preferred_block_size": 1},
-    )
-    class_id = await _create_school_class(client, "6a-LAA2", 6, tafel_id, scheme_id)
-    teacher_id = await _create_teacher(client, "Bert", "Bystander", "BYS1")
-    await client.put(
-        f"/api/teachers/{teacher_id}/qualifications",
-        json={"subject_ids": [other_subject_id]},
-    )
-
-    resp = await client.post(f"/api/classes/{class_id}/generate-lessons")
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert len(body) == 1
     assert body[0]["teacher"] is None
-
-
-async def test_generate_lessons_respects_existing_teacher_capacity(
-    client: AsyncClient,
-    create_test_user: CreateUserFn,
-    login_as: LoginFn,
-) -> None:
-    """The first qualified teacher is skipped when their spare capacity is too small.
-
-    Two qualified teachers exist. Teacher A sorts earlier by short_code but
-    has only 2 spare hours; the new lesson needs 3. The route must fall
-    through to Teacher B.
-
-    Args:
-        client: The async test HTTP client.
-        create_test_user: Factory fixture for inserting a User into the DB.
-        login_as: Factory fixture for authenticating via /auth/login.
-    """
-    await create_test_user(email="admin@les-aa3.com", role="admin")
-    await login_as("admin@les-aa3.com", "testpassword123")
-
-    subject_id = await _create_subject(client, "Werken-AA", "WeAA")
-    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme LAA3")
-    tafel_id_pre = await _setup_stundentafel_for_lessons(client, "Tafel LAA3-pre", 7)
-    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel LAA3", 7)
-    class_pre_id = await _create_school_class(client, "7a-LAA3-pre", 7, tafel_id_pre, scheme_id)
-    class_id = await _create_school_class(client, "7a-LAA3", 7, tafel_id, scheme_id)
-
-    teacher_a_id = await _create_teacher(client, "Anke", "Alpha", "AAA1")
-    teacher_b_id = await _create_teacher(client, "Bea", "Beta", "BBB1")
-    await client.put(
-        f"/api/teachers/{teacher_a_id}/qualifications",
-        json={"subject_ids": [subject_id]},
-    )
-    await client.put(
-        f"/api/teachers/{teacher_b_id}/qualifications",
-        json={"subject_ids": [subject_id]},
-    )
-
-    pre_lesson_resp = await client.post(
-        "/api/lessons",
-        json={
-            "school_class_ids": [class_pre_id],
-            "subject_id": subject_id,
-            "teacher_id": teacher_a_id,
-            "hours_per_week": 22,
-        },
-    )
-    assert pre_lesson_resp.status_code == 201, pre_lesson_resp.text
-
-    await client.post(
-        f"/api/stundentafeln/{tafel_id}/entries",
-        json={"subject_id": subject_id, "hours_per_week": 3, "preferred_block_size": 1},
-    )
-
-    resp = await client.post(f"/api/classes/{class_id}/generate-lessons")
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert len(body) == 1
-    assert body[0]["teacher"] is not None
-    assert body[0]["teacher"]["id"] == teacher_b_id
 
 
 async def test_lesson_requires_admin(client: AsyncClient) -> None:
