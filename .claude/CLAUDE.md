@@ -22,7 +22,7 @@ See [Anthropic's memory docs](https://code.claude.com/docs/en/memory) for the lo
 
 ## Development Workflow
 
-**Skills are not optional when a workflow names them.** Slash commands (notably `/autopilot`) and the superpowers skill set call out specific skills by name. "Invoke the skill" means call the `Skill` tool and let it return, then follow what it says. Synthesizing a skill's output freehand, even when it looks right, is skipping the skill and counts as a process violation. If a workflow step names a skill, calling `Skill` is the first action of that step, and the end-of-turn summary must note any listed skill that was unavailable and therefore skipped.
+**Skills are not optional when a workflow names them.** Slash commands (notably `workbench:autopilot`) and the superpowers skill set call out specific skills by name. "Invoke the skill" means call the `Skill` tool and let it return, then follow what it says. Synthesizing a skill's output freehand, even when it looks right, is skipping the skill and counts as a process violation. If a workflow step names a skill, calling `Skill` is the first action of that step, and the end-of-turn summary must note any listed skill that was unavailable and therefore skipped.
 
 Always use TDD with red-green-refactor, driven by `superpowers:test-driven-development`. Development always ends in PRs after documentation was extensively reviewed and updated.
 
