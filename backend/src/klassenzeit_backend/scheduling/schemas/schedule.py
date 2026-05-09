@@ -38,6 +38,7 @@ class ViolationResponse(BaseModel):
         "pinned_conflict",
         "subject_daily_hour_cap_exceeded",
         "class_daily_lesson_cap_exceeded",
+        "class_subject_teacher_split",
     ]
     lesson_id: UUID
     hour_index: int = Field(ge=0)

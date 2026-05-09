@@ -12,7 +12,8 @@ export function violationItemKey(
   | "schedule.violations.lessonGroupSplit"
   | "schedule.violations.pinnedConflict"
   | "schedule.violations.subjectDailyHourCapExceeded"
-  | "schedule.violations.classDailyLessonCapExceeded" {
+  | "schedule.violations.classDailyLessonCapExceeded"
+  | "schedule.violations.classSubjectTeacherSplit" {
   switch (kind) {
     case "no_qualified_teacher":
       return "schedule.violations.noQualifiedTeacher";
@@ -30,5 +31,7 @@ export function violationItemKey(
       return "schedule.violations.subjectDailyHourCapExceeded";
     case "class_daily_lesson_cap_exceeded":
       return "schedule.violations.classDailyLessonCapExceeded";
+    case "class_subject_teacher_split":
+      return "schedule.violations.classSubjectTeacherSplit";
   }
 }

@@ -552,3 +552,127 @@ def test_solve_cpsat_placement_carries_teacher_id() -> None:
     assert sol["placements"], "expected at least one placement"
     for p in sol["placements"]:
         assert p.get("teacher_id") == _cpsat_uuid(20)
+
+
+def _cpsat_two_unpinned_class_subject_lessons_problem(
+    *,
+    class_teacher_id: str | None = None,
+    teacher_pin_for_lesson_1: str | None = None,
+) -> str:
+    """Two single-hour Mathematik lessons in the same class.
+
+    Both lessons share teacher_candidates=[T1, T2]; subject lists both as
+    qualified. Used by the items 66 / 67 / 68 CP-SAT tests to assert
+    pairwise per-(class, subject) uniformity, klassenlehrer preference,
+    and pin propagation through the uniformity constraint.
+    """
+    cls_id = _cpsat_uuid(50)
+    subject_id = _cpsat_uuid(40)
+    t1 = _cpsat_uuid(20)
+    t2 = _cpsat_uuid(21)
+    return json.dumps(
+        {
+            "time_blocks": [
+                {"id": _cpsat_uuid(10), "day_of_week": 0, "position": 0},
+                {"id": _cpsat_uuid(11), "day_of_week": 0, "position": 1},
+                {"id": _cpsat_uuid(12), "day_of_week": 1, "position": 0},
+                {"id": _cpsat_uuid(13), "day_of_week": 1, "position": 1},
+            ],
+            "teachers": [
+                {"id": t1, "max_hours_per_week": 5},
+                {"id": t2, "max_hours_per_week": 5},
+            ],
+            "rooms": [{"id": _cpsat_uuid(30)}],
+            "subjects": [{"id": subject_id}],
+            "school_classes": [
+                {
+                    "id": cls_id,
+                    **({"class_teacher_id": class_teacher_id} if class_teacher_id else {}),
+                }
+            ],
+            "lessons": [
+                {
+                    "id": _cpsat_uuid(60),
+                    "school_class_ids": [cls_id],
+                    "subject_id": subject_id,
+                    "teacher_candidates": [t1, t2],
+                    "teacher_pin": teacher_pin_for_lesson_1,
+                    "hours_per_week": 1,
+                    "preferred_block_size": 1,
+                },
+                {
+                    "id": _cpsat_uuid(61),
+                    "school_class_ids": [cls_id],
+                    "subject_id": subject_id,
+                    "teacher_candidates": [t1, t2],
+                    "teacher_pin": None,
+                    "hours_per_week": 1,
+                    "preferred_block_size": 1,
+                },
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": t1, "subject_id": subject_id},
+                {"teacher_id": t2, "subject_id": subject_id},
+            ],
+            "teacher_blocked_times": [],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [],
+            "pinned_placements": [],
+        }
+    )
+
+
+def test_cpsat_picks_uniform_teacher_per_class_subject_pair_when_unpinned() -> None:
+    """Item 66 CP-SAT side: pairwise per-(class, subject) uniformity.
+
+    Two unpinned Mathematik lessons in the same class, each with two
+    candidates. Without uniformity, CP-SAT could pick T1 for one and T2
+    for the other (both feasible, soft cost identical). The pairwise
+    uniformity constraint forces both to land on the same teacher.
+    """
+    problem_json = _cpsat_two_unpinned_class_subject_lessons_problem()
+    out = solve_cpsat_json(problem_json, deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["violations"] == []
+    assert len(sol["placements"]) == 2
+    teachers = {p["teacher_id"] for p in sol["placements"]}
+    assert len(teachers) == 1, f"expected uniform teacher per (class, subject): {teachers}"
+
+
+def test_cpsat_prefers_klassenlehrer_when_qualified_unpinned() -> None:
+    """Item 67 CP-SAT side: prefer_class_teacher soft cost steers the pick.
+
+    Same fixture, class_teacher_id=T1; T1 is qualified for the subject.
+    Both teachers are otherwise indifferent (no other soft-cost
+    differential). The prefer_class_teacher term costs 5 per (class,
+    subject) pair when a non-klt is chosen; CP-SAT minimises and picks T1.
+    """
+    t1 = _cpsat_uuid(20)
+    problem_json = _cpsat_two_unpinned_class_subject_lessons_problem(class_teacher_id=t1)
+    out = solve_cpsat_json(problem_json, deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["violations"] == []
+    assert len(sol["placements"]) == 2
+    for p in sol["placements"]:
+        assert p["teacher_id"] == t1, f"expected klassenlehrer T1, got {p['teacher_id']}"
+
+
+def test_cpsat_respects_teacher_pin_in_uniformity_pair() -> None:
+    """Item 66 + 68 CP-SAT side: pin on one lesson propagates via uniformity.
+
+    Lesson 1 pinned to T2; lesson 2 unpinned with [T1, T2] candidates.
+    Per-(class, subject) uniformity forces both to T2 even though klt
+    soft cost would prefer T1.
+    """
+    t1 = _cpsat_uuid(20)
+    t2 = _cpsat_uuid(21)
+    problem_json = _cpsat_two_unpinned_class_subject_lessons_problem(
+        class_teacher_id=t1,
+        teacher_pin_for_lesson_1=t2,
+    )
+    out = solve_cpsat_json(problem_json, deadline_ms=2_000)
+    sol = json.loads(out)
+    assert sol["violations"] == []
+    assert len(sol["placements"]) == 2
+    for p in sol["placements"]:
+        assert p["teacher_id"] == t2, f"expected pinned T2, got {p['teacher_id']}"

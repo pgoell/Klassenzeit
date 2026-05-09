@@ -654,6 +654,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "pinned_conflict",
         "subject_daily_hour_cap_exceeded",
         "class_daily_lesson_cap_exceeded",
+        "class_subject_teacher_split",
     }
 
 
@@ -716,6 +717,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "pinned_conflict": 0,
         "subject_daily_hour_cap_exceeded": 0,
         "class_daily_lesson_cap_exceeded": 0,
+        "class_subject_teacher_split": 0,
     }
 
 
@@ -1002,6 +1004,63 @@ async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["home_room_id"] is None
+
+
+async def test_build_problem_json_emits_class_teacher_id_when_set(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a class has class_teacher_id set, build_problem_json echoes it."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    seeded.cls.class_teacher_id = seeded.teacher.id
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
+    assert sc_entry["class_teacher_id"] == str(seeded.teacher.id)
+
+
+async def test_build_problem_json_emits_null_class_teacher_id_when_unset(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """When a class has no class_teacher_id, build_problem_json emits null."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    payload = json.loads(problem_json)
+    sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
+    assert sc_entry["class_teacher_id"] is None
 
 
 # ─── collect_pinned_placements tests ──────────────────────────────────────

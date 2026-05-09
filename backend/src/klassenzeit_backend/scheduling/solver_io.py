@@ -369,6 +369,7 @@ async def build_problem_json(
                 "id": str(c.id),
                 "home_room_id": str(c.home_room_id) if c.home_room_id else None,
                 "max_lessons_per_day": c.max_lessons_per_day,
+                "class_teacher_id": (str(c.class_teacher_id) if c.class_teacher_id else None),
             }
             for c in involved_classes
         ],

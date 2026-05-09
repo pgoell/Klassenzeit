@@ -2505,7 +2505,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict" | "subject_daily_hour_cap_exceeded" | "class_daily_lesson_cap_exceeded";
+            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict" | "subject_daily_hour_cap_exceeded" | "class_daily_lesson_cap_exceeded" | "class_subject_teacher_split";
             /**
              * Lesson Id
              * Format: uuid

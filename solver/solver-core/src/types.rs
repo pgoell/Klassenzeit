@@ -110,6 +110,14 @@ pub struct ConstraintWeights {
     /// Zero disables the axis. Scoring lands in a follow-up task; this
     /// field is added here so the struct shape is stable for callers.
     pub class_day_balance: u32,
+    /// Penalty per `(class, subject)` pair whose `class.class_teacher_id`
+    /// is qualified for that subject but the placement's chosen teacher is
+    /// not the class teacher. The closed-form pass walks placements once,
+    /// builds a `(class, subject) -> first-encountered-teacher` map, and
+    /// adds one weight unit per `(class, subject)` pair whose first
+    /// teacher mismatches the qualified class teacher. Zero disables the
+    /// axis. Item 67.
+    pub prefer_class_teacher: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -143,6 +151,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     avoid_last_period: 1,
     prefer_late_period: 1,
     class_day_balance: 5,
+    prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -296,6 +305,14 @@ pub struct SchoolClass {
     /// is additive: callers omitting the field deserialise to `None`.
     #[serde(default)]
     pub max_lessons_per_day: Option<u8>,
+    /// Optional class-teacher hint: when `Some(t)`, the algorithm-phase
+    /// `prefer_class_teacher` soft cost (item 67, lands in a follow-up
+    /// commit) penalises lessons placed for this class whose picked teacher
+    /// is not `t`. `None` means the class has no class-teacher preference
+    /// and the axis no-ops for it. Wire format is additive: existing JSON
+    /// callers without the field deserialise to `None`.
+    #[serde(default)]
+    pub class_teacher_id: Option<TeacherId>,
 }
 
 /// A lesson that must be placed `hours_per_week` times.
@@ -493,6 +510,12 @@ pub enum ViolationKind {
     /// the runtime path prunes cap-violating candidates before they enter
     /// the search.
     ClassDailyLessonCapExceeded,
+    /// Two or more lessons sharing the same `(class, subject)` pair were
+    /// assigned different teachers. Surfaced in solver telemetry only; the
+    /// runtime path enforces per-(class, subject) teacher uniformity at
+    /// placement time via a lock map (item 66) so the search cannot reach
+    /// a split-teacher state under normal operation.
+    ClassSubjectTeacherSplit,
 }
 
 #[cfg(test)]
@@ -521,6 +544,7 @@ mod tests {
             avoid_last_period: 1,
             prefer_late_period: 1,
             class_day_balance: 5,
+            prefer_class_teacher: 5,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }
@@ -677,6 +701,30 @@ mod tests {
         let json = format!(r#"{{"id":"{class_id}"}}"#);
         let sc: SchoolClass = serde_json::from_str(&json).unwrap();
         assert!(sc.home_room_id.is_none());
+    }
+
+    #[test]
+    fn school_class_round_trips_class_teacher_id_when_present() {
+        let teacher_id = Uuid::from_bytes([42; 16]);
+        let class_id = Uuid::from_bytes([10; 16]);
+        let original = SchoolClass {
+            id: SchoolClassId(class_id),
+            home_room_id: None,
+            max_lessons_per_day: None,
+            class_teacher_id: Some(TeacherId(teacher_id)),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.class_teacher_id, Some(TeacherId(teacher_id)));
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn school_class_defaults_class_teacher_id_to_none_when_field_omitted() {
+        let class_id = Uuid::from_bytes([2; 16]);
+        let json = format!(r#"{{"id":"{class_id}"}}"#);
+        let sc: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert!(sc.class_teacher_id.is_none());
     }
 
     #[test]

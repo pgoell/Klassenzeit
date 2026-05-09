@@ -225,6 +225,7 @@ proptest! {
             id: SchoolClassId(Uuid::from_bytes([50; 16])),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         };
         let qual = TeacherQualification {
             teacher_id: teacher.id,

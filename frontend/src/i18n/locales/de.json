@@ -386,7 +386,8 @@
       "lessonGroupSplit": "Gruppenstunde konnte nicht in einem gemeinsamen Zeitblock platziert werden.",
       "pinnedConflict": "Eine fixierte Platzierung war fehlerhaft und wurde verworfen: {{reason}}.",
       "subjectDailyHourCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für dieses Fach.",
-      "classDailyLessonCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für diese Klasse."
+      "classDailyLessonCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für diese Klasse.",
+      "classSubjectTeacherSplit": "{{subject}} (Stunde {{hour}}): unterschiedliche Lehrkräfte wurden derselben Klasse für dasselbe Fach zugewiesen."
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },
