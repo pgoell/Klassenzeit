@@ -61,6 +61,7 @@ fn lahc_exits_at_objective_floor_well_before_deadline() {
             id: class_id,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![Lesson {
             id: LessonId(early_exit_uuid(5)),

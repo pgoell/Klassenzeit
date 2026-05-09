@@ -76,6 +76,7 @@ fn rr_rollback_problem() -> Problem {
             id: class,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![
             Lesson {

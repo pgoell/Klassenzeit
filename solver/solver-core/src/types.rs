@@ -296,6 +296,14 @@ pub struct SchoolClass {
     /// is additive: callers omitting the field deserialise to `None`.
     #[serde(default)]
     pub max_lessons_per_day: Option<u8>,
+    /// Optional class-teacher hint: when `Some(t)`, the algorithm-phase
+    /// `prefer_class_teacher` soft cost (item 67, lands in a follow-up
+    /// commit) penalises lessons placed for this class whose picked teacher
+    /// is not `t`. `None` means the class has no class-teacher preference
+    /// and the axis no-ops for it. Wire format is additive: existing JSON
+    /// callers without the field deserialise to `None`.
+    #[serde(default)]
+    pub class_teacher_id: Option<TeacherId>,
 }
 
 /// A lesson that must be placed `hours_per_week` times.
@@ -677,6 +685,30 @@ mod tests {
         let json = format!(r#"{{"id":"{class_id}"}}"#);
         let sc: SchoolClass = serde_json::from_str(&json).unwrap();
         assert!(sc.home_room_id.is_none());
+    }
+
+    #[test]
+    fn school_class_round_trips_class_teacher_id_when_present() {
+        let teacher_id = Uuid::from_bytes([42; 16]);
+        let class_id = Uuid::from_bytes([10; 16]);
+        let original = SchoolClass {
+            id: SchoolClassId(class_id),
+            home_room_id: None,
+            max_lessons_per_day: None,
+            class_teacher_id: Some(TeacherId(teacher_id)),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.class_teacher_id, Some(TeacherId(teacher_id)));
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn school_class_defaults_class_teacher_id_to_none_when_field_omitted() {
+        let class_id = Uuid::from_bytes([2; 16]);
+        let json = format!(r#"{{"id":"{class_id}"}}"#);
+        let sc: SchoolClass = serde_json::from_str(&json).unwrap();
+        assert!(sc.class_teacher_id.is_none());
     }
 
     #[test]

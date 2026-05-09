@@ -553,6 +553,7 @@ mod tests {
                 id: SchoolClassId(score_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -866,6 +867,7 @@ mod tests {
                 id: SchoolClassId(score_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(score_uuid(60)),
@@ -1090,6 +1092,7 @@ mod tests {
             id: class2,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.school_classes[0].home_room_id = Some(RoomId(score_uuid(30)));
         p.rooms.push(Room {
@@ -1312,6 +1315,7 @@ mod tests {
                 id: class_id,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson_id,
@@ -1405,11 +1409,13 @@ mod tests {
                 id: class_a,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
             SchoolClass {
                 id: class_b,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
         ];
         let days: u8 = 5;

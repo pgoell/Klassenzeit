@@ -122,6 +122,7 @@ mod tests {
                 id: SchoolClassId(u(7)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(u(8)),

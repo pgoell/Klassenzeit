@@ -80,6 +80,7 @@ fn build_anchor_filter_fixture() -> Problem {
             id: class_a,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![Lesson {
             id: lesson_a,
@@ -255,6 +256,7 @@ fn build_many_anchors_fixture() -> Problem {
             id: class_a,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons,
         teacher_qualifications: quals,

@@ -98,6 +98,7 @@ fn forced_hop_problem() -> Problem {
             id: class,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![Lesson {
             id: lesson,
@@ -200,6 +201,7 @@ fn same_room_grundschule() -> Problem {
             id: SchoolClassId(same_room_uuid(70 + i)),
             home_room_id: Some(RoomId(same_room_uuid(50 + i))),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 

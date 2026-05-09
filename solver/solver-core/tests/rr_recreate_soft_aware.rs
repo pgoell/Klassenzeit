@@ -66,6 +66,7 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
             id: c0,
             home_room_id: Some(r_home),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         subjects: vec![Subject {
             id: s_math,

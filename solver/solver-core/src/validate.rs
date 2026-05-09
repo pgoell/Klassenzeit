@@ -626,6 +626,7 @@ mod tests {
             id: SchoolClassId(uuid(5)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         };
         let lesson = Lesson {
             id: LessonId(uuid(6)),
@@ -803,6 +804,7 @@ mod tests {
             id: SchoolClassId(uuid(7)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.subjects.push(Subject {
             id: SubjectId(uuid(8)),
@@ -1043,6 +1045,7 @@ mod tests {
             id: SchoolClassId(uuid(30)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         };
         p.school_classes.push(class2.clone());
         p.lessons.push(Lesson {
@@ -1081,6 +1084,7 @@ mod tests {
             id: SchoolClassId(uuid(40)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         };
         p.school_classes.push(class2.clone());
         p.teachers.push(Teacher {
@@ -1128,6 +1132,7 @@ mod tests {
             id: SchoolClassId(uuid(50)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         };
         p.school_classes.push(class2.clone());
         p.lessons.push(Lesson {

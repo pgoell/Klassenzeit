@@ -69,11 +69,13 @@ fn pessimal_input_problem() -> Problem {
                 id: SchoolClassId(ffd_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
             SchoolClass {
                 id: SchoolClassId(ffd_uuid(51)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
         ],
         lessons: vec![

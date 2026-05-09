@@ -72,6 +72,7 @@ pub fn grundschule_fixture() -> Problem {
             id: SchoolClassId(fixture_uuid(70 + i)),
             home_room_id: Some(RoomId(fixture_uuid(50 + i))),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 
@@ -186,6 +187,7 @@ pub fn zweizuegig_fixture() -> Problem {
             id: SchoolClassId(fixture_uuid(90 + i)),
             home_room_id: Some(RoomId(fixture_uuid(56 + i))),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 
@@ -387,6 +389,7 @@ pub fn dreizuegig_fixture() -> Problem {
             id: SchoolClassId(fixture_uuid(80 + i)),
             home_room_id: Some(RoomId(fixture_uuid(64 + i))),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 
@@ -611,6 +614,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             id: SchoolClassId(fixture_uuid(70 + i)),
             home_room_id: Some(klassenraum_ids[i as usize]),
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 

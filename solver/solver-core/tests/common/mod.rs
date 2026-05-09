@@ -68,6 +68,7 @@ pub fn feasible_problem(
             id: SchoolClassId(common_uuid(20 + i)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         })
         .collect();
 

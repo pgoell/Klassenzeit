@@ -71,6 +71,7 @@ prop_compose! {
                 id: SchoolClassId(quality_property_id_from(2000 + i as u32)),
                 home_room_id: if set_home_room { Some(rooms[0].id) } else { None },
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             })
             .collect();
 

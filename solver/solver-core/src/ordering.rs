@@ -275,11 +275,13 @@ mod tests {
                     id: SchoolClassId(ord_uuid(50)),
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
                 SchoolClass {
                     id: SchoolClassId(ord_uuid(51)),
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
             ],
             lessons: vec![],

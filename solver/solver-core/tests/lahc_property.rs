@@ -120,6 +120,7 @@ prop_compose! {
                 id: SchoolClassId(lahc_id_from(2000 + i as u32)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             })
             .collect();
 
@@ -715,11 +716,13 @@ fn canonical_score_test_problem() -> Problem {
                 id: class_a,
                 home_room_id: Some(room0),
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
             SchoolClass {
                 id: class_b,
                 home_room_id: Some(room0),
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             },
         ],
         lessons,
@@ -797,6 +800,7 @@ fn build_lahc_pinned_problem() -> Problem {
             id: class,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![
             Lesson {

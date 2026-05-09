@@ -434,6 +434,7 @@ mod tests {
                 id: class_id,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson_id,
@@ -534,6 +535,7 @@ mod tests {
                 id: class_id,
                 home_room_id: Some(r1),
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![
                 make_lesson(l1, s1),
@@ -638,6 +640,7 @@ mod tests {
                 id: class_id,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson_id,

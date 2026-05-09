@@ -60,6 +60,7 @@ fn caps_subject_hours_per_class_per_day_to_two_by_default() {
             id: class_id,
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         }],
         lessons: vec![Lesson {
             id: LessonId(caps_uuid(5)),
@@ -169,6 +170,7 @@ fn caps_total_lessons_per_class_per_day_when_set() {
             id: class_id,
             home_room_id: None,
             max_lessons_per_day: Some(4),
+            class_teacher_id: None,
         }],
         lessons,
         teacher_qualifications: teacher_quals,

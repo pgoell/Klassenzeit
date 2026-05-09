@@ -2884,6 +2884,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,
@@ -3010,6 +3011,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,
@@ -3161,11 +3163,13 @@ mod tests {
                     id: class_a,
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
                 SchoolClass {
                     id: class_b,
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
             ],
             lessons: vec![
@@ -3451,6 +3455,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![
                 Lesson {
@@ -3586,6 +3591,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: lessons_v,
             teacher_qualifications: qualifications,
@@ -4005,6 +4011,7 @@ mod tests {
                 id: class_a,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![
                 Lesson {
@@ -4133,6 +4140,7 @@ mod tests {
                 id: SchoolClassId(lahc_uuid(50 + i)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             })
             .collect();
         let teachers_v: Vec<Teacher> = (0..N)
@@ -4333,6 +4341,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![
                 Lesson {
@@ -4596,11 +4605,13 @@ mod tests {
                     id: class_chain,
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
                 SchoolClass {
                     id: class_lock,
                     home_room_id: None,
                     max_lessons_per_day: None,
+                    class_teacher_id: None,
                 },
             ],
             lessons: vec![
@@ -4900,6 +4911,7 @@ mod tests {
                 id: class,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: lesson,

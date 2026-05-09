@@ -142,6 +142,7 @@ mod tests {
                 id: SchoolClassId(json_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(json_uuid(60)),
@@ -258,6 +259,7 @@ mod tests {
                 id: SchoolClassId(json_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(lesson_uuid),

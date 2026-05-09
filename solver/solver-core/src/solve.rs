@@ -1557,6 +1557,7 @@ mod tests {
                 id: SchoolClassId(solve_uuid(50)),
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![Lesson {
                 id: LessonId(solve_uuid(60)),
@@ -1731,6 +1732,7 @@ mod tests {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -1884,6 +1886,7 @@ mod tests {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
@@ -2150,6 +2153,7 @@ mod tests {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -2210,6 +2214,7 @@ mod tests {
             id: SchoolClassId(solve_uuid(51)),
             home_room_id: None,
             max_lessons_per_day: None,
+            class_teacher_id: None,
         });
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
@@ -2769,6 +2774,7 @@ mod tests {
             school_classes: vec![SchoolClass {
                 id: class_id,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
                 home_room_id: Some(r0),
             }],
             subjects: vec![Subject {
@@ -2889,6 +2895,7 @@ mod tests {
             school_classes: vec![SchoolClass {
                 id: class_id,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
                 home_room_id: None,
             }],
             subjects: vec![Subject {
@@ -3073,6 +3080,7 @@ mod tests {
                 id: class_id,
                 home_room_id: None,
                 max_lessons_per_day: None,
+                class_teacher_id: None,
             }],
             lessons: vec![
                 Lesson {
