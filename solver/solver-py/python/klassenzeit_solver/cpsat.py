@@ -38,6 +38,7 @@ _W_PREFER_HOME_ROOM = 5
 _W_AVOID_LAST_PERIOD = 1
 _W_PREFER_LATE_PERIOD = 1
 _W_CLASS_DAY_BALANCE = 5
+_W_PREFER_CLASS_TEACHER = 5  # item 67: tentative, mirrors _W_PREFER_HOME_ROOM
 
 
 class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
@@ -139,18 +140,26 @@ def _build_model(
     model = cp_model.CpModel()
     lookups = _build_lookups(problem)
     anchor_vars, anchors_for_lesson = _create_anchor_vars(model, problem, lookups)
+    t_chosen = _create_teacher_choice_vars(model, problem)
+    class_subject_lessons = _emit_class_subject_teacher_uniformity(model, problem, t_chosen)
+
+    y_and_t = _create_y_and_t_vars(model, problem, anchor_vars, anchors_for_lesson, t_chosen)
 
     _emit_cardinality(model, problem, anchor_vars, anchors_for_lesson)
-    _emit_non_overlap(model, anchor_vars, lookups)
-    _emit_teacher_max_hours(model, anchor_vars, lookups)
+    _emit_per_candidate_anchor_compatibility(
+        model, problem, anchor_vars, anchors_for_lesson, lookups, t_chosen
+    )
+    _emit_non_overlap(model, anchor_vars, lookups, y_and_t)
+    _emit_teacher_max_hours(model, anchor_vars, lookups, t_chosen)
     _emit_same_room(model, problem, anchor_vars, anchors_for_lesson)
     _emit_lesson_group_co_placement(model, problem, anchor_vars, anchors_for_lesson)
     _emit_pinned_placements(model, problem, anchor_vars, lookups)
 
-    _emit_objective(model, problem, anchor_vars, lookups)
+    _emit_objective(model, problem, anchor_vars, lookups, t_chosen, class_subject_lessons, y_and_t)
     meta: dict[str, Any] = {
         "lesson_lookup": lookups["lesson_lookup"],
         "tb_at": lookups["tb_at"],
+        "t_chosen": t_chosen,
     }
     return model, anchor_vars, meta
 
@@ -223,7 +232,14 @@ def _create_anchor_vars(
     problem: dict[str, Any],
     lookups: dict[str, Any],
 ) -> tuple[dict[AnchorKey, cp_model.IntVar], dict[str, list[AnchorKey]]]:
-    """Create one BoolVar per (lesson, day, start_pos, room) after pruning."""
+    """Create one BoolVar per (lesson, day, start_pos, room) after pruning.
+
+    With teacher chosen as a decision variable (items 64-68), an anchor
+    exists iff AT LEAST ONE candidate teacher is qualified for the subject
+    AND not blocked at every window position; the per-candidate
+    availability constraints linking the anchor to ``t_chosen[(lesson, t)]``
+    are emitted by ``_emit_per_candidate_anchor_compatibility``.
+    """
     anchor_vars: dict[AnchorKey, cp_model.IntVar] = {}
     anchors_for_lesson: dict[str, list[AnchorKey]] = defaultdict(list)
 
@@ -237,10 +253,12 @@ def _create_anchor_vars(
 
     for lesson in problem["lessons"]:
         l_id = lesson["id"]
-        teacher_id = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
+        candidates: list[str] = list(lesson["teacher_candidates"])
         subject_id = lesson["subject_id"]
         n = lesson["preferred_block_size"]
-        if (teacher_id, subject_id) not in teacher_qualifies:
+        # Keep only candidates qualified for the subject.
+        qualified_candidates = [t for t in candidates if (t, subject_id) in teacher_qualifies]
+        if not qualified_candidates:
             continue
 
         for day, positions in positions_per_day.items():
@@ -249,7 +267,13 @@ def _create_anchor_vars(
                 if not all((start_pos + i) in pos_set for i in range(n)):
                     continue
                 window_tb_ids = [tb_at[(day, start_pos + i)] for i in range(n)]
-                if any((teacher_id, tb_id) in teacher_blocked for tb_id in window_tb_ids):
+                # At least one qualified candidate must be unblocked across
+                # the window for the anchor to be feasible at all.
+                window_feasible_for_some_candidate = any(
+                    all((t, tb_id) not in teacher_blocked for tb_id in window_tb_ids)
+                    for t in qualified_candidates
+                )
+                if not window_feasible_for_some_candidate:
                     continue
                 for room in problem["rooms"]:
                     r_id = room["id"]
@@ -263,6 +287,115 @@ def _create_anchor_vars(
                     anchors_for_lesson[l_id].append(key)
 
     return anchor_vars, anchors_for_lesson
+
+
+def _create_teacher_choice_vars(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+) -> dict[tuple[str, str], cp_model.IntVar]:
+    """Create one BoolVar per (lesson, teacher) over teacher_candidates.
+
+    Adds an exactly-one constraint per lesson and forces the pin (when set)
+    to 1. Item 64-68: teacher assignment becomes a CP-SAT decision.
+    """
+    t_chosen: dict[tuple[str, str], cp_model.IntVar] = {}
+    for lesson in problem["lessons"]:
+        l_id = lesson["id"]
+        candidates: list[str] = list(lesson["teacher_candidates"])
+        if not candidates:
+            # validate_structural would have rejected this earlier; safety only.
+            continue
+        for teacher_id in candidates:
+            t_chosen[(l_id, teacher_id)] = model.new_bool_var(f"t_{l_id}_{teacher_id}")
+        model.add_exactly_one([t_chosen[(l_id, t)] for t in candidates])
+        pin = lesson.get("teacher_pin")
+        if pin is not None and pin in candidates:
+            model.add(t_chosen[(l_id, pin)] == 1)
+    return t_chosen
+
+
+def _emit_class_subject_teacher_uniformity(  # noqa: PLR0912 (per-pair / per-candidate / per-lesson nested branches; flattening hurts readability)
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Pairwise per-(class, subject) uniformity over t_chosen (item 66).
+
+    Every pair of lessons sharing a (class, subject) must end up taught by
+    the same teacher. A multi-class lesson contributes to multiple
+    (class, subject) groups; the lesson is one variable so a lesson
+    appearing in multiple groups is consistent across them by transitivity
+    of equality constraints.
+    """
+    class_subject_lessons: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for lesson in problem["lessons"]:
+        for class_id in lesson["school_class_ids"]:
+            key = (class_id, lesson["subject_id"])
+            class_subject_lessons.setdefault(key, []).append(lesson)
+
+    for lessons_in_pair in class_subject_lessons.values():
+        if len(lessons_in_pair) <= 1:
+            continue
+        union_candidates: set[str] = set()
+        for lp in lessons_in_pair:
+            union_candidates.update(lp["teacher_candidates"])
+        anchor = lessons_in_pair[0]
+        anchor_candidates = set(anchor["teacher_candidates"])
+        for teacher_id in union_candidates:
+            if teacher_id in anchor_candidates:
+                anchor_var = t_chosen[(anchor["id"], teacher_id)]
+                for other in lessons_in_pair[1:]:
+                    if teacher_id in other["teacher_candidates"]:
+                        model.add(t_chosen[(other["id"], teacher_id)] == anchor_var)
+                    else:
+                        # Other lesson cannot pick this teacher -> anchor cannot either.
+                        model.add(anchor_var == 0)
+            else:
+                # Anchor cannot pick this teacher -> force every other lesson off.
+                for other in lessons_in_pair[1:]:
+                    if teacher_id in other["teacher_candidates"]:
+                        model.add(t_chosen[(other["id"], teacher_id)] == 0)
+    return class_subject_lessons
+
+
+def _emit_per_candidate_anchor_compatibility(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_for_lesson: dict[str, list[AnchorKey]],
+    lookups: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+) -> None:
+    """Forbid the (anchor, teacher) pair when the teacher is blocked at any window position.
+
+    Anchor existence (``_create_anchor_vars``) admits a window if AT LEAST
+    ONE candidate is feasible there; this helper closes the loop by saying:
+    if anchor `y` is taken AND teacher `t` is chosen, `t` cannot be blocked
+    at any of the window's time blocks. Encoded as
+    ``anchor_var + t_chosen[(l, t)] <= 1`` per blocked candidate at the
+    window.
+    """
+    tb_at = lookups["tb_at"]
+    teacher_blocked = lookups["teacher_blocked"]
+    teacher_qualifies = lookups["teacher_qualifies"]
+    for lesson in problem["lessons"]:
+        l_id = lesson["id"]
+        subject_id = lesson["subject_id"]
+        n = lesson["preferred_block_size"]
+        candidates = lesson["teacher_candidates"]
+        # Unqualified candidates are forbidden globally for the lesson.
+        for teacher_id in candidates:
+            if (teacher_id, subject_id) not in teacher_qualifies:
+                model.add(t_chosen[(l_id, teacher_id)] == 0)
+        for key in anchors_for_lesson.get(l_id, []):
+            (_l, day, start_pos, _r) = key
+            anchor_var = anchor_vars[key]
+            window_tb_ids = [tb_at[(day, start_pos + i)] for i in range(n)]
+            for teacher_id in candidates:
+                if (teacher_id, subject_id) not in teacher_qualifies:
+                    continue
+                if any((teacher_id, tb_id) in teacher_blocked for tb_id in window_tb_ids):
+                    model.add(anchor_var + t_chosen[(l_id, teacher_id)] <= 1)
 
 
 def _force_infeasible(model: cp_model.CpModel) -> None:
@@ -289,10 +422,45 @@ def _emit_cardinality(
         model.add(sum(anchor_vars[key] for key in keys) == k)
 
 
-def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup adds bookkeeping branches; splitting hurts readability)
+def _create_y_and_t_vars(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_for_lesson: dict[str, list[AnchorKey]],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+) -> dict[tuple[str, str, AnchorKey], cp_model.IntVar]:
+    """Build ``y_and_t[(lesson, teacher, anchor)] = anchor_var AND t_chosen[(lesson, teacher)]``.
+
+    Singleton-candidate lessons reuse ``anchor_var`` directly (t_chosen is
+    identically 1 by ``add_exactly_one``). Multi-candidate lessons get an
+    explicit AND-var with three channeling inequalities. Used by both
+    teacher non-overlap (sum<=1 per (teacher, day, pos)) and the teacher
+    gap presence channeling in ``_emit_objective``.
+    """
+    y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar] = {}
+    for lesson in problem["lessons"]:
+        l_id = lesson["id"]
+        candidates: list[str] = list(lesson["teacher_candidates"])
+        for key in anchors_for_lesson.get(l_id, []):
+            anchor_var = anchor_vars[key]
+            for teacher_id in candidates:
+                if len(candidates) == 1:
+                    y_and_t[(l_id, teacher_id, key)] = anchor_var
+                    continue
+                t_var = t_chosen[(l_id, teacher_id)]
+                and_var = model.new_bool_var(f"yt_{l_id}_{teacher_id}_{key[1]}_{key[2]}_{key[3]}")
+                model.add(and_var <= anchor_var)
+                model.add(and_var <= t_var)
+                model.add(and_var >= anchor_var + t_var - 1)
+                y_and_t[(l_id, teacher_id, key)] = and_var
+    return y_and_t
+
+
+def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup plus teacher-product plus room non-overlap branches; splitting hurts readability)
     model: cp_model.CpModel,
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
+    y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar],
 ) -> None:
     """Class, teacher, and room non-overlap at every (day, position) slot.
 
@@ -305,23 +473,20 @@ def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup adds bookkeeping bra
     co-place) make every shared class see ``sum = 3`` against ``sum <= 1``,
     rendering the model infeasible.
 
-    Teacher and room non-overlap do NOT dedup today: the existing fixtures
-    have distinct teachers and rooms across group members. If a future fixture
-    introduces same-teacher or same-room within a group (e.g., Doppelbesetzung
-    or Foerderstunden), extend the dedup to those terms.
+    Teacher non-overlap is per-(teacher, day, pos): for each candidate
+    teacher, sum over ``(lesson, anchor)`` covering the slot of
+    ``y_and_t[(lesson, teacher, anchor)]`` must be at most 1. Room
+    non-overlap stays anchor-only (rooms are not a decision variable).
     """
     lesson_lookup = lookups["lesson_lookup"]
     positions_per_day = lookups["positions_per_day"]
     for day, positions in positions_per_day.items():
         for pos in positions:
-            # Per (class, group_key): list of vars-at-this-slot from the FIRST
-            # member of the group seen (sorted by lesson_id for determinism).
-            # We sum those vars (== sum-over-rooms-for-that-member at this slot)
-            # to get the indicator "is this group's class booked here".
             class_group_first: dict[tuple[str, str], tuple[str, list[cp_model.IntVar]]] = {}
             teacher_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
             room_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
-            for (l_id, d, start_pos, r_id), var in anchor_vars.items():
+            for key, var in anchor_vars.items():
+                (l_id, d, start_pos, r_id) = key
                 if d != day:
                     continue
                 lesson = lesson_lookup[l_id]
@@ -336,8 +501,8 @@ def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup adds bookkeeping bra
                     elif l_id == cur[0]:
                         cur[1].append(var)
                     # else: a later (higher) l_id; ignore so only the first member contributes
-                lesson_teacher = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
-                teacher_terms[lesson_teacher].append(var)
+                for teacher_id in lesson["teacher_candidates"]:
+                    teacher_terms[teacher_id].append(y_and_t[(l_id, teacher_id, key)])
                 room_terms[r_id].append(var)
             class_terms: dict[str, list[cp_model.IntVar]] = defaultdict(list)
             for (c_id, _g), (_l, vars_list) in class_group_first.items():
@@ -357,18 +522,26 @@ def _emit_teacher_max_hours(
     model: cp_model.CpModel,
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
 ) -> None:
-    """sum_{lesson in teacher's} y[..] * N(l) <= teacher.max_hours_per_week."""
+    """Per-teacher max-hours ceiling via ``t_chosen``-weighted lesson hours.
+
+    A teacher's per-week hours equal the sum over lessons that picked them
+    (``t_chosen[(l, t)] == 1``) of ``hours_per_week``. ``hours_per_week ==
+    preferred_block_size * K`` where K is the number of blocks; using
+    ``t_chosen`` instead of ``anchor_vars * N`` collapses the K anchors
+    into one term per (lesson, teacher) pair.
+    """
     lesson_lookup = lookups["lesson_lookup"]
     teacher_max_hours = lookups["teacher_max_hours"]
-    teacher_anchor_terms: dict[str, list[tuple[cp_model.IntVar, int]]] = defaultdict(list)
-    for (l_id, _d, _p, _r), var in anchor_vars.items():
+    _ = anchor_vars  # not used; t_chosen carries the lesson-pick information
+    teacher_lesson_terms: dict[str, list[tuple[cp_model.IntVar, int]]] = defaultdict(list)
+    for (l_id, t_id), tvar in t_chosen.items():
         lesson = lesson_lookup[l_id]
-        lesson_teacher = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
-        teacher_anchor_terms[lesson_teacher].append((var, lesson["preferred_block_size"]))
-    for t_id, terms in teacher_anchor_terms.items():
+        teacher_lesson_terms[t_id].append((tvar, lesson["hours_per_week"]))
+    for t_id, terms in teacher_lesson_terms.items():
         if t_id in teacher_max_hours:
-            model.add(sum(var * n for var, n in terms) <= teacher_max_hours[t_id])
+            model.add(sum(var * h for var, h in terms) <= teacher_max_hours[t_id])
 
 
 def _emit_same_room(
@@ -545,6 +718,7 @@ def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-da
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
     scope_kind: str,
+    y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar] | None = None,
 ) -> dict[tuple[str, int, int], cp_model.IntVar]:
     """Build per-(entity, day, position) 0-1 presence indicators.
 
@@ -557,28 +731,43 @@ def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-da
     positions per (class, day) before counting gaps so the CP-SAT
     presence indicator must mirror that 0-1 coverage view rather than a
     raw sum. Returned mapping is keyed by (entity_id_str, day, position).
+
+    Teacher scope (item 68): the contributing variable is
+    ``y_and_t[(lesson, teacher, anchor)] = anchor_var AND t_chosen[(lesson, teacher)]``,
+    not the bare ``anchor_var``; a teacher only counts as present when an
+    anchor of one of its candidate lessons is taken AND the teacher is the
+    chosen one for that lesson.
     """
     lesson_lookup = lookups["lesson_lookup"]
     positions_per_day = lookups["positions_per_day"]
     if scope_kind == "class":
         entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
     elif scope_kind == "teacher":
+        if y_and_t is None:  # pragma: no cover - guarded by callers
+            raise ValueError("scope_kind='teacher' requires y_and_t")
         entity_ids = {t["id"] for t in problem["teachers"]}
     else:  # pragma: no cover - guarded by callers
         raise ValueError(f"unknown scope_kind: {scope_kind}")
 
     coverage: dict[tuple[str, int, int], list[cp_model.IntVar]] = {}
-    for (l_id, day, start_pos, _r_id), var in anchor_vars.items():
+    for key, var in anchor_vars.items():
+        (l_id, day, start_pos, _r_id) = key
         lesson = lesson_lookup[l_id]
         n = lesson["preferred_block_size"]
         if scope_kind == "class":
-            owners: list[str] = list(lesson["school_class_ids"])
+            for offset in range(n):
+                p = start_pos + offset
+                for owner in lesson["school_class_ids"]:
+                    coverage.setdefault((owner, day, p), []).append(var)
         else:
-            owners = [lesson.get("teacher_pin") or lesson["teacher_candidates"][0]]
-        for offset in range(n):
-            p = start_pos + offset
-            for owner in owners:
-                coverage.setdefault((owner, day, p), []).append(var)
+            # y_and_t presence guarded at function entry for scope_kind="teacher".
+            assert y_and_t is not None  # noqa: S101 (postcondition guard)
+            for offset in range(n):
+                p = start_pos + offset
+                for teacher_id in lesson["teacher_candidates"]:
+                    coverage.setdefault((teacher_id, day, p), []).append(
+                        y_and_t[(l_id, teacher_id, key)]
+                    )
 
     presence: dict[tuple[str, int, int], cp_model.IntVar] = {}
     for entity_id in entity_ids:
@@ -607,13 +796,14 @@ def _objective_gap_term(
     lookups: dict[str, Any],
     scope_kind: str,
     weight: int,
+    y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar] | None = None,
 ) -> cp_model.LinearExpr | int:
     """Build per-(entity, day, position) gap indicators and weight the sum.
 
     For each (entity, day, position) presence indicator, build
     has_left/has_right/gap channeling and return weight * sum(gap[...]).
     """
-    presence = _build_per_slot_presence(model, problem, anchor_vars, lookups, scope_kind)
+    presence = _build_per_slot_presence(model, problem, anchor_vars, lookups, scope_kind, y_and_t)
     positions_per_day = lookups["positions_per_day"]
     if scope_kind == "class":
         entity_ids: set[str] = {c["id"] for c in problem["school_classes"]}
@@ -721,19 +911,70 @@ def _objective_class_day_balance_term(
     return _W_CLASS_DAY_BALANCE * cp_model.LinearExpr.sum(quotients) if quotients else 0
 
 
+def _objective_prefer_class_teacher_term(
+    problem: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+    class_subject_lessons: dict[tuple[str, str], list[dict[str, Any]]],
+) -> cp_model.LinearExpr | int:
+    """Penalise (class, subject) pairs that pick a non-klassenlehrer when the klt is qualified.
+
+    Mirrors ``solver_core::score::score_solution``'s ``prefer_class_teacher``
+    summand: count one miss per (class, subject) pair whose
+    ``class.class_teacher_id`` is qualified for the subject but the picked
+    teacher is not the klt. Pairwise uniformity (item 66) ensures every
+    lesson in the pair shares one teacher; we read the anchor lesson's
+    ``t_chosen`` for the klt as the indicator. Item 67.
+    """
+    school_classes_by_id: dict[str, dict[str, Any]] = {
+        c["id"]: c for c in problem["school_classes"]
+    }
+    qualified_by_subject: dict[str, set[str]] = defaultdict(set)
+    for q in problem["teacher_qualifications"]:
+        qualified_by_subject[q["subject_id"]].add(q["teacher_id"])
+
+    terms: list[cp_model.LinearExpr] = []
+    fixed_cost = 0
+    for (cid, sid), lessons_in_pair in class_subject_lessons.items():
+        cls = school_classes_by_id.get(cid)
+        if cls is None:
+            continue
+        klt = cls.get("class_teacher_id")
+        if klt is None:
+            continue
+        if klt not in qualified_by_subject.get(sid, set()):
+            continue
+        anchor = lessons_in_pair[0]
+        if klt in anchor["teacher_candidates"]:
+            # Cost is _W times (1 - t_chosen[(anchor, klt)]): zero when klt picked, _W otherwise.
+            terms.append(_W_PREFER_CLASS_TEACHER * (1 - t_chosen[(anchor["id"], klt)]))
+        else:
+            # klt qualified but not in candidates: pair cannot satisfy the
+            # preference, fixed full-weight cost. Mirrors the score-solution
+            # behavior where a (class, subject) miss is one weight unit.
+            fixed_cost += _W_PREFER_CLASS_TEACHER
+    if not terms:
+        return fixed_cost
+    return cp_model.LinearExpr.sum(terms) + fixed_cost
+
+
 def _emit_objective(
     model: cp_model.CpModel,
     problem: dict[str, Any],
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+    class_subject_lessons: dict[tuple[str, str], list[dict[str, Any]]],
+    y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar],
 ) -> None:
     """Build CP-SAT model objective mirroring solver_core::score_solution.
 
-    Five summands: subject_preference (per-anchor constant coefficient),
+    Six summands: subject_preference (per-anchor constant coefficient),
     home_room (per-anchor constant coefficient), class_gap (per-(class,
     day, position) channeling), teacher_gap (per-(teacher, day, position)
-    channeling), class_day_balance (per-class abs-equality plus
-    division-equality).
+    channeling on ``y_and_t`` so unchosen candidates do not count as
+    present), class_day_balance (per-class abs-equality plus
+    division-equality), prefer_class_teacher (per-(class, subject) pair
+    soft cost via ``t_chosen``).
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
     summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
@@ -741,10 +982,19 @@ def _emit_objective(
         model, problem, anchor_vars, lookups, scope_kind="class", weight=_W_CLASS_GAP
     )
     summand_teacher_gap = _objective_gap_term(
-        model, problem, anchor_vars, lookups, scope_kind="teacher", weight=_W_TEACHER_GAP
+        model,
+        problem,
+        anchor_vars,
+        lookups,
+        scope_kind="teacher",
+        weight=_W_TEACHER_GAP,
+        y_and_t=y_and_t,
     )
     summand_class_day_balance = _objective_class_day_balance_term(
         model, problem, anchor_vars, lookups
+    )
+    summand_prefer_class_teacher = _objective_prefer_class_teacher_term(
+        problem, t_chosen, class_subject_lessons
     )
     model.minimize(
         summand_subject_pref
@@ -752,6 +1002,7 @@ def _emit_objective(
         + summand_class_gap
         + summand_teacher_gap
         + summand_class_day_balance
+        + summand_prefer_class_teacher
     )
 
 
@@ -761,13 +1012,23 @@ def _extract_placements(
     meta: dict[str, Any],
 ) -> list[dict[str, str]]:
     """Walk solved anchor variables; expand each block to N per-hour Placement entries."""
+    t_chosen: dict[tuple[str, str], cp_model.IntVar] = meta["t_chosen"]
+    lesson_to_teacher: dict[str, str] = {}
+    for (lesson_id, teacher_id), tvar in t_chosen.items():
+        if solver.value(tvar) == 1:
+            lesson_to_teacher[lesson_id] = teacher_id
     out: list[dict[str, str]] = []
     for (lesson_id, day, start_pos, room_id), var in anchor_vars.items():
         if solver.value(var) != 1:
             continue
         lesson = meta["lesson_lookup"][lesson_id]
         n = lesson["preferred_block_size"]
-        teacher_id = lesson.get("teacher_pin") or lesson["teacher_candidates"][0]
+        teacher_id = lesson_to_teacher.get(lesson_id)
+        if teacher_id is None:
+            raise RuntimeError(
+                f"CP-SAT did not pick a teacher for lesson {lesson_id} "
+                f"despite candidates {lesson['teacher_candidates']}"
+            )
         for i in range(n):
             tb_id = meta["tb_at"][(day, start_pos + i)]
             out.append(
