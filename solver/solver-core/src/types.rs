@@ -510,6 +510,12 @@ pub enum ViolationKind {
     /// the runtime path prunes cap-violating candidates before they enter
     /// the search.
     ClassDailyLessonCapExceeded,
+    /// Two or more lessons sharing the same `(class, subject)` pair were
+    /// assigned different teachers. Surfaced in solver telemetry only; the
+    /// runtime path enforces per-(class, subject) teacher uniformity at
+    /// placement time via a lock map (item 66) so the search cannot reach
+    /// a split-teacher state under normal operation.
+    ClassSubjectTeacherSplit,
 }
 
 #[cfg(test)]

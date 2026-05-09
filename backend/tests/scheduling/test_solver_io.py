@@ -654,6 +654,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "pinned_conflict",
         "subject_daily_hour_cap_exceeded",
         "class_daily_lesson_cap_exceeded",
+        "class_subject_teacher_split",
     }
 
 
@@ -716,6 +717,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "pinned_conflict": 0,
         "subject_daily_hour_cap_exceeded": 0,
         "class_daily_lesson_cap_exceeded": 0,
+        "class_subject_teacher_split": 0,
     }
 
 

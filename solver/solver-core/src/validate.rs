@@ -560,6 +560,57 @@ pub fn validate_placement_teacher_in_candidates(
     Ok(())
 }
 
+/// Post-condition validator: every `(SchoolClass, Subject)` pair appearing in
+/// the placement set has at most one distinct teacher.
+///
+/// Belt-and-braces guard for `ViolationKind::ClassSubjectTeacherSplit` (item
+/// 66). The placement-time uniformity lock in `try_place_block` prevents
+/// the search from reaching split-teacher states under normal operation;
+/// this validator catches a future move that mutates teachers without
+/// consulting the lock map. Multi-class lessons attribute each placement to
+/// every member class, so the same lesson contributes one `(class, subject)`
+/// pair per class in `lesson.school_class_ids`. A failure here indicates a
+/// solver bug, not malformed input. Pattern matches `validate_no_room_hopping`
+/// and the rest of the validator quartet: returns `Err(Error::Input)` so the
+/// caller can `?`-bail.
+pub fn validate_class_subject_teacher_uniformity(
+    problem: &Problem,
+    placements: &[Placement],
+) -> Result<(), Error> {
+    use std::collections::hash_map::Entry;
+    let mut teacher_by_pair: HashMap<(SchoolClassId, SubjectId), TeacherId> = HashMap::new();
+    let lesson_by_id: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    for placement in placements {
+        let lesson = lesson_by_id.get(&placement.lesson_id).ok_or_else(|| {
+            Error::Input(format!(
+                "placement references unknown lesson {:?}",
+                placement.lesson_id
+            ))
+        })?;
+        for class_id in &lesson.school_class_ids {
+            let key = (*class_id, lesson.subject_id);
+            match teacher_by_pair.entry(key) {
+                Entry::Vacant(v) => {
+                    v.insert(placement.teacher_id);
+                }
+                Entry::Occupied(o) => {
+                    if *o.get() != placement.teacher_id {
+                        return Err(Error::Input(format!(
+                            "class-subject teacher split: class {:?} subject {:?} teachers {:?} and {:?}",
+                            class_id,
+                            lesson.subject_id,
+                            o.get(),
+                            placement.teacher_id
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Scan lessons for teacher / subject pairs that are not in
 /// `teacher_qualifications` and record one `NoQualifiedTeacher` violation per
 /// hour on the affected lesson.
@@ -1448,5 +1499,116 @@ mod tests {
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
         let Error::Input(msg) = err;
         assert!(msg.contains("double-booking: teacher"), "msg: {msg}");
+    }
+
+    fn class_subject_uniformity_two_lesson_problem() -> (Problem, TeacherId, TeacherId) {
+        let mut p = minimal_problem();
+        let teacher1 = p.teachers[0].id;
+        let teacher2 = TeacherId(uuid(200));
+        p.teachers.push(Teacher {
+            id: teacher2,
+            max_hours_per_week: 10,
+        });
+        p.teacher_qualifications.push(TeacherQualification {
+            teacher_id: teacher2,
+            subject_id: p.subjects[0].id,
+        });
+        let class_id = p.school_classes[0].id;
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(201)),
+            school_class_ids: vec![class_id],
+            subject_id: p.subjects[0].id,
+            teacher_candidates: vec![teacher1, teacher2],
+            teacher_pin: None,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        (p, teacher1, teacher2)
+    }
+
+    #[test]
+    fn validate_class_subject_teacher_uniformity_rejects_split_teacher_pair() {
+        let (p, teacher1, teacher2) = class_subject_uniformity_two_lesson_problem();
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher1,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher2,
+            },
+        ];
+        let err = validate_class_subject_teacher_uniformity(&p, &placements).unwrap_err();
+        let Error::Input(msg) = err;
+        assert!(msg.contains("class-subject teacher split"), "msg: {msg}");
+    }
+
+    #[test]
+    fn validate_class_subject_teacher_uniformity_accepts_uniform_assignment() {
+        let (p, teacher1, _teacher2) = class_subject_uniformity_two_lesson_problem();
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher1,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher1,
+            },
+        ];
+        validate_class_subject_teacher_uniformity(&p, &placements).unwrap();
+    }
+
+    #[test]
+    fn validate_class_subject_teacher_uniformity_accepts_multi_class_lessons_uniformly_assigned() {
+        let mut p = minimal_problem();
+        let teacher = p.teachers[0].id;
+        let class1 = p.school_classes[0].id;
+        let class2 = SchoolClassId(uuid(210));
+        p.school_classes.push(SchoolClass {
+            id: class2,
+            home_room_id: None,
+            max_lessons_per_day: None,
+            class_teacher_id: None,
+        });
+        // First lesson covers both classes; second lesson also covers both.
+        // Both lessons must use the same teacher to satisfy uniformity for
+        // every (class, subject) pair contributed.
+        p.lessons[0].school_class_ids = vec![class1, class2];
+        p.lessons.push(Lesson {
+            id: LessonId(uuid(211)),
+            school_class_ids: vec![class1, class2],
+            subject_id: p.subjects[0].id,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        let placements = vec![
+            Placement {
+                lesson_id: p.lessons[0].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id: p.lessons[1].id,
+                time_block_id: p.time_blocks[0].id,
+                room_id: p.rooms[0].id,
+                teacher_id: teacher,
+            },
+        ];
+        validate_class_subject_teacher_uniformity(&p, &placements).unwrap();
     }
 }

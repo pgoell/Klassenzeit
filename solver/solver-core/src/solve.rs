@@ -16,8 +16,9 @@ use crate::types::{
     Violation, ViolationKind,
 };
 use crate::validate::{
-    pre_solve_violations, validate_daily_caps, validate_no_double_booking,
-    validate_no_room_hopping, validate_placement_teacher_in_candidates, validate_structural,
+    pre_solve_violations, validate_class_subject_teacher_uniformity, validate_daily_caps,
+    validate_no_double_booking, validate_no_room_hopping, validate_placement_teacher_in_candidates,
+    validate_structural,
 };
 
 #[cfg(feature = "solver-trace")]
@@ -316,6 +317,7 @@ pub fn solve_with_config_stats(
     validate_no_double_booking(problem, &solution.placements)?;
     validate_daily_caps(problem, &solution.placements)?;
     validate_placement_teacher_in_candidates(problem, &solution.placements)?;
+    validate_class_subject_teacher_uniformity(problem, &solution.placements)?;
 
     // state.search_score_slice is the LAHC running slice (class_gap +
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted
