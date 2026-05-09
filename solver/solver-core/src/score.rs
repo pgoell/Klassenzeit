@@ -1,9 +1,9 @@
 //! Pure soft-score function for `Solution` placements. Used by the lowest-delta
 //! greedy in `solve.rs` and by the future LAHC local search.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::ids::{LessonId, RoomId, SchoolClassId, TeacherId, TimeBlockId};
+use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use crate::types::{ConstraintWeights, Lesson, Placement, Problem, SchoolClass, TimeBlock};
 
 /// Compute the total weighted soft-score for a placement set.
@@ -25,6 +25,7 @@ pub fn score_solution(
         && weights.avoid_last_period == 0
         && weights.prefer_late_period == 0
         && weights.class_day_balance == 0
+        && weights.prefer_class_teacher == 0
     {
         return 0;
     }
@@ -115,6 +116,44 @@ pub fn score_solution(
         })
         .sum();
 
+    // prefer_class_teacher: count one miss per (class, subject) pair
+    // whose class.class_teacher_id is qualified for the subject but the
+    // first-encountered placement teacher is not the class teacher.
+    // Closed-form mirror of `quality::quality_report`'s computation; keep
+    // these two in lockstep so the property test stays green. Item 67.
+    let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+    for q in &problem.teacher_qualifications {
+        subject_qualified_teachers
+            .entry(q.subject_id)
+            .or_default()
+            .insert(q.teacher_id);
+    }
+    let mut class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = HashMap::new();
+    for c in &problem.school_classes {
+        class_teacher_lookup.insert(c.id, c.class_teacher_id);
+    }
+    let mut class_subject_teacher: HashMap<(SchoolClassId, SubjectId), TeacherId> = HashMap::new();
+    for p in placements {
+        let lesson = lesson_lookup[&p.lesson_id];
+        for class_id in &lesson.school_class_ids {
+            class_subject_teacher
+                .entry((*class_id, lesson.subject_id))
+                .or_insert(p.teacher_id);
+        }
+    }
+    let mut prefer_class_teacher_misses: u32 = 0;
+    for ((cid, sid), tid) in &class_subject_teacher {
+        let Some(Some(klt)) = class_teacher_lookup.get(cid) else {
+            continue;
+        };
+        let Some(qualified) = subject_qualified_teachers.get(sid) else {
+            continue;
+        };
+        if qualified.contains(klt) && tid != klt {
+            prefer_class_teacher_misses = prefer_class_teacher_misses.saturating_add(1);
+        }
+    }
+
     weights
         .class_gap
         .saturating_mul(class_gaps)
@@ -122,6 +161,11 @@ pub fn score_solution(
         .saturating_add(subject_preference)
         .saturating_add(weights.class_day_balance.saturating_mul(class_balance))
         .saturating_add(home_room_total)
+        .saturating_add(
+            weights
+                .prefer_class_teacher
+                .saturating_mul(prefer_class_teacher_misses),
+        )
 }
 
 /// L1 distance from per-day mean placement count, summed across classes.
@@ -944,6 +988,7 @@ mod tests {
             avoid_last_period: 100,
             prefer_late_period: 0,
             class_day_balance: 0,
+            prefer_class_teacher: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
@@ -1504,6 +1549,161 @@ mod tests {
         assert_eq!(
             home_room_penalty_one_class(class, &lookup, home, &weights),
             0
+        );
+    }
+
+    /// Build a one-class, one-subject Problem with two teachers (T1 + T2).
+    /// `klt_qualified` flips whether `T1` is in the subject's qualified
+    /// teacher set; `class_teacher` is `class.class_teacher_id`. Used by
+    /// the prefer_class_teacher unit tests below.
+    fn prefer_class_teacher_test_problem(
+        klt_qualified: bool,
+        class_teacher: Option<TeacherId>,
+    ) -> Problem {
+        let t1 = TeacherId(score_uuid(20));
+        let t2 = TeacherId(score_uuid(21));
+        let subject_id = SubjectId(score_uuid(40));
+        let class_id = SchoolClassId(score_uuid(50));
+        let lesson_id = LessonId(score_uuid(60));
+        let room_id = RoomId(score_uuid(30));
+        let mut qualifications = vec![TeacherQualification {
+            teacher_id: t2,
+            subject_id,
+        }];
+        if klt_qualified {
+            qualifications.push(TeacherQualification {
+                teacher_id: t1,
+                subject_id,
+            });
+        }
+        Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: TimeBlockId(score_uuid(10)),
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: TimeBlockId(score_uuid(11)),
+                    day_of_week: 0,
+                    position: 1,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: t1,
+                    max_hours_per_week: 10,
+                },
+                Teacher {
+                    id: t2,
+                    max_hours_per_week: 10,
+                },
+            ],
+            rooms: vec![Room { id: room_id }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: class_teacher,
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                school_class_ids: vec![class_id],
+                subject_id,
+                teacher_candidates: vec![t1, t2],
+                teacher_pin: None,
+                hours_per_week: 2,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            teacher_qualifications: qualifications,
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        }
+    }
+
+    fn prefer_class_teacher_test_make_placements_with_teacher(
+        teacher: TeacherId,
+    ) -> Vec<Placement> {
+        vec![
+            Placement {
+                lesson_id: LessonId(score_uuid(60)),
+                time_block_id: TimeBlockId(score_uuid(10)),
+                room_id: RoomId(score_uuid(30)),
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id: LessonId(score_uuid(60)),
+                time_block_id: TimeBlockId(score_uuid(11)),
+                room_id: RoomId(score_uuid(30)),
+                teacher_id: teacher,
+            },
+        ]
+    }
+
+    #[test]
+    fn score_solution_includes_prefer_class_teacher_when_klt_qualified_and_mismatched() {
+        let t1 = TeacherId(score_uuid(20));
+        let t2 = TeacherId(score_uuid(21));
+        let problem = prefer_class_teacher_test_problem(true, Some(t1));
+        let placements = prefer_class_teacher_test_make_placements_with_teacher(t2);
+        let weights = ConstraintWeights {
+            prefer_class_teacher: 5,
+            ..ConstraintWeights::default()
+        };
+        // First-encountered teacher for (class, subject) is T2; class_teacher
+        // is T1, qualified for subject; one miss * weight 5 = 5.
+        assert_eq!(score_solution(&problem, &placements, &weights), 5);
+    }
+
+    #[test]
+    fn score_solution_zero_prefer_class_teacher_when_klt_assigned_matches() {
+        let t1 = TeacherId(score_uuid(20));
+        let problem = prefer_class_teacher_test_problem(true, Some(t1));
+        let placements = prefer_class_teacher_test_make_placements_with_teacher(t1);
+        let weights_on = ConstraintWeights {
+            prefer_class_teacher: 5,
+            ..ConstraintWeights::default()
+        };
+        let weights_off = ConstraintWeights {
+            prefer_class_teacher: 0,
+            ..ConstraintWeights::default()
+        };
+        assert_eq!(
+            score_solution(&problem, &placements, &weights_on),
+            score_solution(&problem, &placements, &weights_off),
+        );
+    }
+
+    #[test]
+    fn score_solution_zero_prefer_class_teacher_when_klt_not_qualified() {
+        let t1 = TeacherId(score_uuid(20));
+        let t2 = TeacherId(score_uuid(21));
+        // klt_qualified=false: T1 is NOT in subject's qualified teacher set,
+        // so even though placements use T2 (mismatched), no miss is counted.
+        let problem = prefer_class_teacher_test_problem(false, Some(t1));
+        let placements = prefer_class_teacher_test_make_placements_with_teacher(t2);
+        let weights_on = ConstraintWeights {
+            prefer_class_teacher: 5,
+            ..ConstraintWeights::default()
+        };
+        let weights_off = ConstraintWeights {
+            prefer_class_teacher: 0,
+            ..ConstraintWeights::default()
+        };
+        assert_eq!(
+            score_solution(&problem, &placements, &weights_on),
+            score_solution(&problem, &placements, &weights_off),
         );
     }
 }

@@ -46,6 +46,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             avoid_last_period: 1,
             prefer_late_period: 1,
             class_day_balance: 5,
+            prefer_class_teacher: 5,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -1956,6 +1957,7 @@ mod tests {
                     avoid_last_period: 0,
                     prefer_late_period: 0,
                     class_day_balance: 0,
+                    prefer_class_teacher: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -2525,6 +2527,7 @@ mod tests {
                     avoid_last_period: 0,
                     prefer_late_period: 0,
                     class_day_balance: 0,
+                    prefer_class_teacher: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -2828,6 +2831,7 @@ mod tests {
             avoid_last_period: 0,
             prefer_late_period: 0,
             class_day_balance: 0,
+            prefer_class_teacher: 0,
         };
         let tb_order: Vec<usize> = vec![0];
         // room_order intentionally orders R1 first so the picker would pick
@@ -2949,6 +2953,7 @@ mod tests {
             avoid_last_period: 0,
             prefer_late_period: 0,
             class_day_balance: 0,
+            prefer_class_teacher: 0,
         };
         let tb_order: Vec<usize> = vec![0];
         // Walk R1 first to check the picker still considers R0 and prefers

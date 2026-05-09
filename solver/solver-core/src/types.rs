@@ -110,6 +110,14 @@ pub struct ConstraintWeights {
     /// Zero disables the axis. Scoring lands in a follow-up task; this
     /// field is added here so the struct shape is stable for callers.
     pub class_day_balance: u32,
+    /// Penalty per `(class, subject)` pair whose `class.class_teacher_id`
+    /// is qualified for that subject but the placement's chosen teacher is
+    /// not the class teacher. The closed-form pass walks placements once,
+    /// builds a `(class, subject) -> first-encountered-teacher` map, and
+    /// adds one weight unit per `(class, subject)` pair whose first
+    /// teacher mismatches the qualified class teacher. Zero disables the
+    /// axis. Item 67.
+    pub prefer_class_teacher: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -143,6 +151,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     avoid_last_period: 1,
     prefer_late_period: 1,
     class_day_balance: 5,
+    prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -529,6 +538,7 @@ mod tests {
             avoid_last_period: 1,
             prefer_late_period: 1,
             class_day_balance: 5,
+            prefer_class_teacher: 5,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }

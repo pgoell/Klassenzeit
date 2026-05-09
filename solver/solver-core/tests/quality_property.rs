@@ -35,6 +35,13 @@ prop_compose! {
         avoid_last in 0u32..=2,
         prefer_late in 0u32..=2,
         set_home_room in proptest::bool::ANY,
+        // Per-class flags ("set class_teacher_id?") + teacher index;
+        // 50%-truthy bool by proptest::bool::ANY. Vec is sized to the
+        // upper bound of n_classes so any drawn n_classes can index it.
+        class_teacher_seeds in proptest::collection::vec(
+            (proptest::bool::ANY, 0usize..=10),
+            3,
+        ),
     ) -> Problem {
         let subject_a = SubjectId(quality_property_id_from(1));
         let subjects = vec![Subject {
@@ -67,11 +74,19 @@ prop_compose! {
             .collect();
 
         let school_classes: Vec<SchoolClass> = (0..n_classes)
-            .map(|i| SchoolClass {
-                id: SchoolClassId(quality_property_id_from(2000 + i as u32)),
-                home_room_id: if set_home_room { Some(rooms[0].id) } else { None },
-                max_lessons_per_day: None,
-                class_teacher_id: None,
+            .map(|i| {
+                let (set_kt, kt_idx) = class_teacher_seeds[i];
+                let class_teacher_id = if set_kt {
+                    Some(teachers[kt_idx % teachers.len()].id)
+                } else {
+                    None
+                };
+                SchoolClass {
+                    id: SchoolClassId(quality_property_id_from(2000 + i as u32)),
+                    home_room_id: if set_home_room { Some(rooms[0].id) } else { None },
+                    max_lessons_per_day: None,
+                    class_teacher_id,
+                }
             })
             .collect();
 
@@ -136,6 +151,7 @@ prop_compose! {
         prefer_late_period in 0u32..=5,
         prefer_home_room in 0u32..=10,
         class_day_balance in 0u32..=10,
+        prefer_class_teacher in 0u32..=20,
     ) -> ConstraintWeights {
         ConstraintWeights {
             class_gap,
@@ -146,6 +162,7 @@ prop_compose! {
             prefer_late_period,
             prefer_home_room,
             class_day_balance,
+            prefer_class_teacher,
         }
     }
 }

@@ -73,6 +73,12 @@ pub struct QualityReport {
     /// `subject.prefer_late_period * (max_position_for_day - tb.position)`.
     /// Unweighted.
     pub prefer_late_units: u32,
+    /// Number of `(class, subject)` pairs whose `class.class_teacher_id`
+    /// is set and qualified for that subject, but the placement's chosen
+    /// teacher (first-encountered for the pair) does not match the class
+    /// teacher. Counts at most one miss per `(class, subject)` pair.
+    /// Item 67.
+    pub prefer_class_teacher_misses: u32,
     /// `score::score_solution(problem, placements, weights)`. The
     /// `quality_report_weighted_score_matches_score_solution` property
     /// test pins this equality.
@@ -242,6 +248,45 @@ pub fn quality_report(
         })
         .sum();
 
+    // Build (subject_id -> set of qualified teacher ids) from
+    // problem.teacher_qualifications, then walk placements to build
+    // (class, subject) -> first-encountered teacher. Count one miss per
+    // pair whose class.class_teacher_id is qualified for the subject and
+    // differs from the encountered teacher. Item 67.
+    let mut subject_qualified_teachers: HashMap<SubjectId, std::collections::HashSet<TeacherId>> =
+        HashMap::new();
+    for q in &problem.teacher_qualifications {
+        subject_qualified_teachers
+            .entry(q.subject_id)
+            .or_default()
+            .insert(q.teacher_id);
+    }
+    let mut class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = HashMap::new();
+    for c in &problem.school_classes {
+        class_teacher_lookup.insert(c.id, c.class_teacher_id);
+    }
+    let mut class_subject_teacher: HashMap<(SchoolClassId, SubjectId), TeacherId> = HashMap::new();
+    for p in placements {
+        let lesson = lesson_lookup[&p.lesson_id];
+        for class_id in &lesson.school_class_ids {
+            class_subject_teacher
+                .entry((*class_id, lesson.subject_id))
+                .or_insert(p.teacher_id);
+        }
+    }
+    let mut prefer_class_teacher_misses: u32 = 0;
+    for ((cid, sid), tid) in &class_subject_teacher {
+        let Some(Some(klt)) = class_teacher_lookup.get(cid) else {
+            continue;
+        };
+        let Some(qualified) = subject_qualified_teachers.get(sid) else {
+            continue;
+        };
+        if qualified.contains(klt) && tid != klt {
+            prefer_class_teacher_misses = prefer_class_teacher_misses.saturating_add(1);
+        }
+    }
+
     let weighted_score = weights
         .class_gap
         .saturating_mul(class_gap_hours)
@@ -252,7 +297,12 @@ pub fn quality_report(
                 .class_day_balance
                 .saturating_mul(class_day_balance_cost_value),
         )
-        .saturating_add(home_room_weighted);
+        .saturating_add(home_room_weighted)
+        .saturating_add(
+            weights
+                .prefer_class_teacher
+                .saturating_mul(prefer_class_teacher_misses),
+        );
 
     QualityReport {
         hard_violations: u32::try_from(violations.len()).unwrap_or(u32::MAX),
@@ -265,6 +315,7 @@ pub fn quality_report(
         avoid_first_units,
         avoid_last_units,
         prefer_late_units,
+        prefer_class_teacher_misses,
         weighted_score,
     }
 }
@@ -295,12 +346,17 @@ pub enum QualityComponent {
     /// `weights.prefer_late_period`-weighted axis from
     /// `subject.prefer_late_period * (max_position_for_day - tb.position)`.
     PreferLate,
+    /// `weights.prefer_class_teacher`-weighted axis. One unit per
+    /// `(class, subject)` pair whose `class.class_teacher_id` is qualified
+    /// for that subject but the placement's chosen teacher is not the
+    /// class teacher. Item 67.
+    PreferClassTeacher,
 }
 
 impl QualityComponent {
     /// Every variant, in [`PartialOrd`] order. Used by tests and by the
     /// bench renderer to enumerate components deterministically.
-    pub const ALL: [QualityComponent; 8] = [
+    pub const ALL: [QualityComponent; 9] = [
         QualityComponent::ClassGap,
         QualityComponent::TeacherGap,
         QualityComponent::ClassDayBalance,
@@ -309,6 +365,7 @@ impl QualityComponent {
         QualityComponent::AvoidFirst,
         QualityComponent::AvoidLast,
         QualityComponent::PreferLate,
+        QualityComponent::PreferClassTeacher,
     ];
 
     /// Lower-snake_case label suitable for markdown rendering and as a
@@ -325,6 +382,7 @@ impl QualityComponent {
             QualityComponent::AvoidFirst => "avoid_first",
             QualityComponent::AvoidLast => "avoid_last",
             QualityComponent::PreferLate => "prefer_late",
+            QualityComponent::PreferClassTeacher => "prefer_class_teacher",
         }
     }
 }
