@@ -1409,6 +1409,7 @@ enum ChainBuild {
 /// neighbour's destination window has missing positions.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper
 fn kempe_build_chain(
+    state: &crate::solve::GreedyState,
     seed_lesson: LessonId,
     source_day: u8,
     dest_day: u8,
@@ -1472,8 +1473,8 @@ fn kempe_build_chain(
                     Some(l) => *l,
                     None => return ChainBuild::Aborted,
                 };
-                let teacher_conflict =
-                    other.assigned_teacher_id() == popped_lesson.assigned_teacher_id();
+                let teacher_conflict = lesson_teacher_in_state(state, other)
+                    == lesson_teacher_in_state(state, popped_lesson);
                 let class_conflict = other
                     .school_class_ids
                     .iter()
@@ -1521,8 +1522,8 @@ fn kempe_build_chain(
                         Some(l) => l,
                         None => return false,
                     };
-                    let teacher_conflict =
-                        existing_lesson.assigned_teacher_id() == other.assigned_teacher_id();
+                    let teacher_conflict = lesson_teacher_in_state(state, existing_lesson)
+                        == lesson_teacher_in_state(state, other);
                     let class_conflict = existing_lesson
                         .school_class_ids
                         .iter()
@@ -1967,6 +1968,7 @@ fn kempe_attempt(
 
     // Build the chain via BFS. Aborts on pin/group/over-bound/missing-window.
     let chain = match kempe_build_chain(
+        state,
         seed_lesson_id,
         source_day,
         dest_day,
@@ -3970,6 +3972,7 @@ mod tests {
         let pinned: HashSet<LessonId> = HashSet::new();
 
         let chain = match kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             lessons[0],
             0,
             1,
@@ -4025,6 +4028,7 @@ mod tests {
         pinned.insert(lessons[1]);
 
         let outcome = kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             lessons[0],
             0,
             1,
@@ -4074,6 +4078,7 @@ mod tests {
         let pinned: HashSet<LessonId> = HashSet::new();
 
         let outcome = kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             lessons[0],
             0,
             1,
@@ -4266,6 +4271,7 @@ mod tests {
         let pinned: HashSet<LessonId> = HashSet::new();
 
         let outcome = kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             l0,
             0,
             1,
@@ -4393,6 +4399,7 @@ mod tests {
         let pinned: HashSet<LessonId> = HashSet::new();
 
         let outcome = kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             lesson_ids[0],
             0,
             1,
@@ -5114,6 +5121,7 @@ mod tests {
         // Build chain directly: seed at D=0 P=4, target D=1, the window
         // verification at (D=1, P=4) fails because that TB is missing.
         let outcome = kempe_build_chain(
+            &crate::solve::GreedyState::new(),
             lesson,
             0,
             1,
@@ -5126,5 +5134,232 @@ mod tests {
             8,
         );
         assert!(matches!(outcome, ChainBuild::Aborted));
+    }
+
+    #[test]
+    fn kempe_build_chain_uses_lock_map_teacher_for_bfs_conflict_detection() {
+        // Regression guard for the latent concern flagged in commit 410f2c9.
+        // With solver-driven teacher picks (item 68), the teacher bound by
+        // `state.class_subject_teacher` may differ from `assigned_teacher_id()`
+        // (which only consults `teacher_pin` then `teacher_candidates[0]`).
+        // The Kempe BFS must read the lock-map teacher via
+        // `lesson_teacher_in_state` so it does not silently miss conflicts
+        // under unpinned LAHC+Kempe runs.
+        //
+        // Setup: two lessons in two different classes (class_a, class_b)
+        // sharing one subject. Neither lesson has a teacher_pin.
+        //   L0: candidates [T1, T2], assigned_teacher_id() = T1
+        //   L1: candidates [T3, T2], assigned_teacher_id() = T3
+        // The lock map binds (class_a, subject) -> T2 AND (class_b, subject)
+        // -> T2 so `lesson_teacher_in_state` returns T2 for both lessons.
+        // L0 placed at (D=0, P=0); L1 placed at (D=1, P=0). Seed at L0
+        // with target dest_day=1 walks the destination window and hits L1.
+        //
+        // Pre-fix (`assigned_teacher_id()`): T1 != T3, no class overlap,
+        // BFS skips L1 and the chain has length 1.
+        // Post-fix (`lesson_teacher_in_state`): T2 == T2, teacher conflict
+        // detected, BFS pulls L1 into the chain (length 2).
+        use crate::types::{
+            Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
+        };
+
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let t1 = TeacherId(lahc_uuid(21));
+        let t2 = TeacherId(lahc_uuid(22));
+        let t3 = TeacherId(lahc_uuid(23));
+        let l0 = LessonId(lahc_uuid(60));
+        let l1 = LessonId(lahc_uuid(61));
+        let tb_d0_p0 = TimeBlockId(lahc_uuid(100));
+        let tb_d1_p0 = TimeBlockId(lahc_uuid(101));
+
+        let problem = Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_d0_p0,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_d1_p0,
+                    day_of_week: 1,
+                    position: 0,
+                },
+            ],
+            teachers: vec![
+                Teacher {
+                    id: t1,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: t2,
+                    max_hours_per_week: 40,
+                },
+                Teacher {
+                    id: t3,
+                    max_hours_per_week: 40,
+                },
+            ],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_a,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+                SchoolClass {
+                    id: class_b,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+            ],
+            lessons: vec![
+                Lesson {
+                    id: l0,
+                    school_class_ids: vec![class_a],
+                    subject_id: subject,
+                    teacher_candidates: vec![t1, t2],
+                    teacher_pin: None,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: l1,
+                    school_class_ids: vec![class_b],
+                    subject_id: subject,
+                    teacher_candidates: vec![t3, t2],
+                    teacher_pin: None,
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: t1,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: t2,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: t3,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let placements = vec![
+            Placement {
+                lesson_id: l0,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
+            },
+            Placement {
+                lesson_id: l1,
+                time_block_id: tb_d1_p0,
+                room_id: room,
+                teacher_id: TeacherId(Uuid::nil()),
+            },
+        ];
+
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+
+        // Sanity: confirm assigned_teacher_id() really diverges from the
+        // lock map teacher we are about to install. Without this, the test
+        // could pass for the wrong reason (e.g. if assigned_teacher_id()
+        // already returned T2 the pre-fix BFS would already detect the
+        // conflict and the post-fix change would be a no-op).
+        assert_eq!(problem.lessons[0].assigned_teacher_id(), t1);
+        assert_eq!(problem.lessons[1].assigned_teacher_id(), t3);
+
+        // Empty state: BFS uses `assigned_teacher_id()` fallback. T1 != T3
+        // and the classes are disjoint, so L1 is not pulled into the chain.
+        let empty_state = crate::solve::GreedyState::new();
+        let outcome_pre = kempe_build_chain(
+            &empty_state,
+            l0,
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+            8,
+        );
+        let chain_pre = match outcome_pre {
+            ChainBuild::Built(c) => c,
+            ChainBuild::Aborted => panic!("empty-state chain build aborted unexpectedly"),
+        };
+        assert_eq!(
+            chain_pre.len(),
+            1,
+            "without lock map, BFS sees no teacher conflict (T1 != T3) and chain stays a singleton",
+        );
+        assert!(!chain_pre.contains_key(&l1));
+
+        // Lock map binds both pairs to T2: BFS now sees T2 == T2 and pulls
+        // L1 into the chain via the teacher-conflict branch.
+        let mut state_with_lock = crate::solve::GreedyState::new();
+        state_with_lock
+            .class_subject_teacher
+            .insert((class_a, subject), t2);
+        state_with_lock
+            .class_subject_teacher
+            .insert((class_b, subject), t2);
+        let outcome_post = kempe_build_chain(
+            &state_with_lock,
+            l0,
+            0,
+            1,
+            0,
+            &placements,
+            &lesson_lookup,
+            &tb_lookup,
+            &tb_by_day_pos,
+            &pinned,
+            8,
+        );
+        let chain_post = match outcome_post {
+            ChainBuild::Built(c) => c,
+            ChainBuild::Aborted => panic!("lock-map chain build aborted unexpectedly"),
+        };
+        assert_eq!(
+            chain_post.len(),
+            2,
+            "with lock map binding both lessons to T2, BFS detects teacher conflict and adds L1",
+        );
+        assert_eq!(chain_post[&l0], 1);
+        assert_eq!(chain_post[&l1], 0);
     }
 }
