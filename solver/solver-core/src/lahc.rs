@@ -22,6 +22,28 @@ use crate::types::{
 /// Grundschule under a 200ms deadline.
 const LAHC_LIST_LEN: usize = 500;
 
+/// Resolve a lesson's currently-assigned teacher from greedy state. Item
+/// 68: when `state.class_subject_teacher` carries an entry for any
+/// member `(class, subject)` pair (set at first FFD placement of that
+/// pair), the lock is the source of truth. Otherwise fall back to
+/// `lesson.assigned_teacher_id()` (the pin shorthand).
+///
+/// LAHC bookkeeping (`rr_remove_row_bookkeeping`, `replay_placement`,
+/// `kempe_rollback`) flows through this helper so the same key the
+/// solver used to populate `state.used_teacher` etc. is the key we
+/// decrement on row removal.
+fn lesson_teacher_in_state(state: &crate::solve::GreedyState, lesson: &Lesson) -> TeacherId {
+    for class in &lesson.school_class_ids {
+        if let Some(t) = state
+            .class_subject_teacher
+            .get(&(*class, lesson.subject_id))
+        {
+            return *t;
+        }
+    }
+    lesson.assigned_teacher_id()
+}
+
 /// Run the LAHC loop over the placement set produced by greedy. Mutates
 /// `placements` and the partition / used-* state in place via `state`. The
 /// post-LAHC running total ends up in `state.search_score_slice`. Records
@@ -59,6 +81,21 @@ pub(crate) fn run(
         .iter()
         .map(|c| (c.id, c.home_room_id))
         .collect();
+    // Item 68 precompute pair: same shape as `solve_with_config_stats`
+    // builds; used by R&R's `try_place_block` recreate calls to score
+    // the prefer_class_teacher axis.
+    let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = problem
+        .school_classes
+        .iter()
+        .map(|c| (c.id, c.class_teacher_id))
+        .collect();
+    let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+    for q in &problem.teacher_qualifications {
+        subject_qualified_teachers
+            .entry(q.subject_id)
+            .or_default()
+            .insert(q.teacher_id);
+    }
     let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
         .time_blocks
         .iter()
@@ -137,6 +174,8 @@ pub(crate) fn run(
                 idx,
                 &config.weights,
                 &home_room_lookup,
+                &class_teacher_lookup,
+                &subject_qualified_teachers,
                 &mut rr_rng,
                 &lesson_lookup,
                 &tb_lookup,
@@ -281,7 +320,13 @@ fn try_change_move(
     }
 
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
-    let teacher = lesson.assigned_teacher_id();
+    // Item 68: teacher comes from the placement's recorded `teacher_id`
+    // (the solver-picked teacher), not `lesson.assigned_teacher_id()`
+    // (the pin shorthand which mismatches when the lesson is unpinned
+    // and the solver picked a non-first candidate). The Change move
+    // never changes the teacher; it only moves the placement to a new
+    // time block / room.
+    let teacher = p.teacher_id;
 
     if state.used_teacher.contains(&(teacher, new_tb.id)) {
         return false;
@@ -910,6 +955,8 @@ fn rr_attempt(
     idx: &Indexed,
     weights: &ConstraintWeights,
     home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
     rr_rng: &mut SmallRng,
     lesson_lookup: &HashMap<LessonId, &Lesson>,
     tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
@@ -938,6 +985,12 @@ fn rr_attempt(
     let pre_slice = state.search_score_slice;
     let pre_canonical = state.canonical_score;
     let pre_count = placements.len();
+    // Item 66: snapshot the per-(class, subject) teacher lock map so the
+    // post-destroy cleanup (clear stale locks for pairs whose every
+    // placement was ruined, so the recreate loop picks a fresh teacher)
+    // and a possible later rollback can both restore the pre-attempt
+    // mapping verbatim.
+    let pre_class_subject_teacher = state.class_subject_teacher.clone();
     let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(chosen_count);
     for (lesson_id, day) in &chosen {
         let lesson = match lesson_lookup.get(lesson_id) {
@@ -960,6 +1013,29 @@ fn rr_attempt(
         };
         let snap = rr_ruin_block(idx_anchor, lesson, tb_lookup, placements, state);
         snapshots.push((*lesson_id, snap));
+    }
+
+    // Item 66 post-destroy lock cleanup. After the ruin phase, walk the
+    // surviving placements to determine which `(class, subject)` pairs
+    // still have a placement; remove every lock whose pair lost its
+    // last placement so the recreate phase's `try_place_block` can pick
+    // a fresh teacher. Pairs with surviving placements keep their lock,
+    // forcing every recreated placement of that pair to reuse the
+    // existing teacher (uniformity invariant). Rollback restores
+    // `pre_class_subject_teacher` verbatim, so the cleanup is reversible.
+    {
+        let mut surviving_pairs: HashSet<(SchoolClassId, SubjectId)> = HashSet::new();
+        for p in placements.iter() {
+            let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
+                continue;
+            };
+            for class in &lesson.school_class_ids {
+                surviving_pairs.insert((*class, lesson.subject_id));
+            }
+        }
+        state
+            .class_subject_teacher
+            .retain(|key, _| surviving_pairs.contains(key));
     }
 
     // Capture every placement row added per successful recreate. Rolling
@@ -1000,6 +1076,8 @@ fn rr_attempt(
             class_max_lessons_per_day,
             weights,
             home_room_lookup,
+            class_teacher_lookup,
+            subject_qualified_teachers,
             state,
             placements,
             tb_order,
@@ -1055,6 +1133,11 @@ fn rr_attempt(
         );
         state.search_score_slice = pre_slice;
         state.canonical_score = pre_canonical;
+        // Item 66: restore the snapshot of `class_subject_teacher` so
+        // any rolled-back recreate's freshly inserted lock disappears
+        // and any cleared lock for a pair whose every placement was
+        // ruined is re-added.
+        state.class_subject_teacher = pre_class_subject_teacher;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -1098,6 +1181,7 @@ fn rr_attempt(
         );
         state.search_score_slice = pre_slice;
         state.canonical_score = pre_canonical;
+        state.class_subject_teacher = pre_class_subject_teacher;
         debug_assert_eq!(
             placements.len(),
             pre_count,
@@ -1203,7 +1287,12 @@ fn rr_remove_row_bookkeeping(
         .expect("removed row's tb resolves");
     let day = tb.day_of_week;
     let position = tb.position;
-    let teacher = lesson.assigned_teacher_id();
+    // Item 68: prefer the per-(class, subject) teacher lock when set
+    // (that is the teacher whose state was actually populated by the
+    // solver pick). Fall back to `lesson.assigned_teacher_id()` for
+    // pinned-only paths and unit tests that pre-seed state from
+    // `assigned_teacher_id()`.
+    let teacher = lesson_teacher_in_state(state, lesson);
     state.used_teacher.remove(&(teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
         state.used_class.remove(&(*class, row.time_block_id));
@@ -1266,7 +1355,12 @@ fn replay_placement(
     let day = tb.day_of_week;
     let position = tb.position;
 
-    let teacher = lesson.assigned_teacher_id();
+    // Item 68: replay using the lock-map teacher when set (the original
+    // chosen teacher); fall back to `lesson.assigned_teacher_id()`
+    // otherwise. The placement row itself carries the same teacher; we
+    // prefer the state-derived helper for symmetry with
+    // `rr_remove_row_bookkeeping`.
+    let teacher = lesson_teacher_in_state(state, lesson);
     placements.push(row.clone());
     state.used_teacher.insert((teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
@@ -1680,18 +1774,41 @@ fn kempe_apply_subject_pref(
 
 /// Apply one chain member's swap: insert N rows at `(dest_day, start_pos..)`
 /// with `room_id`, increment all bookkeeping. Mirrors `replay_placement`
-/// across a window of N consecutive positions.
+/// across a window of N consecutive positions. Item 68: caller supplies
+/// `teacher` from the snapshot row so the swap preserves the original
+/// solver-picked teacher (the lock invariant is preserved across Kempe).
+#[allow(clippy::too_many_arguments)] // Reason: internal helper; teacher param avoids lookup churn
 fn kempe_apply_block(
     lesson: &Lesson,
     dest_day: u8,
     start_pos: u8,
     room_id: RoomId,
+    teacher: TeacherId,
     tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
     placements: &mut Vec<Placement>,
     state: &mut crate::solve::GreedyState,
 ) {
+    // Item 68 invariant gate: the chain swap must preserve every chain
+    // member's teacher. The supplied `teacher` is the snapshot row's
+    // `teacher_id`, which equals `state.class_subject_teacher` for any
+    // member class of this lesson when the lock is set. The check here
+    // guards against a future caller passing a different teacher (e.g.,
+    // a refactor that drops the snapshot lookup).
+    #[cfg(debug_assertions)]
+    {
+        for class in &lesson.school_class_ids {
+            if let Some(locked_teacher) = state
+                .class_subject_teacher
+                .get(&(*class, lesson.subject_id))
+            {
+                debug_assert_eq!(
+                    *locked_teacher, teacher,
+                    "Kempe apply must preserve the per-(class, subject) teacher lock",
+                );
+            }
+        }
+    }
     let n = lesson.preferred_block_size;
-    let teacher = lesson.assigned_teacher_id();
     for k in 0..n {
         let pos = start_pos + k;
         let tb_id = tb_by_day_pos[&(dest_day, pos)];
@@ -2010,11 +2127,19 @@ fn kempe_attempt(
             }
         };
         let dest = chain[&lesson_id];
-        let original_room_id = snapshots
+        let original_snapshot_row = snapshots
             .iter()
             .find(|(id, _, _)| *id == lesson_id)
-            .map(|(_, _, snap)| snap.rows[0].room_id)
+            .map(|(_, _, snap)| snap.rows[0].clone())
             .expect("snapshot for chain member exists");
+        let original_room_id = original_snapshot_row.room_id;
+        // Item 68: derive the teacher from `state.class_subject_teacher`
+        // (the source of truth for which teacher this lesson uses) so
+        // unit tests that pre-seed state with placeholder placement
+        // teacher_ids still chain correctly. In production-shaped
+        // runs the snapshot row's `teacher_id` equals the lock-map
+        // teacher; the debug_assert in `kempe_apply_block` enforces it.
+        let original_teacher_id = lesson_teacher_in_state(state, lesson);
         let room_id = match kempe_pick_room(
             problem,
             idx,
@@ -2086,6 +2211,7 @@ fn kempe_attempt(
             dest,
             start_pos,
             room_id,
+            original_teacher_id,
             tb_by_day_pos,
             placements,
             state,
@@ -2240,7 +2366,6 @@ fn kempe_rollback(
             .get(lesson_id)
             .expect("recreated lesson resolves");
         let n = lesson.preferred_block_size;
-        let teacher = lesson.assigned_teacher_id();
         // Identify the exact (lesson, time_block_id) rows we added at the
         // destination window. Remove them in reverse order so vec indices
         // do not shift while we operate on later rows.
@@ -2264,6 +2389,10 @@ fn kempe_rollback(
                 .expect("rollback tb resolves");
             let day = tb.day_of_week;
             let position = tb.position;
+            // Item 68: prefer the lock-map teacher (the original solver
+            // pick); fall back to `lesson.assigned_teacher_id()` if no
+            // lock is set.
+            let teacher = lesson_teacher_in_state(state, lesson);
             state.used_teacher.remove(&(teacher, p.time_block_id));
             for class in &lesson.school_class_ids {
                 state.used_class.remove(&(*class, p.time_block_id));
@@ -3416,7 +3545,11 @@ mod tests {
         let class = SchoolClassId(lahc_uuid(50));
         let teacher_a = TeacherId(lahc_uuid(20));
         let teacher_b = TeacherId(lahc_uuid(21));
-        let subject = SubjectId(lahc_uuid(40));
+        // Item 68: distinct subjects per lesson so the per-(class,
+        // subject) teacher-uniformity lock does not collide across the
+        // two lessons (which carry different teacher pins).
+        let subject_a = SubjectId(lahc_uuid(40));
+        let subject_b = SubjectId(lahc_uuid(41));
         let room_a = RoomId(lahc_uuid(30));
         let room_b = RoomId(lahc_uuid(31));
         let lesson_a = LessonId(lahc_uuid(60));
@@ -3443,14 +3576,24 @@ mod tests {
                 },
             ],
             rooms: vec![Room { id: room_a }, Room { id: room_b }],
-            subjects: vec![Subject {
-                id: subject,
-                prefer_early_period: 0,
-                avoid_first_period: 0,
-                avoid_last_period: 0,
-                prefer_late_period: 0,
-                max_hours_per_day: 8,
-            }],
+            subjects: vec![
+                Subject {
+                    id: subject_a,
+                    prefer_early_period: 0,
+                    avoid_first_period: 0,
+                    avoid_last_period: 0,
+                    prefer_late_period: 0,
+                    max_hours_per_day: 8,
+                },
+                Subject {
+                    id: subject_b,
+                    prefer_early_period: 0,
+                    avoid_first_period: 0,
+                    avoid_last_period: 0,
+                    prefer_late_period: 0,
+                    max_hours_per_day: 8,
+                },
+            ],
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
@@ -3461,7 +3604,7 @@ mod tests {
                 Lesson {
                     id: lesson_a,
                     school_class_ids: vec![class],
-                    subject_id: subject,
+                    subject_id: subject_a,
                     teacher_candidates: vec![teacher_a],
                     teacher_pin: Some(teacher_a),
                     hours_per_week: 4,
@@ -3471,7 +3614,7 @@ mod tests {
                 Lesson {
                     id: lesson_b,
                     school_class_ids: vec![class],
-                    subject_id: subject,
+                    subject_id: subject_b,
                     teacher_candidates: vec![teacher_b],
                     teacher_pin: Some(teacher_b),
                     hours_per_week: 2,
@@ -3482,11 +3625,11 @@ mod tests {
             teacher_qualifications: vec![
                 TeacherQualification {
                     teacher_id: teacher_a,
-                    subject_id: subject,
+                    subject_id: subject_a,
                 },
                 TeacherQualification {
                     teacher_id: teacher_b,
-                    subject_id: subject,
+                    subject_id: subject_b,
                 },
             ],
             teacher_blocked_times: vec![],
@@ -3530,8 +3673,23 @@ mod tests {
         };
 
         let class = SchoolClassId(lahc_uuid(50));
-        let subject = SubjectId(lahc_uuid(40));
         let room = RoomId(lahc_uuid(30));
+
+        // Item 68: each lesson gets its own SubjectId so the per-(class,
+        // subject) teacher-uniformity invariant treats them as independent.
+        // Earlier the fixture shared one subject across all `n_lessons`,
+        // which collided with the lock map (two lessons sharing a (class,
+        // subject) but pinned to different teachers).
+        let subjects_v: Vec<Subject> = (0..n_lessons)
+            .map(|i| Subject {
+                id: SubjectId(lahc_uuid(40 + i)),
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            })
+            .collect();
 
         let teachers_v: Vec<Teacher> = (0..n_lessons)
             .map(|i| Teacher {
@@ -3541,16 +3699,17 @@ mod tests {
             .collect();
         let qualifications: Vec<TeacherQualification> = teachers_v
             .iter()
-            .map(|t| TeacherQualification {
+            .enumerate()
+            .map(|(i, t)| TeacherQualification {
                 teacher_id: t.id,
-                subject_id: subject,
+                subject_id: subjects_v[i].id,
             })
             .collect();
         let lessons_v: Vec<Lesson> = (0..n_lessons)
             .map(|i| Lesson {
                 id: LessonId(lahc_uuid(60 + i)),
                 school_class_ids: vec![class],
-                subject_id: subject,
+                subject_id: subjects_v[i as usize].id,
                 teacher_candidates: vec![teachers_v[i as usize].id],
                 teacher_pin: Some(teachers_v[i as usize].id),
                 hours_per_week: 1,
@@ -3579,14 +3738,7 @@ mod tests {
             time_blocks: time_blocks_v,
             teachers: teachers_v,
             rooms: vec![Room { id: room }],
-            subjects: vec![Subject {
-                id: subject,
-                prefer_early_period: 0,
-                avoid_first_period: 0,
-                avoid_last_period: 0,
-                prefer_late_period: 0,
-                max_hours_per_day: 8,
-            }],
+            subjects: subjects_v,
             school_classes: vec![SchoolClass {
                 id: class,
                 home_room_id: None,
@@ -3634,7 +3786,8 @@ mod tests {
         let teacher0 = problem_for_attempt.lessons[0].assigned_teacher_id();
         let teacher1 = problem_for_attempt.lessons[1].assigned_teacher_id();
         let class = problem_for_attempt.lessons[0].school_class_ids[0];
-        let subject = problem_for_attempt.lessons[0].subject_id;
+        let subject0 = problem_for_attempt.lessons[0].subject_id;
+        let subject1 = problem_for_attempt.lessons[1].subject_id;
         let mut state = crate::solve::GreedyState::new();
         state.used_teacher.insert((teacher0, tb_d0_p0));
         state.used_teacher.insert((teacher1, tb_d1_p0));
@@ -3652,8 +3805,16 @@ mod tests {
             .insert((teacher1, 1), vec_part(&[0]));
         *state.hours_by_teacher.entry(teacher0).or_insert(0) = 1;
         *state.hours_by_teacher.entry(teacher1).or_insert(0) = 1;
-        state.locked_room.insert((class, 0, subject), (room, 1));
-        state.locked_room.insert((class, 1, subject), (room, 1));
+        state.locked_room.insert((class, 0, subject0), (room, 1));
+        state.locked_room.insert((class, 1, subject1), (room, 1));
+        // Item 68: seed the per-(class, subject) teacher lock map so
+        // Kempe's row-bookkeeping helpers find the right teacher key.
+        state
+            .class_subject_teacher
+            .insert((class, subject0), teacher0);
+        state
+            .class_subject_teacher
+            .insert((class, subject1), teacher1);
         state.search_score_slice = 0;
 
         let idx = crate::index::Indexed::new(&problem_for_attempt);
@@ -3759,6 +3920,7 @@ mod tests {
             locked_room: s.locked_room.clone(),
             subject_hours_by_class_day: s.subject_hours_by_class_day.clone(),
             lessons_by_class_day: s.lessons_by_class_day.clone(),
+            class_subject_teacher: s.class_subject_teacher.clone(),
             search_score_slice: s.search_score_slice,
             canonical_score: s.canonical_score,
         }

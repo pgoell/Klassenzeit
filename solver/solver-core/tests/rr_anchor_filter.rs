@@ -191,14 +191,14 @@ fn default_lahc_rr_k_is_five() {
 
 /// Build a fixture surfacing >= 8 R&R-eligible (lesson, day) anchors. Ten
 /// independent lessons, each `hours_per_week=1, preferred_block_size=1`, all
-/// for one class, share one room, each has a distinct teacher so non-overlap
-/// is trivially satisfied. Two days with five positions each leaves enough
-/// slot room for greedy to land all ten placements; every (lesson, day)
-/// pair greedy lands becomes an R&R anchor.
+/// for one class, share one room, each has a distinct teacher AND a
+/// distinct subject so the per-(class, subject) teacher-uniformity lock
+/// (item 66) does not collide. Two days with five positions each leaves
+/// enough slot room for greedy to land all ten placements; every (lesson,
+/// day) pair greedy lands becomes an R&R anchor.
 fn build_many_anchors_fixture() -> Problem {
     let class_a = SchoolClassId(anchor_filter_id(1001));
     let room_a = RoomId(anchor_filter_id(1002));
-    let subject_a = SubjectId(anchor_filter_id(1003));
 
     let mut time_blocks: Vec<TimeBlock> = Vec::with_capacity(10);
     let mut tb_idx = 0u32;
@@ -215,23 +215,33 @@ fn build_many_anchors_fixture() -> Problem {
 
     let lesson_count: u32 = 10;
     let mut teachers = Vec::with_capacity(lesson_count as usize);
+    let mut subjects = Vec::with_capacity(lesson_count as usize);
     let mut lessons = Vec::with_capacity(lesson_count as usize);
     let mut quals = Vec::with_capacity(lesson_count as usize);
     for n in 0..lesson_count {
         let teacher_id = TeacherId(anchor_filter_id(3000 + n));
         let lesson_id = LessonId(anchor_filter_id(4000 + n));
+        let subject_id = SubjectId(anchor_filter_id(5000 + n));
         teachers.push(Teacher {
             id: teacher_id,
             max_hours_per_week: 40,
         });
+        subjects.push(Subject {
+            id: subject_id,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        });
         quals.push(TeacherQualification {
             teacher_id,
-            subject_id: subject_a,
+            subject_id,
         });
         lessons.push(Lesson {
             id: lesson_id,
             school_class_ids: vec![class_a],
-            subject_id: subject_a,
+            subject_id,
             teacher_candidates: vec![teacher_id],
             teacher_pin: Some(teacher_id),
             hours_per_week: 1,
@@ -244,14 +254,7 @@ fn build_many_anchors_fixture() -> Problem {
         time_blocks,
         teachers,
         rooms: vec![Room { id: room_a }],
-        subjects: vec![Subject {
-            id: subject_a,
-            prefer_early_period: 0,
-            avoid_first_period: 0,
-            avoid_last_period: 0,
-            prefer_late_period: 0,
-            max_hours_per_day: 8,
-        }],
+        subjects,
         school_classes: vec![SchoolClass {
             id: class_a,
             home_room_id: None,

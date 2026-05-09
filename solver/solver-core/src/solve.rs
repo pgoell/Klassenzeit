@@ -130,6 +130,24 @@ pub fn solve_with_config_stats(
         .iter()
         .map(|c| (c.id, c.home_room_id))
         .collect();
+    // Item 68 precompute pair: `class_teacher_lookup` maps every class to
+    // its (optional) `class_teacher_id`; `subject_qualified_teachers`
+    // maps each subject to the set of teachers qualified for it. Both
+    // are read by `try_place_block` to score the prefer_class_teacher
+    // axis at placement time. Building once here amortises across every
+    // FFD lesson and every R&R recreate call.
+    let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = problem
+        .school_classes
+        .iter()
+        .map(|c| (c.id, c.class_teacher_id))
+        .collect();
+    let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+    for q in &problem.teacher_qualifications {
+        subject_qualified_teachers
+            .entry(q.subject_id)
+            .or_default()
+            .insert(q.teacher_id);
+    }
     let max_position_per_day: HashMap<u8, u8> =
         problem
             .time_blocks
@@ -228,6 +246,8 @@ pub fn solve_with_config_stats(
                 &class_max_lessons_per_day,
                 &config.weights,
                 &home_room_lookup,
+                &class_teacher_lookup,
+                &subject_qualified_teachers,
                 &mut state,
                 &mut solution.placements,
                 &tb_order,
@@ -341,6 +361,16 @@ pub(crate) struct GreedyState {
     /// total compared against `SchoolClass.max_lessons_per_day` (when set).
     /// Maintained in lockstep with the existing per-class bookkeeping.
     pub(crate) lessons_by_class_day: HashMap<(SchoolClassId, u8), u8>,
+    /// Solver-driven teacher-uniformity lock (item 66): the first
+    /// placement of a `(school_class, subject)` pair pins the teacher
+    /// every subsequent placement of the same pair must reuse. Populated
+    /// by `try_place_block` at commit time; read by `try_place_block`'s
+    /// candidate loop to short-circuit to a singleton iter when a lock
+    /// already exists. R&R recreate clears entries whose pair has no
+    /// remaining placements after the destroy phase. Change moves leave
+    /// the map untouched (the move keeps the same lesson hence the same
+    /// pair). Item 68.
+    pub(crate) class_subject_teacher: HashMap<(SchoolClassId, SubjectId), TeacherId>,
     /// Running LAHC search slice: `class_gap + teacher_gap + subject_pref`.
     /// Maintained by greedy's `try_place_block` persist site, by Change-move
     /// delta, by Kempe snapshot+delta, and by R&R via
@@ -370,6 +400,7 @@ impl GreedyState {
             locked_room: HashMap::new(),
             subject_hours_by_class_day: HashMap::new(),
             lessons_by_class_day: HashMap::new(),
+            class_subject_teacher: HashMap::new(),
             search_score_slice: 0,
             canonical_score: 0,
         }
@@ -383,15 +414,78 @@ struct BlockCandidate {
     start_pos: u8,
     end_pos: u8,
     room_id: RoomId,
+    /// Teacher chosen for this candidate from the lesson's
+    /// `teacher_candidates` (item 68). When the lesson has a `teacher_pin`
+    /// or any member `(class, subject)` already has a `class_subject_teacher`
+    /// lock, the teacher iteration collapses to that one teacher.
+    teacher_id: TeacherId,
     /// Slice-only running cost (`class_gap + teacher_gap + subject_pref`)
     /// post-place. Persisted to `state.search_score_slice` so the slice
     /// contract LAHC's Change move and R&R post-recreate
     /// `running_slice_from_placements` rely on stays intact.
     slice_score: u32,
-    /// Total cost = `slice_score + home_room_penalty(room_id)`. Used for
-    /// candidate ranking and pruning. NOT persisted to
-    /// `state.search_score_slice`.
+    /// Total cost = `slice_score + home_room_penalty(room_id) +
+    /// class_day_balance + prefer_class_teacher_cost`. Used for candidate
+    /// ranking and pruning. NOT persisted to `state.search_score_slice`.
+    /// The canonical score is recomputed via `score::score_solution`
+    /// after the FFD pass and after every R&R recreate, so we do not
+    /// thread the per-candidate prefer_class_teacher breakdown through
+    /// the BlockCandidate.
     total_score: u32,
+}
+
+/// Stack-allocated iterator over a lesson's eligible teachers per
+/// `try_place_block` call. The hot loop must not allocate per call (per
+/// `solver/CLAUDE.md` no-allocation rule); this enum sidesteps `Box<dyn
+/// Iterator>` and `Vec` collection.
+///
+/// `Singleton` covers the pinned-lesson case (`teacher_pin = Some(t)`)
+/// and the lock-already-set case (any member class has a
+/// `class_subject_teacher` entry). `Multi` covers the free pick case
+/// over `lesson.teacher_candidates`.
+enum TeacherCandidates<'a> {
+    Singleton([TeacherId; 1]),
+    Multi(&'a [TeacherId]),
+}
+
+impl<'a> TeacherCandidates<'a> {
+    fn iter(&self) -> std::slice::Iter<'_, TeacherId> {
+        match self {
+            TeacherCandidates::Singleton(arr) => arr.iter(),
+            TeacherCandidates::Multi(slice) => slice.iter(),
+        }
+    }
+}
+
+/// Cost contribution of one `(class, subject)` pair when a placement
+/// would freshly populate `state.class_subject_teacher`. Mirrors the
+/// closed-form term in `score::score_solution`: zero unless the class
+/// has a `class_teacher_id` qualified for the subject AND the chosen
+/// teacher is not the class teacher.
+///
+/// Returns `weights.prefer_class_teacher` per qualifying pair, else 0.
+/// Saturating arithmetic at the call site sums across member classes.
+fn prefer_class_teacher_lock_cost(
+    class: SchoolClassId,
+    subject_id: SubjectId,
+    chosen_teacher: TeacherId,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
+    weights: &ConstraintWeights,
+) -> u32 {
+    if weights.prefer_class_teacher == 0 {
+        return 0;
+    }
+    let Some(Some(klt)) = class_teacher_lookup.get(&class) else {
+        return 0;
+    };
+    let Some(qualified) = subject_qualified_teachers.get(&subject_id) else {
+        return 0;
+    };
+    if !qualified.contains(klt) || chosen_teacher == *klt {
+        return 0;
+    }
+    weights.prefer_class_teacher
 }
 
 /// Gap-count after inserting positions `start..=end` (inclusive) into a sorted
@@ -427,6 +521,8 @@ pub(crate) fn try_place_block(
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     weights: &ConstraintWeights,
     home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
     state: &mut GreedyState,
     placements: &mut Vec<Placement>,
     tb_order: &[usize],
@@ -435,13 +531,44 @@ pub(crate) fn try_place_block(
     days: u8,
 ) -> bool {
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
-    let teacher = lesson.assigned_teacher_id();
     let subject = problem
         .subjects
         .iter()
         .find(|s| s.id == lesson.subject_id)
         .expect("validate_structural ensures every lesson.subject_id resolves");
     let n_usize = n as usize;
+
+    // Item 68 teacher candidate selection. Three cases:
+    // 1. Lock already exists for any member `(class, subject)` pair: the
+    //    candidates collapse to the locked teacher. All member-class
+    //    locks must agree; disagreement is a hard infeasibility (caller
+    //    upstream should never construct this state).
+    // 2. `lesson.teacher_pin` is set: collapse to `[pin]`.
+    // 3. Otherwise: iterate `lesson.teacher_candidates`.
+    let mut existing_lock: Option<TeacherId> = None;
+    for class in class_ids {
+        if let Some(t) = state
+            .class_subject_teacher
+            .get(&(*class, lesson.subject_id))
+        {
+            match existing_lock {
+                None => existing_lock = Some(*t),
+                Some(prev) if prev != *t => {
+                    // Disagreement among member-class locks. Cannot
+                    // satisfy uniformity; treat as no candidate.
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    }
+    let teacher_candidates: TeacherCandidates<'_> = if let Some(t) = existing_lock {
+        TeacherCandidates::Singleton([t])
+    } else if let Some(pin) = lesson.teacher_pin {
+        TeacherCandidates::Singleton([pin])
+    } else {
+        TeacherCandidates::Multi(&lesson.teacher_candidates)
+    };
 
     let mut best: Option<BlockCandidate> = None;
     'outer: for outer_pos in 0..tb_order.len() {
@@ -471,32 +598,12 @@ pub(crate) fn try_place_block(
             }
         }
 
-        // Hard-feasibility for every position in the window. A multi-class
-        // lesson must be free in every member class's slot.
+        // Class-side hard-feasibility (teacher-independent: every member
+        // class must be free in every position of the window). Hoisted
+        // out of the teacher loop because the candidates iterator does
+        // not affect class busy-ness.
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-            if state.used_teacher.contains(&(teacher, tb.id)) {
-                #[cfg(feature = "solver-trace")]
-                trace::ffd_trace(
-                    lesson.id,
-                    first_tb.day_of_week,
-                    first_tb.position,
-                    None,
-                    "teacher_busy",
-                );
-                continue 'outer;
-            }
-            if idx.teacher_blocked(teacher, tb.id) {
-                #[cfg(feature = "solver-trace")]
-                trace::ffd_trace(
-                    lesson.id,
-                    first_tb.day_of_week,
-                    first_tb.position,
-                    None,
-                    "teacher_blocked",
-                );
-                continue 'outer;
-            }
             for class in class_ids {
                 if state.used_class.contains(&(*class, tb.id)) {
                     #[cfg(feature = "solver-trace")]
@@ -514,7 +621,7 @@ pub(crate) fn try_place_block(
         // Per-day caps: reject windows that would push any member class past
         // `Subject.max_hours_per_day` or past `SchoolClass.max_lessons_per_day`
         // (when set). One block contributes `n` to subject hours and `1` to
-        // class lessons.
+        // class lessons. Teacher-independent, hoisted.
         let subject_cap = subject.max_hours_per_day;
         for class in class_ids {
             let key = (*class, first_tb.day_of_week, lesson.subject_id);
@@ -553,22 +660,10 @@ pub(crate) fn try_place_block(
                 }
             }
         }
-        let current = state.hours_by_teacher.get(&teacher).copied().unwrap_or(0);
-        let max = teacher_max.get(&teacher).copied().unwrap_or(0);
-        if current.saturating_add(n) > max {
-            #[cfg(feature = "solver-trace")]
-            trace::ffd_trace(
-                lesson.id,
-                first_tb.day_of_week,
-                first_tb.position,
-                None,
-                "teacher_over_capacity",
-            );
-            continue;
-        }
 
-        // Score: analytical window-delta summed across every member class,
-        // plus the teacher half once, plus subject_pref summed over n tbs.
+        // Class-side score (teacher-independent), plus subject_pref. Hoisted
+        // out of the teacher loop because neither depends on the chosen
+        // teacher.
         let start_pos = first_tb.position;
         let end_pos = start_pos + n - 1;
         let mut class_delta_sum: i64 = 0;
@@ -581,14 +676,6 @@ pub(crate) fn try_place_block(
             let class_new = gap_count_after_window_insert(class_partition, start_pos, end_pos);
             class_delta_sum += i64::from(class_new) - i64::from(class_old);
         }
-        let teacher_partition = state
-            .teacher_positions
-            .get(&(teacher, first_tb.day_of_week));
-        let teacher_old = match teacher_partition {
-            Some(p) => crate::score::gap_count(p),
-            None => 0,
-        };
-        let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
         let max_pos = max_position_per_day
             .get(&first_tb.day_of_week)
             .copied()
@@ -601,42 +688,12 @@ pub(crate) fn try_place_block(
             ));
         }
         let class_delta_w = class_delta_sum.saturating_mul(i64::from(weights.class_gap));
-        let teacher_delta_w = (i64::from(teacher_new) - i64::from(teacher_old))
-            .saturating_mul(i64::from(weights.teacher_gap));
-        let new_signed = i64::from(state.search_score_slice)
-            .saturating_add(class_delta_w)
-            .saturating_add(teacher_delta_w)
-            .saturating_add(i64::from(subject_pref));
-        let slice_score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
-
-        // Pruning: skip the room scan if this window's slice-score lower bound
-        // cannot beat the current best total. `home_room_penalty >= 0` and
-        // `class_day_balance_post >= 0` for every (window, room), so slice is
-        // a sound lower bound on total; a window whose slice already
-        // exceeds-or-ties the best total cannot produce a strictly better
-        // candidate. The cross-window comparison at the BlockCandidate
-        // assignment site (item 60) is strict `<` end-to-end: FIRST-walked
-        // wins on tied `total_score` via `tb_order`'s sort by
-        // `(day_of_week, position, tb_id)`, symmetric to the room scan's
-        // "lowest `room.id` wins on tie" rule.
-        if let Some(b) = &best {
-            if slice_score >= b.total_score {
-                #[cfg(feature = "solver-trace")]
-                trace::ffd_trace(
-                    lesson.id,
-                    first_tb.day_of_week,
-                    first_tb.position,
-                    None,
-                    "score_pruned",
-                );
-                continue;
-            }
-        }
 
         // Same-room hard constraint: if any member class already has this
         // subject placed on this day, every member class must agree on that
         // room. Disagreement would force two different rooms; skip the
         // window. A consistent shared lock pins the candidate room.
+        // Teacher-independent, hoisted.
         let day = first_tb.day_of_week;
         let mut shared_lock: Option<RoomId> = None;
         let mut lock_conflict = false;
@@ -664,11 +721,13 @@ pub(crate) fn try_place_block(
             continue;
         }
 
-        // Pick the feasible room that minimises `home_room_penalty(room)`. Strict
-        // `<` plus `room_order`'s id-sorted iteration means the lowest-id room
-        // wins on a penalty tie. Early-break when penalty == 0: a home-room
-        // match is unbeatable and later rooms are id-greater (only-tied-or-worse
-        // on the penalty/id tiebreak).
+        // Pick the feasible room that minimises `home_room_penalty(room)`.
+        // Teacher-independent (room suitability/blocking/usage do not
+        // depend on which teacher is chosen). Hoisted out of the teacher
+        // loop. Strict `<` plus `room_order`'s id-sorted iteration means
+        // the lowest-id room wins on a penalty tie. Early-break when
+        // penalty == 0: a home-room match is unbeatable and later rooms
+        // are id-greater (only-tied-or-worse on the penalty/id tiebreak).
         let mut best_room: Option<(RoomId, u32)> = None;
         'rooms: for &room_idx in room_order {
             let room = &problem.rooms[room_idx];
@@ -743,11 +802,7 @@ pub(crate) fn try_place_block(
 
         // Class-day-balance contribution to candidate ranking (item 54). Sum
         // the per-class post-place L1 cost across every member class of this
-        // lesson, then weight. Zero-weight short-circuit avoids the partition
-        // walk on tests that disable the axis. The pruning check above
-        // (`slice_score >= b.total_score`) stays sound: `room_penalty` and
-        // `balance_post` are both non-negative, so `slice_score` remains a
-        // lower bound on the candidate's eventual `total_score`.
+        // lesson, then weight. Teacher-independent, hoisted.
         let balance_post: u32 = if weights.class_day_balance == 0 {
             0
         } else {
@@ -763,43 +818,153 @@ pub(crate) fn try_place_block(
             }
             weights.class_day_balance.saturating_mul(acc)
         };
-        let total_score = slice_score
-            .saturating_add(room_penalty)
-            .saturating_add(balance_post);
 
-        #[cfg(feature = "solver-trace")]
-        trace::ffd_trace(
-            lesson.id,
-            first_tb.day_of_week,
-            first_tb.position,
-            Some(room_id),
-            "window_candidate",
-        );
-        // Strict `<` cross-window comparison (item 60). FIRST-walked feasible
-        // window wins on tied `total_score`; combined with `tb_order`'s sort
-        // by `(day_of_week, position, tb_id)` this resolves to "lowest
-        // `(day, position)` wins on tie", symmetric to the room scan's
-        // "lowest `room.id` wins on tie" rule above.
-        if best.as_ref().is_none_or(|b| total_score < b.total_score) {
+        // Item 68 teacher candidate iteration. The class-side score and
+        // the room scan above are teacher-independent; only teacher
+        // hard-feasibility (used_teacher, teacher_blocked, teacher
+        // capacity), the teacher-gap delta, and the
+        // prefer_class_teacher cost vary per teacher. The candidate
+        // iterator is stack-allocated (`TeacherCandidates::Singleton` for
+        // pinned/locked, `Multi` borrowed slice for the free pick) so
+        // the hot loop stays allocation-free.
+        for &candidate_teacher in teacher_candidates.iter() {
+            // Hard-feasibility for every position in the window for THIS
+            // teacher: not currently busy and not blocked at any of the
+            // window's tbs.
+            let mut teacher_blocked_in_window = false;
+            for k in 0..n_usize {
+                let tb = &problem.time_blocks[tb_order[outer_pos + k]];
+                if state.used_teacher.contains(&(candidate_teacher, tb.id))
+                    || idx.teacher_blocked(candidate_teacher, tb.id)
+                {
+                    teacher_blocked_in_window = true;
+                    break;
+                }
+            }
+            if teacher_blocked_in_window {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "teacher_busy",
+                );
+                continue;
+            }
+
+            // Teacher capacity (per-week max).
+            let current = state
+                .hours_by_teacher
+                .get(&candidate_teacher)
+                .copied()
+                .unwrap_or(0);
+            let max = teacher_max.get(&candidate_teacher).copied().unwrap_or(0);
+            if current.saturating_add(n) > max {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "teacher_over_capacity",
+                );
+                continue;
+            }
+
+            // Teacher-side score delta.
+            let teacher_partition = state
+                .teacher_positions
+                .get(&(candidate_teacher, first_tb.day_of_week));
+            let teacher_old = match teacher_partition {
+                Some(p) => crate::score::gap_count(p),
+                None => 0,
+            };
+            let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
+            let teacher_delta_w = (i64::from(teacher_new) - i64::from(teacher_old))
+                .saturating_mul(i64::from(weights.teacher_gap));
+
+            let new_signed = i64::from(state.search_score_slice)
+                .saturating_add(class_delta_w)
+                .saturating_add(teacher_delta_w)
+                .saturating_add(i64::from(subject_pref));
+            let slice_score = u32::try_from(new_signed.max(0)).unwrap_or(u32::MAX);
+
+            // prefer_class_teacher cost contribution: sum across member
+            // classes whose `(class, subject)` lock would be FRESHLY set
+            // by this placement. Member classes whose lock already
+            // exists do not add a new contribution (the existing entry
+            // is already in `state.canonical_score`).
+            let mut prefer_class_teacher_cost: u32 = 0;
+            if weights.prefer_class_teacher != 0 && existing_lock.is_none() {
+                // existing_lock None means no member class currently has
+                // a lock (else we collapsed to Singleton above); each
+                // member class is freshly locked by this placement.
+                for class in class_ids {
+                    prefer_class_teacher_cost =
+                        prefer_class_teacher_cost.saturating_add(prefer_class_teacher_lock_cost(
+                            *class,
+                            lesson.subject_id,
+                            candidate_teacher,
+                            class_teacher_lookup,
+                            subject_qualified_teachers,
+                            weights,
+                        ));
+                }
+            }
+
+            let total_score = slice_score
+                .saturating_add(room_penalty)
+                .saturating_add(balance_post)
+                .saturating_add(prefer_class_teacher_cost);
+
+            // Pruning: skip if this triple's total cannot beat the current
+            // best total. Strict `>=` keeps FIRST-walked candidate on tie
+            // (cross-window strict-`<` rule, item 60).
+            if let Some(b) = &best {
+                if total_score >= b.total_score {
+                    #[cfg(feature = "solver-trace")]
+                    trace::ffd_trace(
+                        lesson.id,
+                        first_tb.day_of_week,
+                        first_tb.position,
+                        None,
+                        "score_pruned",
+                    );
+                    continue;
+                }
+            }
+
+            #[cfg(feature = "solver-trace")]
+            trace::ffd_trace(
+                lesson.id,
+                first_tb.day_of_week,
+                first_tb.position,
+                Some(room_id),
+                "window_candidate",
+            );
             best = Some(BlockCandidate {
                 outer_pos,
                 day: first_tb.day_of_week,
                 start_pos,
                 end_pos,
                 room_id,
+                teacher_id: candidate_teacher,
                 slice_score,
                 total_score,
             });
         }
 
-        // Early exit: a window with both slice delta zero AND home-room match
-        // at every member class is unbeatable (state.search_score_slice ==
-        // total_score means no slice gain plus no home-room penalty), and
-        // `tb_order`'s sort means later windows have weakly larger
-        // (day, position) so the tiebreak rule cannot rescue a tied later
-        // window.
-        if total_score == state.search_score_slice {
-            break;
+        // Early exit at the window level: if the current best landed at
+        // this window with `total_score == state.search_score_slice`
+        // (no extra cost beyond the running slice baseline), no later
+        // window can strictly improve it: `tb_order`'s sort means later
+        // windows have weakly larger (day, position) tiebreak rank, and
+        // strict `<` keeps the FIRST-walked candidate on tie.
+        if let Some(b) = &best {
+            if b.outer_pos == outer_pos && b.total_score == state.search_score_slice {
+                break;
+            }
         }
     }
 
@@ -826,21 +991,22 @@ pub(crate) fn try_place_block(
         return false;
     };
 
+    let chosen_teacher = c.teacher_id;
     for k in 0..n_usize {
         let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
         placements.push(Placement {
             lesson_id: lesson.id,
             time_block_id: tb.id,
             room_id: c.room_id,
-            teacher_id: teacher,
+            teacher_id: chosen_teacher,
         });
-        state.used_teacher.insert((teacher, tb.id));
+        state.used_teacher.insert((chosen_teacher, tb.id));
         for class in class_ids {
             state.used_class.insert((*class, tb.id));
         }
         state.used_room.insert((c.room_id, tb.id));
     }
-    *state.hours_by_teacher.entry(teacher).or_insert(0) += n;
+    *state.hours_by_teacher.entry(chosen_teacher).or_insert(0) += n;
 
     for class in class_ids {
         let class_part = state.class_positions.entry((*class, c.day)).or_default();
@@ -856,6 +1022,15 @@ pub(crate) fn try_place_block(
             .entry((*class, c.day, lesson.subject_id))
             .or_insert((c.room_id, 0));
         entry.1 += u32::from(n);
+        // Item 66: set the per-(class, subject) teacher lock so any later
+        // FFD or R&R placement of the same pair reuses this teacher.
+        // `or_insert(chosen_teacher)` is correct because the candidate
+        // selection above already collapsed to the locked teacher when an
+        // entry exists; this only inserts on first placement of a pair.
+        state
+            .class_subject_teacher
+            .entry((*class, lesson.subject_id))
+            .or_insert(chosen_teacher);
         // Per-day cap counters: subject hours add `n` (period span); class
         // lessons add `1` (one block per accepted call). Decremented in
         // `rr_remove_row_bookkeeping` per row (n=1 each call).
@@ -868,12 +1043,24 @@ pub(crate) fn try_place_block(
             .entry((*class, c.day))
             .or_insert(0) += 1;
     }
-    let teacher_part = state.teacher_positions.entry((teacher, c.day)).or_default();
+    let teacher_part = state
+        .teacher_positions
+        .entry((chosen_teacher, c.day))
+        .or_default();
     for pos in c.start_pos..=c.end_pos {
         let ins = teacher_part.binary_search(&pos).unwrap_or_else(|i| i);
         teacher_part.insert(ins, pos);
     }
     state.search_score_slice = c.slice_score;
+    // Canonical-score maintenance for the prefer_class_teacher axis. The
+    // search slice excludes home_room / class_day_balance / prefer_class_teacher;
+    // every other axis lives on the canonical-only side. Greedy entry to LAHC
+    // initialises `state.canonical_score = score_solution(...)` after the FFD
+    // pass, so during FFD we only need to keep `state.search_score_slice` in
+    // step. The post-FFD canonical recompute (`solve_with_config_stats`)
+    // captures the prefer_class_teacher contribution from `class_subject_teacher`
+    // via `score_solution`, so no per-call delta on `state.canonical_score`
+    // is required during FFD. Item 68.
     #[cfg(feature = "solver-trace")]
     trace::ffd_trace(lesson.id, c.day, c.start_pos, Some(c.room_id), "placed");
     true
@@ -1262,12 +1449,22 @@ fn try_place_group(
     }
     for (member_pos, member) in members.iter().enumerate() {
         let room_id = c.rooms[member_pos];
+        let member_teacher = member.assigned_teacher_id();
         for class in &member.school_class_ids {
             let entry = state
                 .locked_room
                 .entry((*class, c.day, member.subject_id))
                 .or_insert((room_id, 0));
             entry.1 += u32::from(n);
+            // Item 66: lesson-group co-placement seeds the per-(class,
+            // subject) teacher lock per member. Each lesson-group member
+            // is a distinct subject (per-Jahrgang Religion trio: RK / RE
+            // / ETH), so members do not collide on the same (class,
+            // subject) key.
+            state
+                .class_subject_teacher
+                .entry((*class, member.subject_id))
+                .or_insert(member_teacher);
             *state
                 .subject_hours_by_class_day
                 .entry((*class, c.day, member.subject_id))
@@ -1472,6 +1669,14 @@ fn seed_greedy_state_from_pins(
                 .entry((*class, tb.day_of_week, lesson.subject_id))
                 .or_insert((pl.room_id, 0));
             entry.1 += 1;
+            // Item 66: seed the per-(class, subject) teacher lock from
+            // pins so subsequent FFD placements of the same pair pick the
+            // pinned teacher and the canonical score stays in lockstep
+            // with `score::score_solution`.
+            state
+                .class_subject_teacher
+                .entry((*class, lesson.subject_id))
+                .or_insert(pl.teacher_id);
             // Per-day cap counters: each pinned row contributes 1 hour and
             // 1 lesson to the matching keys.
             *state
@@ -2839,6 +3044,18 @@ mod tests {
         let room_order: Vec<usize> = vec![1, 0];
         let max_position_per_day: HashMap<u8, u8> = HashMap::from([(0, 0)]);
 
+        let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.class_teacher_id))
+            .collect();
+        let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+        for q in &problem.teacher_qualifications {
+            subject_qualified_teachers
+                .entry(q.subject_id)
+                .or_default()
+                .insert(q.teacher_id);
+        }
         let placed = try_place_block(
             &problem,
             &problem.lessons[0],
@@ -2848,6 +3065,8 @@ mod tests {
             &class_max_lessons_per_day,
             &weights,
             &home_room_lookup,
+            &class_teacher_lookup,
+            &subject_qualified_teachers,
             &mut state,
             &mut placements,
             &tb_order,
@@ -2962,6 +3181,18 @@ mod tests {
         let room_order: Vec<usize> = vec![1, 0];
         let max_position_per_day: HashMap<u8, u8> = HashMap::from([(0, 0)]);
 
+        let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.class_teacher_id))
+            .collect();
+        let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+        for q in &problem.teacher_qualifications {
+            subject_qualified_teachers
+                .entry(q.subject_id)
+                .or_default()
+                .insert(q.teacher_id);
+        }
         let placed = try_place_block(
             &problem,
             &problem.lessons[0],
@@ -2971,6 +3202,8 @@ mod tests {
             &class_max_lessons_per_day,
             &weights,
             &home_room_lookup,
+            &class_teacher_lookup,
+            &subject_qualified_teachers,
             &mut state,
             &mut placements,
             &tb_order,
