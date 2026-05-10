@@ -284,6 +284,10 @@ run = "if [ -f frontend/package.json ]; then pnpm -C frontend fmt; else echo 'fr
 description = "Regenerate OpenAPI types for the frontend"
 run = "bash scripts/gen_frontend_types.sh"
 
+[tasks."fe:typecheck"]
+description = "Type-check the frontend with tsc --noEmit"
+run = "pnpm -C frontend run typecheck"
+
 # ─── End-to-end (Playwright) ────────────────────────────────────────────────
 
 [tasks."e2e:install"]

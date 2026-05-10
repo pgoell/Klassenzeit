@@ -4,7 +4,9 @@
     "contexts": [
       "Lint",
       "Test",
-      "Validate PR title is conventional-commits compliant"
+      "Validate PR title is conventional-commits compliant",
+      "Lint + test + build",
+      "Playwright e2e"
     ]
   },
   "enforce_admins": false,

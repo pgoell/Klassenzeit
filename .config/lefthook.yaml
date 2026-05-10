@@ -29,3 +29,5 @@ pre-push:
         if [ "$ACTUAL" -lt "$BASELINE" ]; then echo "Coverage ${ACTUAL}% below ${BASELINE}% baseline"; exit 1; fi
     test-frontend:
       run: mise run fe:test
+    typecheck-frontend:
+      run: mise run fe:typecheck
