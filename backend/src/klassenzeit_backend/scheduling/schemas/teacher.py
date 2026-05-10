@@ -51,6 +51,7 @@ class TeacherListResponse(BaseModel):
     short_code: str
     max_hours_per_week: int
     is_active: bool
+    subject_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

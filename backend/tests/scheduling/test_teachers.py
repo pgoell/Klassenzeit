@@ -504,3 +504,47 @@ async def test_teacher_requires_admin(client: AsyncClient) -> None:
     """
     response = await client.get("/api/teachers")
     assert response.status_code == 401
+
+
+async def test_list_teachers_includes_subject_ids(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """GET /teachers returns each teacher's qualified-subject IDs."""
+    await create_test_user(email="admin@teacher-subject-ids.com", role="admin")
+    await login_as("admin@teacher-subject-ids.com", "testpassword123")
+
+    teacher_resp = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Eva",
+            "last_name": "Quali",
+            "short_code": "EQU",
+            "max_hours_per_week": 24,
+        },
+    )
+    teacher_id = teacher_resp.json()["id"]
+
+    ma_resp = await client.post(
+        "/api/subjects",
+        json={"name": "Mathematik", "short_name": "MA", "color": "chart-1"},
+    )
+    de_resp = await client.post(
+        "/api/subjects",
+        json={"name": "Deutsch", "short_name": "DE", "color": "chart-2"},
+    )
+    ma_id = ma_resp.json()["id"]
+    de_id = de_resp.json()["id"]
+
+    qual_resp = await client.put(
+        f"/api/teachers/{teacher_id}/qualifications",
+        json={"subject_ids": [ma_id, de_id]},
+    )
+    assert qual_resp.status_code == 200
+
+    list_resp = await client.get("/api/teachers")
+    assert list_resp.status_code == 200
+    rows = list_resp.json()
+    row = next(t for t in rows if t["id"] == teacher_id)
+    assert sorted(row["subject_ids"]) == sorted([ma_id, de_id])
