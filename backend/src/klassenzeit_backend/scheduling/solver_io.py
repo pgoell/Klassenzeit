@@ -821,6 +821,7 @@ async def read_schedule_for_class(
     return [
         PlacementResponse(
             lesson_id=row.lesson_id,
+            teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
             pinned=row.pinned,
@@ -866,6 +867,7 @@ async def read_schedule_for_teacher(
     return [
         PlacementResponse(
             lesson_id=row.lesson_id,
+            teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
             pinned=row.pinned,
@@ -905,6 +907,7 @@ async def read_schedule_for_room(
     return [
         PlacementResponse(
             lesson_id=row.lesson_id,
+            teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
             pinned=row.pinned,

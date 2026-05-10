@@ -1794,7 +1794,9 @@ export interface components {
          *
          *     ``pinned`` reflects ``ScheduledLesson.pinned`` for persisted reads and the
          *     placement-mutation endpoints; defaults to ``False`` for fresh solver
-         *     output, which carries no pinned flag in its wire format.
+         *     output, which carries no pinned flag in its wire format. ``teacher_id``
+         *     mirrors ``ScheduledLesson.teacher_id`` (non-null since OPEN_THINGS item 63);
+         *     on fresh solver output it is the solver's per-placement pick.
          */
         PlacementResponse: {
             /**
@@ -1802,6 +1804,11 @@ export interface components {
              * Format: uuid
              */
             lesson_id: string;
+            /**
+             * Teacher Id
+             * Format: uuid
+             */
+            teacher_id: string;
             /**
              * Time Block Id
              * Format: uuid

@@ -222,7 +222,7 @@ _RELIGION_LESSONS_DREIZUEGIG: tuple[_ReligionLessonSpec, ...] = (
 # for the non-Religion subjects (Religion is pinned on the Lesson by the
 # seed itself). The matching solvability test runs SQL UPDATE after
 # ``generate-lessons`` so the bench-fixture-stable allocation does not
-# drift as ``auto_assign_teachers_for_lessons`` evolves.
+# drift across solver-driven runs (item 63 + ADR 0036).
 #
 # Per-teacher hour totals (verified against ``_TEACHERS_DREIZUEGIG.max_hours_per_week``):
 #   Klassenlehrer grades 1/2 (D6+M5+SU2+KU2 = 15h):
