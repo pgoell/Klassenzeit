@@ -35,6 +35,39 @@ fn placements_expected_for_problem(problem: &Problem) -> u64 {
         .sum()
 }
 
+/// Clear `teacher_pin` on every lesson and widen `teacher_candidates` to the
+/// deterministic-sorted, deduplicated set of teachers qualified for each
+/// lesson's subject. Bench-only; production fixtures retain their original
+/// pins until item 73's no-pinned data lands in BENCH_RESULTS.md.
+///
+/// Gated `#[cfg(test)]` for now; Task 2 of item 73 removes the gate when it
+/// wires the production caller in `run_cell_child` (clippy `-D dead_code`
+/// otherwise rejects the helper because the only caller in this commit is the
+/// inline test module).
+#[cfg(test)]
+pub(crate) fn unpin_teachers_in_problem(problem: &mut Problem) {
+    use std::collections::HashMap;
+    let mut quals_by_subject: HashMap<solver_core::SubjectId, Vec<solver_core::TeacherId>> =
+        HashMap::new();
+    for q in &problem.teacher_qualifications {
+        quals_by_subject
+            .entry(q.subject_id)
+            .or_default()
+            .push(q.teacher_id);
+    }
+    for v in quals_by_subject.values_mut() {
+        v.sort_by_key(|t| t.0);
+        v.dedup();
+    }
+    for lesson in &mut problem.lessons {
+        lesson.teacher_pin = None;
+        lesson.teacher_candidates = quals_by_subject
+            .get(&lesson.subject_id)
+            .cloned()
+            .unwrap_or_default();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BenchBackend {
     Lahc,
@@ -71,6 +104,35 @@ impl BenchBackend {
         Self::LahcRrKempe,
         Self::CpSat,
     ];
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum TeacherPinsMode {
+    On,
+    Off,
+}
+
+impl TeacherPinsMode {
+    /// Render the mode as the CLI flag value (`on` / `off`); Task 2 of item 73
+    /// uses this when the supervisor propagates `--teacher-pins <label>` to the
+    /// per-cell child process.
+    #[cfg(test)]
+    fn teacher_pins_label(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+
+    fn parse_teacher_pins_mode(s: &str) -> Result<Self, String> {
+        match s {
+            "on" => Ok(Self::On),
+            "off" => Ok(Self::Off),
+            other => Err(format!(
+                "--teacher-pins expects 'on' or 'off', got '{other}'"
+            )),
+        }
+    }
 }
 
 type FixtureEntry = (&'static str, fn() -> Problem);
@@ -131,6 +193,7 @@ struct SupervisorArgs {
     rr_period_values: Option<Vec<u32>>,
     kempe_max_chain_values: Option<Vec<u32>>,
     append: bool,
+    teacher_pins: TeacherPinsMode,
 }
 
 fn default_supervisor_args() -> SupervisorArgs {
@@ -144,6 +207,7 @@ fn default_supervisor_args() -> SupervisorArgs {
         rr_period_values: None,
         kempe_max_chain_values: None,
         append: false,
+        teacher_pins: TeacherPinsMode::On,
     }
 }
 
@@ -217,6 +281,10 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
             "--kempe-max-chain" => {
                 let v = iter.next().ok_or("--kempe-max-chain needs a value")?;
                 args.kempe_max_chain_values = Some(parse_u32_csv("--kempe-max-chain", &v)?);
+            }
+            "--teacher-pins" => {
+                let v = iter.next().ok_or("--teacher-pins needs a value")?;
+                args.teacher_pins = TeacherPinsMode::parse_teacher_pins_mode(&v)?;
             }
             "--append" => {
                 args.append = true;
@@ -2263,6 +2331,100 @@ mod tests {
         assert!(
             out.contains("(none)"),
             "cpsat optimised set should render as (none) today: {out}",
+        );
+    }
+
+    #[test]
+    fn teacher_pins_mode_label_and_parse_round_trip() {
+        assert_eq!(TeacherPinsMode::On.teacher_pins_label(), "on");
+        assert_eq!(TeacherPinsMode::Off.teacher_pins_label(), "off");
+        assert_eq!(
+            TeacherPinsMode::parse_teacher_pins_mode("on").unwrap(),
+            TeacherPinsMode::On
+        );
+        assert_eq!(
+            TeacherPinsMode::parse_teacher_pins_mode("off").unwrap(),
+            TeacherPinsMode::Off
+        );
+        assert!(TeacherPinsMode::parse_teacher_pins_mode("maybe").is_err());
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_clears_pins_and_widens_candidates() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        use solver_core::{SubjectId, TeacherId};
+        use std::collections::HashMap;
+        let mut p = grundschule_fixture();
+        for l in &p.lessons {
+            assert!(
+                l.teacher_pin.is_some(),
+                "fixture precondition: every lesson is pinned"
+            );
+        }
+        crate::unpin_teachers_in_problem(&mut p);
+        let mut quals: HashMap<SubjectId, Vec<TeacherId>> = HashMap::new();
+        for q in &p.teacher_qualifications {
+            quals.entry(q.subject_id).or_default().push(q.teacher_id);
+        }
+        for v in quals.values_mut() {
+            v.sort_by_key(|t| t.0);
+            v.dedup();
+        }
+        for l in &p.lessons {
+            assert_eq!(l.teacher_pin, None, "pin must be cleared");
+            let expected = quals.get(&l.subject_id).cloned().unwrap_or_default();
+            assert_eq!(
+                l.teacher_candidates, expected,
+                "candidates must equal sorted-deduped qualified teachers for lesson {:?}",
+                l.id
+            );
+        }
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_is_deterministic() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        let mut a = grundschule_fixture();
+        let mut b = grundschule_fixture();
+        crate::unpin_teachers_in_problem(&mut a);
+        crate::unpin_teachers_in_problem(&mut b);
+        for (la, lb) in a.lessons.iter().zip(b.lessons.iter()) {
+            assert_eq!(
+                la.teacher_candidates, lb.teacher_candidates,
+                "candidate ordering must be deterministic across calls"
+            );
+        }
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_handles_subject_with_no_quals() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        use solver_core::{Lesson, LessonId, SubjectId, TeacherId};
+        use uuid::Uuid;
+        let mut p = grundschule_fixture();
+        // Inject a synthetic lesson whose subject has zero qualifications.
+        let phantom_subject = SubjectId(Uuid::from_u128(0xDEADBEEF));
+        let phantom_class = p.school_classes[0].id;
+        p.lessons.push(Lesson {
+            id: LessonId(Uuid::from_u128(0xC0FFEE)),
+            school_class_ids: vec![phantom_class],
+            subject_id: phantom_subject,
+            teacher_candidates: vec![TeacherId(Uuid::from_u128(0x1))],
+            teacher_pin: Some(TeacherId(Uuid::from_u128(0x1))),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        // If the Lesson struct grows new fields after 2026-05-10, `cargo build`
+        // surfaces them: add them with sensible defaults to keep this test focused
+        // on the no-qualifications path. Do NOT add `room_lock` (not a field as of
+        // the plan-write date).
+        crate::unpin_teachers_in_problem(&mut p);
+        let phantom = p.lessons.last().unwrap();
+        assert_eq!(phantom.teacher_pin, None);
+        assert!(
+            phantom.teacher_candidates.is_empty(),
+            "unqualified subject must yield empty candidates"
         );
     }
 }
