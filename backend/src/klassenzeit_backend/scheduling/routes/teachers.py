@@ -144,6 +144,7 @@ async def create_teacher_route(
         short_code=teacher.short_code,
         max_hours_per_week=teacher.max_hours_per_week,
         is_active=teacher.is_active,
+        subject_ids=[],
         created_at=teacher.created_at,
         updated_at=teacher.updated_at,
     )
@@ -163,13 +164,25 @@ async def list_teachers(
         active: Optional filter; if True returns only active teachers, if False only inactive.
 
     Returns:
-        List of teachers sorted alphabetically by last name (no nested qualifications or
-        availability).
+        List of teachers sorted alphabetically by last name (no nested availability;
+        qualified-subject UUIDs are returned as ``subject_ids``).
     """
     query = select(Teacher).order_by(Teacher.last_name)
     if active is not None:
         query = query.where(Teacher.is_active == active)
-    result = await db.execute(query)
+    teachers = list((await db.execute(query)).scalars())
+
+    teacher_ids = [t.id for t in teachers]
+    subject_ids_by_teacher: dict[uuid.UUID, list[uuid.UUID]] = {tid: [] for tid in teacher_ids}
+    if teacher_ids:
+        qual_rows = await db.execute(
+            select(TeacherQualification.teacher_id, TeacherQualification.subject_id).where(
+                TeacherQualification.teacher_id.in_(teacher_ids)
+            )
+        )
+        for teacher_id, subject_id in qual_rows:
+            subject_ids_by_teacher[teacher_id].append(subject_id)
+
     return [
         TeacherListResponse(
             id=t.id,
@@ -178,10 +191,11 @@ async def list_teachers(
             short_code=t.short_code,
             max_hours_per_week=t.max_hours_per_week,
             is_active=t.is_active,
+            subject_ids=subject_ids_by_teacher[t.id],
             created_at=t.created_at,
             updated_at=t.updated_at,
         )
-        for t in result.scalars()
+        for t in teachers
     ]
 
 
@@ -247,6 +261,10 @@ async def update_teacher_route(
             detail="A teacher with this short_code already exists.",
         ) from exc
     await db.refresh(teacher)
+    subject_id_rows = await db.execute(
+        select(TeacherQualification.subject_id).where(TeacherQualification.teacher_id == teacher.id)
+    )
+    subject_ids = [row[0] for row in subject_id_rows]
     return TeacherListResponse(
         id=teacher.id,
         first_name=teacher.first_name,
@@ -254,6 +272,7 @@ async def update_teacher_route(
         short_code=teacher.short_code,
         max_hours_per_week=teacher.max_hours_per_week,
         is_active=teacher.is_active,
+        subject_ids=subject_ids,
         created_at=teacher.created_at,
         updated_at=teacher.updated_at,
     )

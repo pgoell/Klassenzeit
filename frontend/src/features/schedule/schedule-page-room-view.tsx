@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLessons } from "@/features/lessons/hooks";
 import { useRooms } from "@/features/rooms/hooks";
 import { useSchoolClasses } from "@/features/school-classes/hooks";
+import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemeDetail } from "@/features/week-schemes/hooks";
 import { useRoomSchedule } from "./hooks";
 import { type ScheduleCell, ScheduleGrid } from "./schedule-grid";
@@ -17,6 +18,7 @@ export function SchedulePageRoomView() {
   const rooms = useRooms();
   const lessons = useLessons();
   const classes = useSchoolClasses();
+  const teachers = useTeachers();
   // Sprint B simplification: assume every class shares one week scheme. Pull
   // its time blocks from the first class's scheme.
   const firstSchemeId = classes.data?.[0]?.week_scheme_id ?? null;
@@ -43,6 +45,7 @@ export function SchedulePageRoomView() {
 
   const lessonById = new Map((lessons.data ?? []).map((l) => [l.id, l]));
   const blockById = new Map((weekScheme.data?.time_blocks ?? []).map((b) => [b.id, b]));
+  const teacherById = new Map((teachers.data ?? []).map((t) => [t.id, t]));
 
   const placements = schedule.data?.placements ?? [];
   const cells: ScheduleCell[] = placements
@@ -57,7 +60,7 @@ export function SchedulePageRoomView() {
         position: block.position,
         subjectName: lesson.subject.name,
         classNames,
-        teacherName: lesson.teacher?.last_name,
+        teacherName: lesson.teacher?.last_name ?? teacherById.get(p.teacher_id)?.last_name,
         roomName: "",
         lessonId: p.lesson_id,
         timeBlockId: p.time_block_id,

@@ -4,11 +4,11 @@
 
 Project instructions are split across several files so Claude only loads what is relevant to the current working context:
 
-- **This file (`.claude/CLAUDE.md`)** — architecture, workflow, global coding rules, commit-message conventions. Loaded every session.
-- **`backend/CLAUDE.md`** — Python / FastAPI / SQLAlchemy / pytest rules. Loaded when Claude reads files under `backend/`.
-- **`frontend/CLAUDE.md`** — React / TanStack / shadcn / i18n / Vitest rules. Loaded when Claude reads files under `frontend/`.
+- **This file (`.claude/CLAUDE.md`)**: architecture, workflow, global coding rules, commit-message conventions. Loaded every session.
+- **`backend/CLAUDE.md`**: Python / FastAPI / SQLAlchemy / pytest rules. Loaded when Claude reads files under `backend/`.
+- **`frontend/CLAUDE.md`**: React / TanStack / shadcn / i18n / Vitest rules. Loaded when Claude reads files under `frontend/`.
 - **`solver/CLAUDE.md`**: Rust solver workspace rules (error handling, determinism, PyO3 binding style, maturin dev loop, clippy allows policy, commit scopes). Loaded when Claude reads files under `solver/`.
-- **`.claude/rules/*.md`** — rules scoped by file path rather than directory, via `paths:` frontmatter. Today: `pyproject.md` for workspace-wide Python dependency hygiene.
+- **`.claude/rules/*.md`**: rules scoped by file path rather than directory, via `paths:` frontmatter. Today: `pyproject.md` for workspace-wide Python dependency hygiene.
 
 See [Anthropic's memory docs](https://code.claude.com/docs/en/memory) for the loading model.
 
@@ -64,6 +64,8 @@ If every quality item in OPEN_THINGS.md is blocked or out of scope for one PR, f
 - `mise run db:up` / `db:stop` / `db:reset` / `db:migrate` — Postgres lifecycle
 - `mise run bench:tests` — time the backend pytest suite, compare to `.test-duration-budget` (PR-2 ratchet, mirrors `.coverage-baseline`). CI runs `pytest --durations=30` plus a budget gate; budget tightens once two or three master runs land at the new floor.
 - **`docs/OPEN_THINGS.html` is auto-rendered from `docs/OPEN_THINGS.md`** (`scripts/render_open_things_html.py`, surfaced via `mise run gen:openthings-html`). Pre-commit runs both `mise run lint` (which calls `check:openthings-html --check` and FAILS hard if the HTML is out of sync) and a separate `openthings-html` lefthook task (which regens with `stage_fixed: true`). The two run in parallel; the `--check` failure aborts the commit before the regen-and-stage task can rescue it. Practical workflow: after editing `docs/OPEN_THINGS.md`, run `mise run gen:openthings-html` BEFORE staging, then `git add docs/OPEN_THINGS.md docs/OPEN_THINGS.html` together. Skipping this just means the commit fails once, the dedicated lefthook task regens, and the retry succeeds; the proactive regen is cleaner. Surfaced 2026-05-08 closing OPEN_THINGS item 61 (the ADR 0036 PR).
+
+### Prerequisites and quirks
 
 - **Rust toolchain** is a hard prerequisite (required for the PyO3 bindings and for the dev tools below).
 - **Git hook runner:** [Lefthook](https://github.com/evilmartians/lefthook). Config lives at `.config/lefthook.yaml` (lefthook auto-discovers this path). Verify a config edit with `lefthook dump` before invoking the hook; the dump prints the parsed tree and is fast.

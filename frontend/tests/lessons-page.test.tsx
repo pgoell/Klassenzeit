@@ -72,9 +72,7 @@ describe("LessonsPage", () => {
     await user.click(within(dialog).getByRole("combobox", { name: /fach/i }));
     await user.click(await screen.findByRole("option", { name: /mathematik/i }));
 
-    // Teacher select: pick the seeded teacher
-    await user.click(within(dialog).getByRole("combobox", { name: /lehrkraft/i }));
-    await user.click(await screen.findByRole("option", { name: /schmidt/i }));
+    // Teacher: leave the pin switch off so the solver picks a teacher (teacher_id null).
 
     // Hours: keep the default 1
     // Block size: keep the default single period

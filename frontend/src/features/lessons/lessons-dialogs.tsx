@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -28,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useSchoolClasses } from "@/features/school-classes/hooks";
 import { useSubjects } from "@/features/subjects/hooks";
 import { useTeachers } from "@/features/teachers/hooks";
@@ -40,7 +42,7 @@ import {
   useDeleteLesson,
   useUpdateLesson,
 } from "./hooks";
-import { LessonFormSchema, type LessonFormValues, UNASSIGNED } from "./schema";
+import { LessonFormSchema, type LessonFormValues } from "./schema";
 
 interface LessonFormDialogProps {
   open: boolean;
@@ -64,12 +66,16 @@ export function LessonFormDialog({
   const subjects = useSubjects();
   const teachers = useTeachers();
 
+  const initialTeacherId = lesson?.teacher?.id ?? null;
+  const [pinIntent, setPinIntent] = useState<boolean>(initialTeacherId !== null);
+  const lastPinnedRef = useRef<string | null>(initialTeacherId);
+
   const form = useForm<LessonFormValues>({
     resolver: zodResolver(LessonFormSchema),
     defaultValues: {
       school_class_ids: lesson?.school_classes.map((c) => c.id) ?? [],
       subject_id: lesson?.subject.id ?? "",
-      teacher_id: lesson?.teacher?.id ?? UNASSIGNED,
+      teacher_id: lesson?.teacher?.id ?? null,
       hours_per_week: lesson?.hours_per_week ?? 1,
       preferred_block_size: lesson?.preferred_block_size ?? 1,
     },
@@ -86,6 +92,26 @@ export function LessonFormDialog({
     !subjects.isLoading &&
     (classOptions.length === 0 || subjectOptions.length === 0);
 
+  const subjectId = form.watch("subject_id");
+  const currentTeacherId = form.watch("teacher_id");
+  const qualifiedTeacherOptions = subjectId
+    ? teacherOptions.filter((opt) => (opt.subject_ids ?? []).includes(subjectId))
+    : teacherOptions;
+  const currentTeacher = currentTeacherId
+    ? (teacherOptions.find((opt) => opt.id === currentTeacherId) ?? null)
+    : null;
+  const isCurrentTeacherUnqualified =
+    currentTeacher !== null && !qualifiedTeacherOptions.some((opt) => opt.id === currentTeacher.id);
+  const optionsForRender = isCurrentTeacherUnqualified
+    ? [...qualifiedTeacherOptions, currentTeacher]
+    : qualifiedTeacherOptions;
+  const firstQualifiedId = qualifiedTeacherOptions[0]?.id ?? null;
+  const showEmptyQualified =
+    pinIntent &&
+    !teachers.isLoading &&
+    qualifiedTeacherOptions.length === 0 &&
+    currentTeacher === null;
+
   const title = lesson ? t("lessons.dialog.editTitle") : t("lessons.dialog.createTitle");
   const description = lesson
     ? t("lessons.dialog.editDescription", {
@@ -95,16 +121,15 @@ export function LessonFormDialog({
     : t("lessons.dialog.createDescription");
 
   async function handleLessonSubmit(values: LessonFormValues) {
-    const teacherId = values.teacher_id === UNASSIGNED ? null : values.teacher_id;
     const createBody: LessonCreate = {
       school_class_ids: values.school_class_ids,
       subject_id: values.subject_id,
-      teacher_id: teacherId,
+      teacher_id: values.teacher_id,
       hours_per_week: values.hours_per_week,
       preferred_block_size: values.preferred_block_size,
     };
     const updateBody: LessonUpdate = {
-      teacher_id: teacherId,
+      teacher_id: values.teacher_id,
       hours_per_week: values.hours_per_week,
       preferred_block_size: values.preferred_block_size,
     };
@@ -232,23 +257,67 @@ export function LessonFormDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("lessons.fields.teacherLabel")}</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t("lessons.fields.teacherPlaceholder")} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value={UNASSIGNED}>
-                        {t("lessons.fields.teacherUnassigned")}
-                      </SelectItem>
-                      {teacherOptions.map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.first_name} {option.last_name} ({option.short_code})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="lesson-pin-teacher"
+                      checked={pinIntent}
+                      aria-label={t("lessons.fields.pinTeacherLabel")}
+                      onCheckedChange={(next) => {
+                        if (next === false) {
+                          setPinIntent(false);
+                          form.setValue("teacher_id", null);
+                          return;
+                        }
+                        setPinIntent(true);
+                        const restored = lastPinnedRef.current ?? firstQualifiedId ?? null;
+                        form.setValue("teacher_id", restored);
+                      }}
+                    />
+                    <label htmlFor="lesson-pin-teacher" className="cursor-pointer text-sm">
+                      {t("lessons.fields.pinTeacherLabel")}
+                    </label>
+                  </div>
+                  {pinIntent ? (
+                    showEmptyQualified ? (
+                      <p className="text-sm text-muted-foreground">
+                        {t("lessons.fields.teacherEmptyQualified")}
+                      </p>
+                    ) : (
+                      <Select
+                        value={field.value ?? ""}
+                        onValueChange={(next) => {
+                          field.onChange(next);
+                          lastPinnedRef.current = next;
+                        }}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t("lessons.fields.teacherPlaceholder")} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {optionsForRender.map((option) => {
+                            const isUnqualified =
+                              isCurrentTeacherUnqualified &&
+                              currentTeacher !== null &&
+                              option.id === currentTeacher.id;
+                            return (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.first_name} {option.last_name} ({option.short_code})
+                                {isUnqualified
+                                  ? ` ${t("lessons.fields.teacherNotQualifiedSuffix")}`
+                                  : ""}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    )
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t("lessons.fields.pinTeacherHint")}
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -307,7 +376,7 @@ export function LessonFormDialog({
               </p>
             ) : null}
             <DialogFooter>
-              <Button type="submit" disabled={submitting || missingPrereqs}>
+              <Button type="submit" disabled={submitting || missingPrereqs || showEmptyQualified}>
                 {submitting ? t("common.saving") : submitLabel}
               </Button>
             </DialogFooter>
