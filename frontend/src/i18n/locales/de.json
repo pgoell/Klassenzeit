@@ -312,6 +312,11 @@
   "schedule": {
     "title": "Stundenplan",
     "subtitle": "Stundenplan einer Klasse überprüfen und neu generieren.",
+    "classHeader": {
+      "klassenlehrerLabel": "Klassenlehrer",
+      "notAssigned": "nicht zugewiesen",
+      "coverage": "deckt {{covered}} von {{total}} Fächern ab"
+    },
     "picker": {
       "class": {
         "label": "Klasse",

@@ -312,6 +312,11 @@
   "schedule": {
     "title": "Schedule",
     "subtitle": "Review and regenerate a class's schedule.",
+    "classHeader": {
+      "klassenlehrerLabel": "Class teacher",
+      "notAssigned": "not assigned",
+      "coverage": "covers {{covered}} of {{total}} subjects"
+    },
     "picker": {
       "class": {
         "label": "Class",
