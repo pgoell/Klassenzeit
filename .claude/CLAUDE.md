@@ -4,11 +4,11 @@
 
 Project instructions are split across several files so Claude only loads what is relevant to the current working context:
 
-- **This file (`.claude/CLAUDE.md`)** — architecture, workflow, global coding rules, commit-message conventions. Loaded every session.
-- **`backend/CLAUDE.md`** — Python / FastAPI / SQLAlchemy / pytest rules. Loaded when Claude reads files under `backend/`.
-- **`frontend/CLAUDE.md`** — React / TanStack / shadcn / i18n / Vitest rules. Loaded when Claude reads files under `frontend/`.
+- **This file (`.claude/CLAUDE.md`)**: architecture, workflow, global coding rules, commit-message conventions. Loaded every session.
+- **`backend/CLAUDE.md`**: Python / FastAPI / SQLAlchemy / pytest rules. Loaded when Claude reads files under `backend/`.
+- **`frontend/CLAUDE.md`**: React / TanStack / shadcn / i18n / Vitest rules. Loaded when Claude reads files under `frontend/`.
 - **`solver/CLAUDE.md`**: Rust solver workspace rules (error handling, determinism, PyO3 binding style, maturin dev loop, clippy allows policy, commit scopes). Loaded when Claude reads files under `solver/`.
-- **`.claude/rules/*.md`** — rules scoped by file path rather than directory, via `paths:` frontmatter. Today: `pyproject.md` for workspace-wide Python dependency hygiene.
+- **`.claude/rules/*.md`**: rules scoped by file path rather than directory, via `paths:` frontmatter. Today: `pyproject.md` for workspace-wide Python dependency hygiene.
 
 See [Anthropic's memory docs](https://code.claude.com/docs/en/memory) for the loading model.
 
