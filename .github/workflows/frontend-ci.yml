@@ -2,28 +2,8 @@ name: Frontend CI
 
 on:
   pull_request:
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - "scripts/dump_openapi.py"
-      - "scripts/gen_frontend_types.sh"
-      - "scripts/db-init.sh"
-      - "compose.yaml"
-      - ".github/workflows/frontend-ci.yml"
-      - ".coverage-baseline-frontend"
-      - "mise.toml"
   push:
     branches: [master]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - "scripts/dump_openapi.py"
-      - "scripts/gen_frontend_types.sh"
-      - "scripts/db-init.sh"
-      - "compose.yaml"
-      - ".github/workflows/frontend-ci.yml"
-      - ".coverage-baseline-frontend"
-      - "mise.toml"
 
 concurrency:
   group: frontend-ci-${{ github.ref }}
