@@ -417,6 +417,10 @@
       "weekSchemePlaceholder": "Select a week scheme",
       "homeRoomLabel": "Home room",
       "homeRoomPlaceholder": "No home room",
+      "classTeacherLabel": "Class teacher",
+      "classTeacherPlaceholder": "Select a class teacher",
+      "classTeacherNoneOption": "No class teacher",
+      "classTeacherUnqualifiedMarker": "(not qualified)",
       "maxLessonsPerDay": {
         "label": "Lessons per day (max)",
         "help": "Leave empty for no cap."

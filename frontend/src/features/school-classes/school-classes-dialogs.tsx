@@ -29,7 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRooms } from "@/features/rooms/hooks";
-import { useStundentafeln } from "@/features/stundentafeln/hooks";
+import { useStundentafel, useStundentafeln } from "@/features/stundentafeln/hooks";
+import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemes } from "@/features/week-schemes/hooks";
 import {
   type SchoolClass,
@@ -56,6 +57,7 @@ export function SchoolClassFormDialog({
   const stundentafeln = useStundentafeln();
   const weekSchemes = useWeekSchemes();
   const rooms = useRooms();
+  const teachers = useTeachers();
 
   const form = useForm<SchoolClassFormValues>({
     resolver: zodResolver(SchoolClassFormSchema),
@@ -65,6 +67,7 @@ export function SchoolClassFormDialog({
       stundentafel_id: schoolClass?.stundentafel_id ?? "",
       week_scheme_id: schoolClass?.week_scheme_id ?? "",
       home_room_id: schoolClass?.home_room_id ?? null,
+      class_teacher_id: schoolClass?.class_teacher_id ?? null,
       max_lessons_per_day: schoolClass?.max_lessons_per_day ?? null,
     },
   });
@@ -75,10 +78,33 @@ export function SchoolClassFormDialog({
   const stundentafelOptions = stundentafeln.data ?? [];
   const weekSchemeOptions = weekSchemes.data ?? [];
   const roomOptions = rooms.data ?? [];
+  const teacherOptions = teachers.data ?? [];
   const missingPrereqs =
     !stundentafeln.isLoading &&
     !weekSchemes.isLoading &&
     (stundentafelOptions.length === 0 || weekSchemeOptions.length === 0);
+
+  const watchedStundentafelId = form.watch("stundentafel_id");
+  const stundentafelDetail = useStundentafel(watchedStundentafelId || null);
+  const curriculumSubjectIds = new Set(
+    stundentafelDetail.data?.entries.map((entry) => entry.subject.id) ?? [],
+  );
+  const qualifiedTeacherOptions =
+    curriculumSubjectIds.size === 0
+      ? teacherOptions
+      : teacherOptions.filter((opt) =>
+          (opt.subject_ids ?? []).some((id) => curriculumSubjectIds.has(id)),
+        );
+  const watchedClassTeacherId = form.watch("class_teacher_id");
+  const currentClassTeacher = watchedClassTeacherId
+    ? (teacherOptions.find((opt) => opt.id === watchedClassTeacherId) ?? null)
+    : null;
+  const isCurrentClassTeacherUnqualified =
+    currentClassTeacher !== null &&
+    !qualifiedTeacherOptions.some((opt) => opt.id === currentClassTeacher.id);
+  const classTeacherOptionsForRender = isCurrentClassTeacherUnqualified
+    ? [currentClassTeacher, ...qualifiedTeacherOptions]
+    : qualifiedTeacherOptions;
 
   const title = schoolClass
     ? t("schoolClasses.dialog.editTitle")
@@ -94,6 +120,7 @@ export function SchoolClassFormDialog({
       stundentafel_id: values.stundentafel_id,
       week_scheme_id: values.week_scheme_id,
       home_room_id: values.home_room_id,
+      class_teacher_id: values.class_teacher_id,
       max_lessons_per_day: values.max_lessons_per_day,
     };
     if (schoolClass) {
@@ -256,6 +283,53 @@ export function SchoolClassFormDialog({
                             {option.name}
                           </SelectItem>
                         ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
+            />
+            <FormField
+              control={form.control}
+              name="class_teacher_id"
+              render={({ field }) => {
+                const NULL_VALUE = "__none__";
+                const value = field.value ?? NULL_VALUE;
+                return (
+                  <FormItem>
+                    <FormLabel>{t("schoolClasses.fields.classTeacherLabel")}</FormLabel>
+                    <Select
+                      value={value}
+                      onValueChange={(next) => field.onChange(next === NULL_VALUE ? null : next)}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={t("schoolClasses.fields.classTeacherPlaceholder")}
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NULL_VALUE}>
+                          {t("schoolClasses.fields.classTeacherNoneOption")}
+                        </SelectItem>
+                        {classTeacherOptionsForRender.map((option) => {
+                          const unqualified =
+                            isCurrentClassTeacherUnqualified &&
+                            currentClassTeacher !== null &&
+                            option.id === currentClassTeacher.id;
+                          return (
+                            <SelectItem key={option.id} value={option.id}>
+                              {`${option.first_name} ${option.last_name}`}
+                              {unqualified ? (
+                                <span className="ml-2 text-xs text-muted-foreground">
+                                  {t("schoolClasses.fields.classTeacherUnqualifiedMarker")}
+                                </span>
+                              ) : null}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     <FormMessage />

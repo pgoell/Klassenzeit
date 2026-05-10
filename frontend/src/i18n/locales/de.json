@@ -417,6 +417,10 @@
       "weekSchemePlaceholder": "Wochenschema wählen",
       "homeRoomLabel": "Klassenraum",
       "homeRoomPlaceholder": "Kein Klassenraum",
+      "classTeacherLabel": "Klassenlehrer",
+      "classTeacherPlaceholder": "Klassenlehrer auswählen",
+      "classTeacherNoneOption": "Kein Klassenlehrer",
+      "classTeacherUnqualifiedMarker": "(nicht qualifiziert)",
       "maxLessonsPerDay": {
         "label": "Stunden pro Tag (max)",
         "help": "Leer lassen für kein Limit."
