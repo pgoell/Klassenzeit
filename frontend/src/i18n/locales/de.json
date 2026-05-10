@@ -233,7 +233,8 @@
       "editTitle": "Lehrkraft bearbeiten",
       "editDescription": "{{name}} aktualisieren.",
       "deleteTitle": "Lehrkraft löschen",
-      "deleteDescription": "„{{name}}“ wird dauerhaft gelöscht."
+      "deleteDescription": "„{{name}}“ wird dauerhaft gelöscht.",
+      "klassenlehrerOfLabel": "Klassenlehrer von"
     },
     "qualifications": {
       "sectionTitle": "Qualifikationen",
@@ -312,6 +313,11 @@
   "schedule": {
     "title": "Stundenplan",
     "subtitle": "Stundenplan einer Klasse überprüfen und neu generieren.",
+    "classHeader": {
+      "klassenlehrerLabel": "Klassenlehrer",
+      "notAssigned": "nicht zugewiesen",
+      "coverage": "deckt {{covered}} von {{total}} Fächern ab"
+    },
     "picker": {
       "class": {
         "label": "Klasse",
@@ -417,6 +423,10 @@
       "weekSchemePlaceholder": "Wochenschema wählen",
       "homeRoomLabel": "Klassenraum",
       "homeRoomPlaceholder": "Kein Klassenraum",
+      "classTeacherLabel": "Klassenlehrer",
+      "classTeacherPlaceholder": "Klassenlehrer auswählen",
+      "classTeacherNoneOption": "Kein Klassenlehrer",
+      "classTeacherUnqualifiedMarker": "(nicht qualifiziert)",
       "maxLessonsPerDay": {
         "label": "Stunden pro Tag (max)",
         "help": "Leer lassen für kein Limit."

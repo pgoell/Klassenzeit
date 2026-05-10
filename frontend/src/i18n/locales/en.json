@@ -233,7 +233,8 @@
       "editTitle": "Edit teacher",
       "editDescription": "Update {{name}}.",
       "deleteTitle": "Delete teacher",
-      "deleteDescription": "This will permanently delete \"{{name}}\"."
+      "deleteDescription": "This will permanently delete \"{{name}}\".",
+      "klassenlehrerOfLabel": "Class teacher of"
     },
     "qualifications": {
       "sectionTitle": "Qualifications",
@@ -312,6 +313,11 @@
   "schedule": {
     "title": "Schedule",
     "subtitle": "Review and regenerate a class's schedule.",
+    "classHeader": {
+      "klassenlehrerLabel": "Class teacher",
+      "notAssigned": "not assigned",
+      "coverage": "covers {{covered}} of {{total}} subjects"
+    },
     "picker": {
       "class": {
         "label": "Class",
@@ -417,6 +423,10 @@
       "weekSchemePlaceholder": "Select a week scheme",
       "homeRoomLabel": "Home room",
       "homeRoomPlaceholder": "No home room",
+      "classTeacherLabel": "Class teacher",
+      "classTeacherPlaceholder": "Select a class teacher",
+      "classTeacherNoneOption": "No class teacher",
+      "classTeacherUnqualifiedMarker": "(not qualified)",
       "maxLessonsPerDay": {
         "label": "Lessons per day (max)",
         "help": "Leave empty for no cap."

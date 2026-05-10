@@ -128,3 +128,175 @@ describe("SchedulePageClassView teacher resolution", () => {
     expect(await screen.findByText(new RegExp(TEACHER.last_name))).toBeVisible();
   });
 });
+
+describe("SchedulePageClassView class header band", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterAll(() => {
+    server.resetHandlers();
+  });
+
+  const TAFEL_ID = SCHOOL_CLASS.stundentafel_id;
+  const SUBJ_MATH = "11111111-1111-1111-1111-111111111111";
+  const SUBJ_GERMAN = "11111111-1111-1111-1111-111111111112";
+  const SUBJ_ART = "11111111-1111-1111-1111-111111111113";
+  const SUBJ_MUSIC = "11111111-1111-1111-1111-111111111114";
+  const KL_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const KL_FIRST = "Maria";
+  const KL_LAST = "Müller";
+
+  function emptyTafelEntries() {
+    return [];
+  }
+
+  function fourSubjectTafelEntries() {
+    return [
+      {
+        id: "e1",
+        subject: { id: SUBJ_MATH, name: "Mathematik", short_name: "MA" },
+        hours_per_week: 4,
+        preferred_block_size: 1,
+      },
+      {
+        id: "e2",
+        subject: { id: SUBJ_GERMAN, name: "Deutsch", short_name: "DE" },
+        hours_per_week: 4,
+        preferred_block_size: 1,
+      },
+      {
+        id: "e3",
+        subject: { id: SUBJ_ART, name: "Kunst", short_name: "KU" },
+        hours_per_week: 2,
+        preferred_block_size: 1,
+      },
+      {
+        id: "e4",
+        subject: { id: SUBJ_MUSIC, name: "Musik", short_name: "MU" },
+        hours_per_week: 1,
+        preferred_block_size: 1,
+      },
+    ];
+  }
+
+  function emptyScheduleHandlers() {
+    return [
+      http.get(`${BASE}/api/lessons`, () => HttpResponse.json([])),
+      http.get(`${BASE}/api/week-schemes/${SCHEME_ID}`, () =>
+        HttpResponse.json({
+          id: SCHEME_ID,
+          name: "Standardwoche",
+          description: "",
+          time_blocks: [],
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+      http.get(`${BASE}/api/classes/${CLASS_ID}/schedule`, () =>
+        HttpResponse.json({ placements: [], violations: [] }),
+      ),
+      http.get(`${BASE}/api/rooms`, () => HttpResponse.json([])),
+    ];
+  }
+
+  test("class header band shows Klassenlehrer name and coverage when set", async () => {
+    server.use(
+      ...emptyScheduleHandlers(),
+      http.get(`${BASE}/api/classes`, () =>
+        HttpResponse.json([{ ...SCHOOL_CLASS, class_teacher_id: KL_ID }]),
+      ),
+      http.get(`${BASE}/api/teachers`, () =>
+        HttpResponse.json([
+          {
+            id: KL_ID,
+            first_name: KL_FIRST,
+            last_name: KL_LAST,
+            short_code: "MUE",
+            max_hours_per_week: 25,
+            is_active: true,
+            subject_ids: [SUBJ_MATH, SUBJ_GERMAN],
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+        ]),
+      ),
+      http.get(`${BASE}/api/stundentafeln/${TAFEL_ID}`, () =>
+        HttpResponse.json({
+          id: TAFEL_ID,
+          name: "Grundschule Klasse 1",
+          grade_level: 1,
+          school_type: "Grundschule",
+          entries: fourSubjectTafelEntries(),
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+    );
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    expect(await screen.findByText(`${KL_FIRST} ${KL_LAST}`)).toBeVisible();
+    expect(await screen.findByText("Class teacher:")).toBeVisible();
+    expect(await screen.findByText("covers 2 of 4 subjects")).toBeVisible();
+  });
+
+  test("class header band shows 'not assigned' when class_teacher_id is null", async () => {
+    server.use(
+      ...emptyScheduleHandlers(),
+      http.get(`${BASE}/api/classes`, () =>
+        HttpResponse.json([{ ...SCHOOL_CLASS, class_teacher_id: null }]),
+      ),
+      http.get(`${BASE}/api/teachers`, () => HttpResponse.json([])),
+      http.get(`${BASE}/api/stundentafeln/${TAFEL_ID}`, () =>
+        HttpResponse.json({
+          id: TAFEL_ID,
+          name: "Grundschule Klasse 1",
+          grade_level: 1,
+          school_type: "Grundschule",
+          entries: fourSubjectTafelEntries(),
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+    );
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    expect(await screen.findByText("not assigned")).toBeVisible();
+    expect(screen.queryByText(/covers \d+ of \d+ subjects/)).toBeNull();
+  });
+
+  test("class header band omits coverage when the Stundentafel has zero entries", async () => {
+    server.use(
+      ...emptyScheduleHandlers(),
+      http.get(`${BASE}/api/classes`, () =>
+        HttpResponse.json([{ ...SCHOOL_CLASS, class_teacher_id: KL_ID }]),
+      ),
+      http.get(`${BASE}/api/teachers`, () =>
+        HttpResponse.json([
+          {
+            id: KL_ID,
+            first_name: KL_FIRST,
+            last_name: KL_LAST,
+            short_code: "MUE",
+            max_hours_per_week: 25,
+            is_active: true,
+            subject_ids: [SUBJ_MATH],
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+        ]),
+      ),
+      http.get(`${BASE}/api/stundentafeln/${TAFEL_ID}`, () =>
+        HttpResponse.json({
+          id: TAFEL_ID,
+          name: "Grundschule Klasse 1",
+          grade_level: 1,
+          school_type: "Grundschule",
+          entries: emptyTafelEntries(),
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+    );
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    expect(await screen.findByText(`${KL_FIRST} ${KL_LAST}`)).toBeVisible();
+    expect(screen.queryByText(/covers \d+ of \d+ subjects/)).toBeNull();
+  });
+});

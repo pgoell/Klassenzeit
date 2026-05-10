@@ -6,6 +6,7 @@ export const SchoolClassFormSchema = z.object({
   stundentafel_id: z.string().min(1, "Curriculum is required"),
   week_scheme_id: z.string().min(1, "Week scheme is required"),
   home_room_id: z.string().nullable(),
+  class_teacher_id: z.string().nullable(),
   max_lessons_per_day: z.number().int().min(1).max(20).nullable(),
 });
 

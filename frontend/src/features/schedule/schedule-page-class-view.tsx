@@ -11,6 +11,7 @@ import { useSchoolClasses } from "@/features/school-classes/hooks";
 import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemeDetail } from "@/features/week-schemes/hooks";
 import { ApiError } from "@/lib/api-client";
+import { ClassHeaderBand } from "./class-header-band";
 import { useClassSchedule, useGenerateClassSchedule, type Violation } from "./hooks";
 import { type ScheduleCell, ScheduleGrid } from "./schedule-grid";
 import { ScheduleStatus } from "./schedule-status";
@@ -150,6 +151,7 @@ export function SchedulePageClassView() {
         confirming={confirming}
         pending={generate.isPending}
       />
+      <ClassHeaderBand classId={classId} />
       {loading ? (
         <ScheduleSkeletonGrid />
       ) : errored ? (
