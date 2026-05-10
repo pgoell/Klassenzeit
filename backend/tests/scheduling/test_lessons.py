@@ -492,6 +492,17 @@ async def test_generate_lessons_from_stundentafel(
         json={"subject_id": subj2_id, "hours_per_week": 4, "preferred_block_size": 2},
     )
 
+    teacher1_id = await _create_teacher(client, "Erna", "Erdfreund", "EER10")
+    teacher2_id = await _create_teacher(client, "Wilma", "Wirtschaft", "WWI10")
+    await client.put(
+        f"/api/teachers/{teacher1_id}/qualifications",
+        json={"subject_ids": [subj1_id]},
+    )
+    await client.put(
+        f"/api/teachers/{teacher2_id}/qualifications",
+        json={"subject_ids": [subj2_id]},
+    )
+
     class_id = await _create_school_class(client, "7a-L10", 7, tafel_id, scheme_id)
 
     resp = await client.post(f"/api/classes/{class_id}/generate-lessons")
@@ -534,6 +545,17 @@ async def test_generate_lessons_skips_existing(
     await client.post(
         f"/api/stundentafeln/{tafel_id}/entries",
         json={"subject_id": subj2_id, "hours_per_week": 2},
+    )
+
+    teacher1_id = await _create_teacher(client, "Phil", "Philsoph", "PPI11")
+    teacher2_id = await _create_teacher(client, "Reni", "Religion", "RRE11")
+    await client.put(
+        f"/api/teachers/{teacher1_id}/qualifications",
+        json={"subject_ids": [subj1_id]},
+    )
+    await client.put(
+        f"/api/teachers/{teacher2_id}/qualifications",
+        json={"subject_ids": [subj2_id]},
     )
 
     class_id = await _create_school_class(client, "8a-L11", 8, tafel_id, scheme_id)
@@ -591,6 +613,74 @@ async def test_generate_lessons_leaves_teacher_id_null(
     body = resp.json()
     assert len(body) == 1
     assert body[0]["teacher"] is None
+
+
+async def test_generate_lessons_raises_422_when_subject_has_no_qualified_teacher(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes/{id}/generate-lessons raises 422 when a subject has no qualified teacher.
+
+    Per OPEN_THINGS item 69, the route validates that every Stundentafel subject
+    in the class's curriculum has at least one qualified Teacher in the database
+    before creating any Lesson. The 422 detail is a structured dict carrying a
+    stable ``code`` and the offending ``subject_ids`` / ``subject_short_names``
+    so the frontend can surface an actionable error.
+    """
+    await create_test_user(email="admin@les-422-1.com", role="admin")
+    await login_as("admin@les-422-1.com", "testpassword123")
+
+    subject_id = await _create_subject(client, "Mathematik-422-1", "Ma4221")
+    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme L422-1")
+    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel L422-1", 5)
+    await client.post(
+        f"/api/stundentafeln/{tafel_id}/entries",
+        json={"subject_id": subject_id, "hours_per_week": 4, "preferred_block_size": 1},
+    )
+    class_id = await _create_school_class(client, "5a-L422-1", 5, tafel_id, scheme_id)
+
+    resp = await client.post(f"/api/classes/{class_id}/generate-lessons")
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "missing_qualified_teacher"
+    assert detail["subject_ids"] == [subject_id]
+    assert detail["subject_short_names"] == ["Ma4221"]
+
+
+async def test_generate_lessons_aggregates_multiple_missing_subjects(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /classes/{id}/generate-lessons surfaces every missing-qualified subject in one 422.
+
+    The admin should fix all data gaps in a single batch instead of click-fix-retry
+    per subject. The 422 ``detail.subject_ids`` lists all offenders.
+    """
+    await create_test_user(email="admin@les-422-2.com", role="admin")
+    await login_as("admin@les-422-2.com", "testpassword123")
+
+    subj1_id = await _create_subject(client, "Mathematik-422-2", "Ma4222")
+    subj2_id = await _create_subject(client, "Deutsch-422-2", "De4222")
+    scheme_id = await _setup_week_scheme_for_lessons(client, "Scheme L422-2")
+    tafel_id = await _setup_stundentafel_for_lessons(client, "Tafel L422-2", 5)
+    await client.post(
+        f"/api/stundentafeln/{tafel_id}/entries",
+        json={"subject_id": subj1_id, "hours_per_week": 4, "preferred_block_size": 1},
+    )
+    await client.post(
+        f"/api/stundentafeln/{tafel_id}/entries",
+        json={"subject_id": subj2_id, "hours_per_week": 4, "preferred_block_size": 1},
+    )
+    class_id = await _create_school_class(client, "5a-L422-2", 5, tafel_id, scheme_id)
+
+    resp = await client.post(f"/api/classes/{class_id}/generate-lessons")
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "missing_qualified_teacher"
+    assert set(detail["subject_ids"]) == {subj1_id, subj2_id}
+    assert set(detail["subject_short_names"]) == {"Ma4222", "De4222"}
 
 
 async def test_lesson_requires_admin(client: AsyncClient) -> None:

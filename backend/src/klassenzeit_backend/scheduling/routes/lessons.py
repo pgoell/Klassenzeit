@@ -5,7 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
@@ -14,7 +14,7 @@ from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
-from klassenzeit_backend.db.models.teacher import Teacher
+from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.lesson import (
@@ -323,6 +323,50 @@ async def delete_lesson(
     await db.commit()
 
 
+async def _validate_qualified_teacher_coverage(
+    db: AsyncSession,
+    subject_ids: list[uuid.UUID],
+) -> None:
+    """Raise 422 if any subject in the list has zero qualified teachers.
+
+    Aggregates every offender into a single error so the admin can fix all
+    data gaps in one batch. The 422 ``detail`` is a structured dict with a
+    stable ``code`` plus the offending ``subject_ids`` and ``subject_short_names``
+    for frontend display.
+
+    Args:
+        db: Active async database session.
+        subject_ids: Curriculum subject UUIDs (typically one per StundentafelEntry
+            for the class).
+
+    Raises:
+        HTTPException: 422 with detail
+            ``{"code": "missing_qualified_teacher", "subject_ids": [...],
+            "subject_short_names": [...]}`` if one or more subjects have no
+            qualified teacher (active or not).
+    """
+    if not subject_ids:
+        return
+    result = await db.execute(
+        select(Subject.id, Subject.short_name)
+        .outerjoin(TeacherQualification, TeacherQualification.subject_id == Subject.id)
+        .where(Subject.id.in_(subject_ids))
+        .group_by(Subject.id, Subject.short_name)
+        .having(func.count(TeacherQualification.teacher_id) == 0)
+    )
+    rows = result.all()
+    if not rows:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "missing_qualified_teacher",
+            "subject_ids": [str(row[0]) for row in rows],
+            "subject_short_names": [row[1] for row in rows],
+        },
+    )
+
+
 @generate_router.post("/classes/{class_id}/generate-lessons", status_code=status.HTTP_201_CREATED)
 async def generate_lessons_from_stundentafel(
     class_id: uuid.UUID,
@@ -357,6 +401,9 @@ async def generate_lessons_from_stundentafel(
         .order_by(StundentafelEntry.subject_id)
     )
     entries = entries_result.scalars().all()
+
+    curriculum_subject_ids = [entry.subject_id for entry in entries]
+    await _validate_qualified_teacher_coverage(db, curriculum_subject_ids)
 
     existing_result = await db.execute(
         select(Lesson.subject_id)
