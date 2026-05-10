@@ -24,9 +24,9 @@ class ScheduledLesson(Base):
     treats pinned placements as immovable on subsequent runs (Sprint C).
 
     ``teacher_id`` records the teacher the solver picked for this placement
-    (item 65). Today this matches ``Lesson.teacher_id`` because
-    ``auto_assign_teachers_for_lessons`` runs at the route handler boundary;
-    item 68's algorithm change widens this to a real candidate-aware pick.
+    (item 65). For lessons with ``Lesson.teacher_id`` pinned (pin-only
+    semantics per item 63), the solver pick equals the pin; otherwise the
+    solver picks among the per-Lesson ``teacher_candidates`` set per ADR 0036.
     """
 
     __tablename__ = "scheduled_lessons"
