@@ -105,6 +105,7 @@ describe("SchedulePage", () => {
     scheduleByClassId[schoolClass.id] = [
       {
         lesson_id: lesson.id,
+        teacher_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         time_block_id: "tb-mon-1",
         room_id: room.id,
         pinned: false,

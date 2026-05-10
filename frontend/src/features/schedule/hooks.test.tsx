@@ -45,6 +45,7 @@ describe("useClassSchedule", () => {
     scheduleByClassId[CLASS_ID] = [
       {
         lesson_id: "00000000-0000-0000-0000-00000000b001",
+        teacher_id: "00000000-0000-0000-0000-00000000e001",
         time_block_id: "00000000-0000-0000-0000-00000000c001",
         room_id: "00000000-0000-0000-0000-00000000d001",
         pinned: false,
@@ -109,6 +110,7 @@ describe("useGenerateAllSchedules", () => {
     scheduleByClassId[CLASS_ID] = [
       {
         lesson_id: "00000000-0000-0000-0000-00000000b001",
+        teacher_id: "00000000-0000-0000-0000-00000000e001",
         time_block_id: "00000000-0000-0000-0000-00000000c001",
         room_id: "00000000-0000-0000-0000-00000000d001",
         pinned: false,
@@ -188,13 +190,25 @@ describe("useTeacherSchedule", () => {
     const blockId = "33333333-3333-3333-3333-333333333333";
     const roomId = "44444444-4444-4444-4444-444444444444";
     teacherSchedulesByTeacherId[teacherId] = [
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
+      {
+        lesson_id: lessonId,
+        teacher_id: teacherId,
+        time_block_id: blockId,
+        room_id: roomId,
+        pinned: false,
+      },
     ];
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useTeacherSchedule(teacherId), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.placements).toEqual([
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
+      {
+        lesson_id: lessonId,
+        teacher_id: teacherId,
+        time_block_id: blockId,
+        room_id: roomId,
+        pinned: false,
+      },
     ]);
   });
 
@@ -339,14 +353,27 @@ describe("useRoomSchedule", () => {
     const roomId = "55555555-5555-5555-5555-555555555555";
     const lessonId = "66666666-6666-6666-6666-666666666666";
     const blockId = "77777777-7777-7777-7777-777777777777";
+    const teacherId = "88888888-8888-8888-8888-888888888888";
     roomSchedulesByRoomId[roomId] = [
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
+      {
+        lesson_id: lessonId,
+        teacher_id: teacherId,
+        time_block_id: blockId,
+        room_id: roomId,
+        pinned: false,
+      },
     ];
     const { wrapper } = wrapScheduleHook();
     const { result } = renderHook(() => useRoomSchedule(roomId), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.placements).toEqual([
-      { lesson_id: lessonId, time_block_id: blockId, room_id: roomId, pinned: false },
+      {
+        lesson_id: lessonId,
+        teacher_id: teacherId,
+        time_block_id: blockId,
+        room_id: roomId,
+        pinned: false,
+      },
     ]);
   });
 
