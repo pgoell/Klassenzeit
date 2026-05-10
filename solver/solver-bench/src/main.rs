@@ -502,6 +502,14 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
     if !args.append {
         write_title_and_intro(&mut markdown);
         write_backend_objectives_section(&mut markdown, &BenchBackend::ALL);
+    } else if args.teacher_pins == TeacherPinsMode::Off {
+        markdown.push_str(
+            "\n## Unpinned variant (solver-driven teacher assignment, ADR 0036)\n\n\
+             Lessons in this section have `teacher_pin = None` and `teacher_candidates` \
+             widened to every teacher qualified for the lesson's subject \
+             (`Problem.teacher_qualifications`). Captures the cost of widening \
+             teacher decision variables relative to the canonical all-pinned table above.\n\n",
+        );
     } else {
         markdown.push_str(&format!("\n## RR sweep {}\n\n", today_yyyy_mm_dd()));
     }

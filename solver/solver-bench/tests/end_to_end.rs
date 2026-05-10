@@ -102,6 +102,98 @@ fn supervisor_emits_observability_and_quality_columns() {
 }
 
 #[test]
+fn supervisor_does_not_emit_unpinned_h2_when_not_appending() {
+    let out = unique_outfile("unpinned-no-append");
+    // Use --backends lahc and --fixtures grundschule. The LAHC cell may
+    // panic on the unpinned path; the assertion below only checks the
+    // markdown shape, which is unaffected by per-cell panics.
+    let _status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc",
+            "--teacher-pins",
+            "off",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor");
+    // Do NOT assert status.success(): the cell panics under unpinned grundschule
+    // and the supervisor exits FAILURE when zero cells succeed. The artifact
+    // we care about is the markdown shape.
+    let body = std::fs::read_to_string(&out).expect("read markdown output");
+    assert!(
+        !body.contains("## Unpinned variant"),
+        "non-append unpinned mode must not emit the Unpinned variant H2: {body}"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn supervisor_appends_unpinned_variant_h2_when_teacher_pins_off_and_append() {
+    let out = unique_outfile("unpinned-append");
+    // First pass: write the canonical pinned table.
+    let s1 = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc",
+            "--teacher-pins",
+            "on",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor pinned");
+    assert!(s1.success(), "pinned pass exited non-zero");
+    // Second pass: append the unpinned variant. Cell may panic; we only
+    // care about the H2 + preamble being written.
+    let _s2 = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc",
+            "--teacher-pins",
+            "off",
+            "--append",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor unpinned-append");
+    let body = std::fs::read_to_string(&out).expect("read markdown output");
+    assert!(
+        body.contains("## Unpinned variant"),
+        "append-mode unpinned must emit the Unpinned variant H2: {body}"
+    );
+    assert!(
+        body.contains("teacher_pin = None"),
+        "append-mode unpinned preamble must mention teacher_pin = None: {body}"
+    );
+    assert!(
+        body.contains("ADR 0036"),
+        "append-mode unpinned preamble must reference ADR 0036: {body}"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
 fn supervisor_renders_kempe_chain_column_in_sweep_mode() {
     let out = unique_outfile("kempe-sweep");
     let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
