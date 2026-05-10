@@ -20,6 +20,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { useSchoolClasses } from "@/features/school-classes/hooks";
 import { type Teacher, useCreateTeacher, useDeleteTeacher, useUpdateTeacher } from "./hooks";
 import { TeacherFormSchema, type TeacherFormValues } from "./schema";
 import { TeacherAvailabilityGrid } from "./teacher-availability-grid";
@@ -59,6 +60,11 @@ export function TeacherFormDialog({
       })
     : t("teachers.dialog.createDescription");
 
+  const schoolClasses = useSchoolClasses();
+  const klassenlehrerOf = teacher
+    ? (schoolClasses.data ?? []).filter((c) => c.class_teacher_id === teacher.id)
+    : [];
+
   async function handleTeacherSubmit(values: TeacherFormValues) {
     if (teacher) {
       await updateMutation.mutateAsync({ id: teacher.id, body: values });
@@ -81,6 +87,12 @@ export function TeacherFormDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
+          {klassenlehrerOf.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span className="font-medium">{t("teachers.dialog.klassenlehrerOfLabel")}:</span>
+              <span>{klassenlehrerOf.map((c) => c.name).join(", ")}</span>
+            </div>
+          ) : null}
         </DialogHeader>
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(handleTeacherSubmit)}>

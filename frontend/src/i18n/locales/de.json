@@ -233,7 +233,8 @@
       "editTitle": "Lehrkraft bearbeiten",
       "editDescription": "{{name}} aktualisieren.",
       "deleteTitle": "Lehrkraft löschen",
-      "deleteDescription": "„{{name}}“ wird dauerhaft gelöscht."
+      "deleteDescription": "„{{name}}“ wird dauerhaft gelöscht.",
+      "klassenlehrerOfLabel": "Klassenlehrer von"
     },
     "qualifications": {
       "sectionTitle": "Qualifikationen",

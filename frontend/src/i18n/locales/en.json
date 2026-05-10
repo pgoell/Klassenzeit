@@ -233,7 +233,8 @@
       "editTitle": "Edit teacher",
       "editDescription": "Update {{name}}.",
       "deleteTitle": "Delete teacher",
-      "deleteDescription": "This will permanently delete \"{{name}}\"."
+      "deleteDescription": "This will permanently delete \"{{name}}\".",
+      "klassenlehrerOfLabel": "Class teacher of"
     },
     "qualifications": {
       "sectionTitle": "Qualifications",
