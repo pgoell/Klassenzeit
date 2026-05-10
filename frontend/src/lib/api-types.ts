@@ -808,8 +808,8 @@ export interface paths {
          *         active: Optional filter; if True returns only active teachers, if False only inactive.
          *
          *     Returns:
-         *         List of teachers sorted alphabetically by last name (no nested qualifications or
-         *         availability).
+         *         List of teachers sorted alphabetically by last name (no nested availability;
+         *         qualified-subject UUIDs are returned as ``subject_ids``).
          */
         get: operations["list_teachers_api_teachers_get"];
         put?: never;
@@ -2372,6 +2372,8 @@ export interface components {
             max_hours_per_week: number;
             /** Is Active */
             is_active: boolean;
+            /** Subject Ids */
+            subject_ids?: string[];
             /**
              * Created At
              * Format: date-time

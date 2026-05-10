@@ -55,6 +55,7 @@ export const initialTeachers = [
     short_code: "SCH",
     max_hours_per_week: 25,
     is_active: true,
+    subject_ids: [],
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
