@@ -574,3 +574,107 @@ async def test_read_room_schedule_returns_placements_after_solve(
     assert resp.status_code == 200, resp.text
     placements_via_room = resp.json()["placements"]
     assert placements_via_room == placements_via_class
+
+
+async def test_schedule_post_response_surfaces_solver_picked_teacher_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """POST /api/classes/{id}/schedule response carries teacher_id per placement.
+
+    Per OPEN_THINGS item 69, ``PlacementResponse.teacher_id`` mirrors the
+    persisted ``ScheduledLesson.teacher_id`` column (non-null since item 63).
+    A one-class / one-lesson / one-qualified-teacher problem makes the solver
+    pick deterministic.
+    """
+    await create_test_user(email="admin@sched-tid.com", role="admin")
+    await login_as("admin@sched-tid.com", "testpassword123")
+    subject = await create_subject()
+    week_scheme = await create_week_scheme()
+    await create_time_block(
+        week_scheme_id=week_scheme.id,
+        position=0,
+        start_time=time(8, 0),
+        end_time=time(8, 45),
+    )
+    await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        name="1a-sched-tid",
+        stundentafel_id=tafel.id,
+        week_scheme_id=week_scheme.id,
+    )
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=None,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    await db_session.flush()
+
+    resp = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["placements"]) == 1
+    assert body["placements"][0]["teacher_id"] == str(teacher.id)
+
+
+async def test_schedule_get_returns_placements_with_teacher_id_after_post(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """GET /api/classes/{id}/schedule surfaces persisted teacher_id per placement.
+
+    Per OPEN_THINGS item 69, the persisted-read paths (`read_schedule_for_class`
+    / `read_schedule_for_teacher` / `read_schedule_for_room`) must thread
+    ``ScheduledLesson.teacher_id`` through their direct ``PlacementResponse``
+    constructors. POST then GET asserts the round-trip.
+    """
+    await create_test_user(email="admin@sched-tid-get.com", role="admin")
+    await login_as("admin@sched-tid-get.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-sched-tid-get",
+    )
+    post_resp = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post_resp.status_code == 200, post_resp.text
+
+    get_resp = await client.get(f"/api/classes/{cls.id}/schedule")
+    assert get_resp.status_code == 200, get_resp.text
+    body = get_resp.json()
+    assert len(body["placements"]) == 1
+    placement = body["placements"][0]
+    assert "teacher_id" in placement
+    assert isinstance(placement["teacher_id"], str)
+    # The seeded teacher is the only candidate; solver pick is deterministic.
+    assert uuid.UUID(placement["teacher_id"])
