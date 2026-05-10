@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useLessons } from "@/features/lessons/hooks";
 import { useRooms } from "@/features/rooms/hooks";
 import { useSchoolClasses } from "@/features/school-classes/hooks";
+import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemeDetail } from "@/features/week-schemes/hooks";
 import { ApiError } from "@/lib/api-client";
 import { useClassSchedule, useGenerateClassSchedule, type Violation } from "./hooks";
@@ -28,6 +29,7 @@ export function SchedulePageClassView() {
   const schedule = useClassSchedule(classId);
   const lessons = useLessons();
   const rooms = useRooms();
+  const teachers = useTeachers();
   const schoolClass = classes.data?.find((c) => c.id === classId);
   const weekScheme = useWeekSchemeDetail(schoolClass?.week_scheme_id ?? null);
   const generate = useGenerateClassSchedule();
@@ -83,13 +85,20 @@ export function SchedulePageClassView() {
     schedule.isLoading ||
     lessons.isLoading ||
     rooms.isLoading ||
+    teachers.isLoading ||
     weekScheme.isLoading;
   const errored =
-    classes.isError || schedule.isError || lessons.isError || rooms.isError || weekScheme.isError;
+    classes.isError ||
+    schedule.isError ||
+    lessons.isError ||
+    rooms.isError ||
+    teachers.isError ||
+    weekScheme.isError;
 
   const placements = schedule.data?.placements ?? [];
   const lessonById = new Map((lessons.data ?? []).map((l) => [l.id, l]));
   const roomById = new Map((rooms.data ?? []).map((r) => [r.id, r]));
+  const teacherById = new Map((teachers.data ?? []).map((t) => [t.id, t]));
   const timeBlockById = new Map((weekScheme.data?.time_blocks ?? []).map((b) => [b.id, b]));
 
   const classLessons = (lessons.data ?? []).filter((l) =>
@@ -108,7 +117,7 @@ export function SchedulePageClassView() {
         day: block.day_of_week,
         position: block.position,
         subjectName: lesson.subject.name,
-        teacherName: lesson.teacher?.last_name,
+        teacherName: lesson.teacher?.last_name ?? teacherById.get(p.teacher_id)?.last_name,
         roomName: room?.name ?? t("schedule.cellDeletedLesson"),
         lessonId: p.lesson_id,
         timeBlockId: p.time_block_id,
