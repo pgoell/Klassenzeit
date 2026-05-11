@@ -149,17 +149,18 @@ pub fn quality_report(
             .push(tb.position);
     }
 
+    // Dedup `by_class_day` Vec values in-place so a (class, day, position)
+    // slot counts once regardless of lesson-group co-placement count.
+    // Mirrors `score_solution`'s identical dedup; see the matching comment
+    // there. Item 76.
+    for v in by_class_day.values_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
     let class_day_balance_cost_value =
         class_day_balance_cost(&by_class_day, &problem.school_classes, days);
 
-    let class_gap_hours: u32 = by_class_day
-        .into_values()
-        .map(|mut v| {
-            v.sort_unstable();
-            v.dedup();
-            gap_count(&v)
-        })
-        .sum();
+    let class_gap_hours: u32 = by_class_day.into_values().map(|v| gap_count(&v)).sum();
     let teacher_gap_hours: u32 = by_teacher_day
         .into_values()
         .map(|mut v| {

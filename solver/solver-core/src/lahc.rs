@@ -1674,7 +1674,17 @@ fn kempe_snapshot_pre_score(
                 source_days.insert(tb.day_of_week);
             }
         }
-        let teacher = lesson.assigned_teacher_id();
+        // Item 76: the partition gap delta key MUST match the teacher in
+        // `state.teacher_positions` (and the row that
+        // `kempe_apply_block` will insert), which is the lock-map teacher,
+        // NOT `lesson.assigned_teacher_id()` (the pin shorthand that
+        // falls back to `teacher_candidates[0]` under unpinned mode).
+        // Using the wrong teacher key snapshots an irrelevant
+        // partition's gap count, so `kempe_post_score_delta` misses the
+        // actual change in the real teacher's `(teacher, day)` gap
+        // count and `state.canonical_score` drifts from
+        // `score_solution(...)` by the missed gap delta.
+        let teacher = lesson_teacher_in_state(state, lesson);
         for src in &source_days {
             for class in &lesson.school_class_ids {
                 class_keys.insert((*class, *src));
@@ -2517,8 +2527,14 @@ fn running_slice_from_placements(
                 .or_default()
                 .push(tb.position);
         }
+        // Item 76: read teacher from the placement row, not from
+        // `lesson.assigned_teacher_id()` (the pin shorthand). Under
+        // unpinned mode, the actually-placed teacher comes from the
+        // solver's pick recorded on `Placement.teacher_id`; the static
+        // fallback would partition under the wrong key and produce a
+        // teacher_gap total that disagrees with `score_solution(...)`.
         by_teacher_day
-            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
+            .entry((p.teacher_id, tb.day_of_week))
             .or_default()
             .push(tb.position);
         let max_pos = max_position_per_day
