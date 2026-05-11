@@ -60,3 +60,30 @@ predicates by intent; implementations are intentionally separate (Python operate
 ORM rows, Rust on the in-memory `Solution`).
 
 See `docs/adr/0029-solver-feasibility-bake-off.md` for methodology and `docs/adr/0034-bench-cell-subprocess-and-observability.md` for the cell-subprocess architecture.
+
+## Unpinned variant (solver-driven teacher assignment, ADR 0036)
+
+Lessons in this section have `teacher_pin = None` and `teacher_candidates` widened to every teacher qualified for the lesson's subject (`Problem.teacher_qualifications`). Captures the cost of widening teacher decision variables relative to the canonical all-pinned table above.
+
+| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| grundschule | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 32 | 0 | 1 | 0 | 2 | 0.00 | 1824 | 142036 | 720 | 1427 | 1 | 1.00 | 0 | - | 4/4 |
+| zweizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1058 | 40 | 11 | 41 | 30 | 0.00 | 62347 | 965248 | 24903 | - | 5 | 0.65 | 40 | 1.00 | 2/4 |
+| dreizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 65469 | 2359320 | - | - | - | - | - | - | - |
+| lock_in | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 477 | 6 | 5 | 48 | 11 | 0.00 | 60497 | 232144 | 2542 | - | 3 | 0.00 | 6 | - | 1/4 |
