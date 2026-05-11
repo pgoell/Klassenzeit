@@ -71,7 +71,7 @@ pub fn score_solution(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
+            .entry((p.teacher_id, tb.day_of_week))
             .or_default()
             .push(tb.position);
     }
