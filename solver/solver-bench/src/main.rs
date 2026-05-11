@@ -35,6 +35,33 @@ fn placements_expected_for_problem(problem: &Problem) -> u64 {
         .sum()
 }
 
+/// Clear `teacher_pin` on every lesson and widen `teacher_candidates` to the
+/// deterministic-sorted, deduplicated set of teachers qualified for each
+/// lesson's subject. Bench-only; production fixtures retain their original
+/// pins until item 73's no-pinned data lands in BENCH_RESULTS.md.
+pub(crate) fn unpin_teachers_in_problem(problem: &mut Problem) {
+    use std::collections::HashMap;
+    let mut quals_by_subject: HashMap<solver_core::SubjectId, Vec<solver_core::TeacherId>> =
+        HashMap::new();
+    for q in &problem.teacher_qualifications {
+        quals_by_subject
+            .entry(q.subject_id)
+            .or_default()
+            .push(q.teacher_id);
+    }
+    for v in quals_by_subject.values_mut() {
+        v.sort_by_key(|t| t.0);
+        v.dedup();
+    }
+    for lesson in &mut problem.lessons {
+        lesson.teacher_pin = None;
+        lesson.teacher_candidates = quals_by_subject
+            .get(&lesson.subject_id)
+            .cloned()
+            .unwrap_or_default();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BenchBackend {
     Lahc,
@@ -71,6 +98,33 @@ impl BenchBackend {
         Self::LahcRrKempe,
         Self::CpSat,
     ];
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum TeacherPinsMode {
+    On,
+    Off,
+}
+
+impl TeacherPinsMode {
+    /// Render the mode as the CLI flag value (`on` / `off`); the supervisor
+    /// propagates `--teacher-pins <label>` to the per-cell child process.
+    fn teacher_pins_label(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+
+    fn parse_teacher_pins_mode(s: &str) -> Result<Self, String> {
+        match s {
+            "on" => Ok(Self::On),
+            "off" => Ok(Self::Off),
+            other => Err(format!(
+                "--teacher-pins expects 'on' or 'off', got '{other}'"
+            )),
+        }
+    }
 }
 
 type FixtureEntry = (&'static str, fn() -> Problem);
@@ -131,6 +185,7 @@ struct SupervisorArgs {
     rr_period_values: Option<Vec<u32>>,
     kempe_max_chain_values: Option<Vec<u32>>,
     append: bool,
+    teacher_pins: TeacherPinsMode,
 }
 
 fn default_supervisor_args() -> SupervisorArgs {
@@ -144,6 +199,7 @@ fn default_supervisor_args() -> SupervisorArgs {
         rr_period_values: None,
         kempe_max_chain_values: None,
         append: false,
+        teacher_pins: TeacherPinsMode::On,
     }
 }
 
@@ -218,6 +274,10 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
                 let v = iter.next().ok_or("--kempe-max-chain needs a value")?;
                 args.kempe_max_chain_values = Some(parse_u32_csv("--kempe-max-chain", &v)?);
             }
+            "--teacher-pins" => {
+                let v = iter.next().ok_or("--teacher-pins needs a value")?;
+                args.teacher_pins = TeacherPinsMode::parse_teacher_pins_mode(&v)?;
+            }
             "--append" => {
                 args.append = true;
             }
@@ -235,6 +295,7 @@ struct CellArgs {
     rr_k: Option<u32>,
     rr_period: Option<u32>,
     kempe_max_chain: Option<u32>,
+    teacher_pins: TeacherPinsMode,
 }
 
 fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
@@ -245,6 +306,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
     let mut rr_k: Option<u32> = None;
     let mut rr_period: Option<u32> = None;
     let mut kempe_max_chain: Option<u32> = None;
+    let mut teacher_pins: Option<TeacherPinsMode> = None;
     let mut iter = raw.into_iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
@@ -295,6 +357,11 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
                         })?,
                 );
             }
+            "--teacher-pins" => {
+                teacher_pins = Some(TeacherPinsMode::parse_teacher_pins_mode(
+                    &iter.next().ok_or("--teacher-pins needs a value")?,
+                )?);
+            }
             other => return Err(format!("unknown cell flag '{other}'")),
         }
     }
@@ -306,6 +373,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
         rr_k,
         rr_period,
         kempe_max_chain,
+        teacher_pins: teacher_pins.unwrap_or(TeacherPinsMode::On),
     })
 }
 
@@ -434,6 +502,14 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
     if !args.append {
         write_title_and_intro(&mut markdown);
         write_backend_objectives_section(&mut markdown, &BenchBackend::ALL);
+    } else if args.teacher_pins == TeacherPinsMode::Off {
+        markdown.push_str(
+            "\n## Unpinned variant (solver-driven teacher assignment, ADR 0036)\n\n\
+             Lessons in this section have `teacher_pin = None` and `teacher_candidates` \
+             widened to every teacher qualified for the lesson's subject \
+             (`Problem.teacher_qualifications`). Captures the cost of widening \
+             teacher decision variables relative to the canonical all-pinned table above.\n\n",
+        );
     } else {
         markdown.push_str(&format!("\n## RR sweep {}\n\n", today_yyyy_mm_dd()));
     }
@@ -441,7 +517,7 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
 
     let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
     let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
-        spawn_cell(&exe, spec, args.budget, args.seeds)
+        spawn_cell(&exe, spec, args.budget, args.seeds, args.teacher_pins)
     };
     let successes = render_cells_with_specs(
         &plan,
@@ -449,6 +525,7 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         &mut markdown,
         &mut all_results,
         render_kempe_chain_col,
+        args.teacher_pins.teacher_pins_label(),
     );
 
     if sweep_mode {
@@ -482,6 +559,7 @@ fn spawn_cell(
     spec: &CellSpec,
     budget: Duration,
     seeds: u64,
+    teacher_pins: TeacherPinsMode,
 ) -> Result<CellResult, String> {
     let budget_str = if budget < Duration::from_secs(1) {
         format!("{}ms", budget.as_millis())
@@ -506,6 +584,8 @@ fn spawn_cell(
     if let Some(c) = spec.kempe_max_chain {
         cmd.arg("--kempe-max-chain").arg(c.to_string());
     }
+    cmd.arg("--teacher-pins")
+        .arg(teacher_pins.teacher_pins_label());
     cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
     let child = cmd.spawn().map_err(|e| format!("spawn cell: {e}"))?;
     let output = child
@@ -525,21 +605,29 @@ fn render_cells_with_specs<F>(
     markdown: &mut String,
     all_results: &mut Vec<(CellSpec, CellResult)>,
     render_kempe_chain_col: bool,
+    teacher_pins_label: &str,
 ) -> usize
 where
     F: FnMut(&CellSpec) -> Result<CellResult, String>,
 {
     let mut successes = 0usize;
     for spec in plan {
-        eprintln!("cell start: {} / {}", spec.fixture, spec.backend.label());
+        eprintln!(
+            "cell start: {} / {} teacher_pins={}",
+            spec.fixture,
+            spec.backend.label(),
+            teacher_pins_label,
+        );
         match runner(spec) {
             Ok(cell) => {
                 eprintln!(
-                    "cell done: {} / {} feasibility {}/{} hard_med={} placements_med={}/{} \
-                     soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} tto_med={} \
-                     worst_spread_med={} worst_home_med={} gaps_med={} late_med={} quality_med={}",
+                    "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
+                     placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
+                     tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
+                     quality_med={}",
                     spec.fixture,
                     spec.backend.label(),
+                    teacher_pins_label,
                     cell.feasibility_count,
                     cell.seeds,
                     cell.hard_violations_median,
@@ -616,7 +704,10 @@ fn run_cell_child(raw: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let problem = build();
+    let mut problem = build();
+    if args.teacher_pins == TeacherPinsMode::Off {
+        unpin_teachers_in_problem(&mut problem);
+    }
     let expected = placements_expected_for_problem(&problem);
     let cell = match args.backend {
         BenchBackend::CpSat => run_cpsat_cell(&problem, expected, args.budget, args.seeds),
@@ -1645,6 +1736,25 @@ mod tests {
         assert_eq!(args.backend, BenchBackend::LahcRr);
         assert_eq!(args.budget, Duration::from_millis(200));
         assert_eq!(args.seeds, 3);
+        assert_eq!(args.teacher_pins, TeacherPinsMode::On);
+    }
+
+    #[test]
+    fn parse_cell_args_accepts_teacher_pins_off() {
+        let raw = vec![
+            "--cell".to_string(),
+            "grundschule".to_string(),
+            "--backend".to_string(),
+            "lahc".to_string(),
+            "--budget".to_string(),
+            "100ms".to_string(),
+            "--seeds".to_string(),
+            "1".to_string(),
+            "--teacher-pins".to_string(),
+            "off".to_string(),
+        ];
+        let args = parse_cell_args(raw).unwrap();
+        assert_eq!(args.teacher_pins, TeacherPinsMode::Off);
     }
 
     #[test]
@@ -2008,8 +2118,14 @@ mod tests {
         };
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
-        let successes =
-            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results, false);
+        let successes = render_cells_with_specs(
+            &plan,
+            &mut runner,
+            &mut markdown,
+            &mut all_results,
+            false,
+            "on",
+        );
         assert_eq!(successes, 2, "two cells should have succeeded");
         assert!(
             markdown.contains("| grundschule | lahc | - | - | 20 | 20/20 |"),
@@ -2036,8 +2152,14 @@ mod tests {
         };
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
-        let successes =
-            render_cells_with_specs(&plan, &mut runner, &mut markdown, &mut all_results, false);
+        let successes = render_cells_with_specs(
+            &plan,
+            &mut runner,
+            &mut markdown,
+            &mut all_results,
+            false,
+            "on",
+        );
         assert_eq!(successes, 0);
         let panic_row_count = markdown.matches("| panic |").count();
         assert_eq!(
@@ -2263,6 +2385,100 @@ mod tests {
         assert!(
             out.contains("(none)"),
             "cpsat optimised set should render as (none) today: {out}",
+        );
+    }
+
+    #[test]
+    fn teacher_pins_mode_label_and_parse_round_trip() {
+        assert_eq!(TeacherPinsMode::On.teacher_pins_label(), "on");
+        assert_eq!(TeacherPinsMode::Off.teacher_pins_label(), "off");
+        assert_eq!(
+            TeacherPinsMode::parse_teacher_pins_mode("on").unwrap(),
+            TeacherPinsMode::On
+        );
+        assert_eq!(
+            TeacherPinsMode::parse_teacher_pins_mode("off").unwrap(),
+            TeacherPinsMode::Off
+        );
+        assert!(TeacherPinsMode::parse_teacher_pins_mode("maybe").is_err());
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_clears_pins_and_widens_candidates() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        use solver_core::{SubjectId, TeacherId};
+        use std::collections::HashMap;
+        let mut p = grundschule_fixture();
+        for l in &p.lessons {
+            assert!(
+                l.teacher_pin.is_some(),
+                "fixture precondition: every lesson is pinned"
+            );
+        }
+        crate::unpin_teachers_in_problem(&mut p);
+        let mut quals: HashMap<SubjectId, Vec<TeacherId>> = HashMap::new();
+        for q in &p.teacher_qualifications {
+            quals.entry(q.subject_id).or_default().push(q.teacher_id);
+        }
+        for v in quals.values_mut() {
+            v.sort_by_key(|t| t.0);
+            v.dedup();
+        }
+        for l in &p.lessons {
+            assert_eq!(l.teacher_pin, None, "pin must be cleared");
+            let expected = quals.get(&l.subject_id).cloned().unwrap_or_default();
+            assert_eq!(
+                l.teacher_candidates, expected,
+                "candidates must equal sorted-deduped qualified teachers for lesson {:?}",
+                l.id
+            );
+        }
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_is_deterministic() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        let mut a = grundschule_fixture();
+        let mut b = grundschule_fixture();
+        crate::unpin_teachers_in_problem(&mut a);
+        crate::unpin_teachers_in_problem(&mut b);
+        for (la, lb) in a.lessons.iter().zip(b.lessons.iter()) {
+            assert_eq!(
+                la.teacher_candidates, lb.teacher_candidates,
+                "candidate ordering must be deterministic across calls"
+            );
+        }
+    }
+
+    #[test]
+    fn unpin_teachers_in_problem_handles_subject_with_no_quals() {
+        use solver_core::test_fixtures::grundschule_fixture;
+        use solver_core::{Lesson, LessonId, SubjectId, TeacherId};
+        use uuid::Uuid;
+        let mut p = grundschule_fixture();
+        // Inject a synthetic lesson whose subject has zero qualifications.
+        let phantom_subject = SubjectId(Uuid::from_u128(0xDEADBEEF));
+        let phantom_class = p.school_classes[0].id;
+        p.lessons.push(Lesson {
+            id: LessonId(Uuid::from_u128(0xC0FFEE)),
+            school_class_ids: vec![phantom_class],
+            subject_id: phantom_subject,
+            teacher_candidates: vec![TeacherId(Uuid::from_u128(0x1))],
+            teacher_pin: Some(TeacherId(Uuid::from_u128(0x1))),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        // If the Lesson struct grows new fields after 2026-05-10, `cargo build`
+        // surfaces them: add them with sensible defaults to keep this test focused
+        // on the no-qualifications path. Do NOT add `room_lock` (not a field as of
+        // the plan-write date).
+        crate::unpin_teachers_in_problem(&mut p);
+        let phantom = p.lessons.last().unwrap();
+        assert_eq!(phantom.teacher_pin, None);
+        assert!(
+            phantom.teacher_candidates.is_empty(),
+            "unqualified subject must yield empty candidates"
         );
     }
 }

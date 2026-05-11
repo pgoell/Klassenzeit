@@ -8,36 +8,36 @@ Each backend's *internal* acceptance criterion or model objective optimises the 
 
 | Backend | Optimised | Declared skipped | Notes |
 | --- | --- | --- | --- |
-| lahc | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
-| lahc_rr | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late | (none) | Inherits LAHC's canonical objective; R&R recreate ranks rooms by home_room delta after item 49. |
-| lahc_kempe | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
-| lahc_rr_kempe | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
-| cpsat | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late | (none) | CP-SAT minimises the canonical objective end-to-end (cpsat.py): subject_preference plus home_room plus class_gap plus teacher_gap plus class_day_balance, weights from PRODUCTION_ACTIVE_WEIGHTS. |
+| lahc | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late, prefer_class_teacher | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
+| lahc_rr | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late, prefer_class_teacher | (none) | Inherits LAHC's canonical objective; R&R recreate ranks rooms by home_room delta after item 49. |
+| lahc_kempe | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late, prefer_class_teacher | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
+| lahc_rr_kempe | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late, prefer_class_teacher | (none) | LAHC accepts and exits on the full canonical (see lahc::run); FFD greedy ranks windows by slice + home_room + class_day_balance (item 54). |
+| cpsat | class_gap, teacher_gap, class_day_balance, home_room, prefer_early, avoid_first, avoid_last, prefer_late, prefer_class_teacher | (none) | CP-SAT minimises the canonical objective end-to-end (cpsat.py): subject_preference plus home_room plus class_gap plus teacher_gap plus class_day_balance, weights from PRODUCTION_ACTIVE_WEIGHTS. |
 
 | Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | lahc | - | - | 20 | 20/20 | 0 | 45/45 | 27 | 0 | 0 | 0 | 2 | 0.79 | 60000 | 2816 | 0 | 0 | 1 | 1.00 | 0 | - | 4/4 |
-| grundschule | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 22 | 0 | 0 | 0 | 2 | 0.69 | 60000 | 2816 | 0 | 12 | 1 | 1.00 | 0 | - | 4/4 |
-| grundschule | lahc_kempe | - | - | 20 | 20/20 | 0 | 45/45 | 27 | 0 | 0 | 0 | 2 | 0.58 | 60000 | 2816 | 0 | 1 | 1 | 1.00 | 0 | - | 4/4 |
-| grundschule | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 23 | 0 | 0 | 0 | 2 | 0.66 | 60000 | 2816 | 0 | 10 | 1 | 1.00 | 0 | - | 4/4 |
-| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 22 | 0 | 0 | 0 | 2 | 0.00 | 1368 | 124964 | 313 | 1016 | 1 | 1.00 | 0 | - | 4/4 |
-| zweizuegig | lahc | - | - | 20 | 20/20 | 0 | 196/196 | 241 | 0 | 0 | 0 | 14 | 2.13 | 60000 | 2944 | 0 | 51 | 2 | 1.00 | 0 | 1.00 | 4/4 |
-| zweizuegig | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 196/196 | 199 | 0 | 0 | 0 | 12 | 3.23 | 60000 | 2816 | 0 | 12518 | 1 | 1.00 | 0 | 1.00 | 4/4 |
-| zweizuegig | lahc_kempe | - | - | 20 | 20/20 | 0 | 196/196 | 228 | 0 | 0 | 0 | 12 | 3.28 | 60000 | 3072 | 0 | 763 | 1 | 1.00 | 0 | 1.00 | 4/4 |
-| zweizuegig | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 196/196 | 220 | 0 | 0 | 0 | 12 | 3.37 | 60000 | 2944 | 0 | 7822 | 1 | 1.00 | 0 | 1.00 | 4/4 |
-| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1135 | 34 | 34 | 34 | 31 | 0.00 | 60737 | 374104 | 25972 | - | 5 | 0.71 | 34 | 1.00 | 2/4 |
-| dreizuegig | lahc | - | - | 20 | 20/20 | 0 | 294/294 | 1507 | 1 | 0 | 139 | 76 | 6.40 | 60000 | 3072 | 0 | 176 | 6 | 0.71 | 1 | 0.86 | 3/4 |
-| dreizuegig | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 294/294 | 1498 | 1 | 0 | 139 | 76 | 8.04 | 60001 | 3072 | 0 | 3878 | 6 | 0.71 | 1 | 0.86 | 3/4 |
-| dreizuegig | lahc_kempe | - | - | 20 | 20/20 | 0 | 294/294 | 1493 | 0 | 0 | 139 | 75 | 7.10 | 60000 | 3072 | 0 | 905 | 6 | 0.71 | 0 | 0.86 | 3/4 |
-| dreizuegig | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 294/294 | 1495 | 0 | 0 | 139 | 78 | 7.87 | 60000 | 3200 | 0 | 4320 | 6 | 0.71 | 0 | 0.86 | 3/4 |
-| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 61078 | 545624 | - | - | - | - | - | - | - |
-| lock_in | lahc | - | - | 20 | 20/20 | 0 | 98/98 | 404 | 0 | 0 | 58 | 7 | 1.27 | 60000 | 2944 | 0 | 48 | 2 | 0.00 | 0 | - | 3/4 |
-| lock_in | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 98/98 | 315 | 0 | 0 | 46 | 6 | 1.92 | 60000 | 2816 | 0 | 2187 | 1 | 0.00 | 0 | - | 3/4 |
-| lock_in | lahc_kempe | - | - | 20 | 20/20 | 0 | 98/98 | 402 | 0 | 0 | 59 | 8 | 1.28 | 60000 | 2944 | 0 | 247 | 2 | 0.00 | 0 | - | 3/4 |
-| lock_in | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 98/98 | 324 | 0 | 0 | 46 | 6 | 1.92 | 60000 | 2944 | 0 | 1043 | 1 | 0.00 | 0 | - | 3/4 |
-| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 477 | 6 | 6 | 49 | 13 | 0.00 | 60396 | 189076 | 1444 | - | 3 | 0.00 | 6 | - | 1/4 |
+| grundschule | lahc | - | - | 20 | 20/20 | 0 | 45/45 | 27 | 0 | 0 | 0 | 2 | 0.50 | 60000 | 2688 | 0 | 0 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 22 | 0 | 0 | 0 | 2 | 0.85 | 60000 | 2816 | 0 | 14 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_kempe | - | - | 20 | 20/20 | 0 | 45/45 | 27 | 0 | 0 | 0 | 2 | 0.74 | 60000 | 2688 | 0 | 1 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 23 | 0 | 0 | 0 | 2 | 0.77 | 60000 | 2816 | 0 | 11 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 22 | 0 | 0 | 0 | 2 | 0.00 | 1561 | 126256 | 315 | 1213 | 1 | 1.00 | 0 | - | 4/4 |
+| zweizuegig | lahc | - | - | 20 | 20/20 | 0 | 196/196 | 241 | 0 | 0 | 0 | 14 | 3.52 | 60000 | 2816 | 0 | 52 | 2 | 1.00 | 0 | 1.00 | 4/4 |
+| zweizuegig | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 196/196 | 199 | 0 | 0 | 0 | 12 | 5.29 | 60000 | 3072 | 0 | 15879 | 1 | 1.00 | 0 | 1.00 | 4/4 |
+| zweizuegig | lahc_kempe | - | - | 20 | 20/20 | 0 | 196/196 | 228 | 0 | 0 | 0 | 12 | 5.80 | 60000 | 3072 | 0 | 753 | 1 | 1.00 | 0 | 1.00 | 4/4 |
+| zweizuegig | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 196/196 | 221 | 0 | 0 | 0 | 12 | 5.26 | 60000 | 2944 | 0 | 10103 | 1 | 1.00 | 0 | 1.00 | 4/4 |
+| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1149 | 33 | 35 | 37 | 31 | 0.00 | 60726 | 369260 | 26011 | - | 4 | 0.65 | 33 | 1.00 | 2/4 |
+| dreizuegig | lahc | - | - | 20 | 20/20 | 0 | 294/294 | 1507 | 1 | 0 | 139 | 76 | 13.96 | 60000 | 3072 | 0 | 181 | 6 | 0.71 | 1 | 0.86 | 3/4 |
+| dreizuegig | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 294/294 | 1516 | 1 | 0 | 139 | 77 | 13.19 | 60001 | 3456 | 0 | 5557 | 6 | 0.71 | 1 | 0.86 | 3/4 |
+| dreizuegig | lahc_kempe | - | - | 20 | 20/20 | 0 | 294/294 | 1493 | 0 | 0 | 139 | 75 | 12.26 | 60000 | 2944 | 0 | 914 | 6 | 0.71 | 0 | 0.86 | 3/4 |
+| dreizuegig | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 294/294 | 1496 | 0 | 0 | 139 | 79 | 14.20 | 60001 | 3072 | 0 | 9543 | 6 | 0.71 | 0 | 0.86 | 3/4 |
+| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 61062 | 520236 | - | - | - | - | - | - | - |
+| lock_in | lahc | - | - | 20 | 20/20 | 0 | 98/98 | 404 | 0 | 0 | 58 | 7 | 3.41 | 60000 | 2816 | 0 | 48 | 2 | 0.00 | 0 | - | 3/4 |
+| lock_in | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 98/98 | 315 | 0 | 0 | 46 | 6 | 3.04 | 60000 | 2944 | 0 | 2946 | 1 | 0.00 | 0 | - | 3/4 |
+| lock_in | lahc_kempe | - | - | 20 | 20/20 | 0 | 98/98 | 402 | 0 | 0 | 59 | 8 | 3.00 | 60000 | 2816 | 0 | 252 | 2 | 0.00 | 0 | - | 3/4 |
+| lock_in | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 98/98 | 324 | 0 | 0 | 46 | 6 | 2.89 | 60000 | 2816 | 0 | 1357 | 1 | 0.00 | 0 | - | 3/4 |
+| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 475 | 5 | 7 | 48 | 13 | 0.00 | 60389 | 186364 | 1443 | - | 3 | 0.00 | 5 | - | 1/4 |
 
-Refreshed 2026-05-08 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
+Refreshed 2026-05-11 on AMD Ryzen 7 3700X 8-Core Processor, Linux 6.8.0-90-generic, rustc 1.93.1 (01f6ddf75 2026-02-11).
 
 Refresh with `mise run bench:bakeoff` when a backend changes or a fixture is added. The
 bench is host-sensitive on wall-clock and Peak RSS columns and host-stable on feasibility / hard-violation
@@ -60,3 +60,30 @@ predicates by intent; implementations are intentionally separate (Python operate
 ORM rows, Rust on the in-memory `Solution`).
 
 See `docs/adr/0029-solver-feasibility-bake-off.md` for methodology and `docs/adr/0034-bench-cell-subprocess-and-observability.md` for the cell-subprocess architecture.
+
+## Unpinned variant (solver-driven teacher assignment, ADR 0036)
+
+Lessons in this section have `teacher_pin = None` and `teacher_candidates` widened to every teacher qualified for the lesson's subject (`Problem.teacher_qualifications`). Captures the cost of widening teacher decision variables relative to the canonical all-pinned table above.
+
+| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| grundschule | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 32 | 0 | 1 | 0 | 2 | 0.00 | 1824 | 142036 | 720 | 1427 | 1 | 1.00 | 0 | - | 4/4 |
+| zweizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1058 | 40 | 11 | 41 | 30 | 0.00 | 62347 | 965248 | 24903 | - | 5 | 0.65 | 40 | 1.00 | 2/4 |
+| dreizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 65469 | 2359320 | - | - | - | - | - | - | - |
+| lock_in | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 477 | 6 | 5 | 48 | 11 | 0.00 | 60497 | 232144 | 2542 | - | 3 | 0.00 | 6 | - | 1/4 |
