@@ -520,13 +520,19 @@ async def collect_pinned_placements(
 ) -> list[dict[str, str]]:
     """Return persisted ScheduledLesson rows as solver wire-format pin entries.
 
-    Returns one ``{"lesson_id", "time_block_id", "room_id"}`` dict per
-    ScheduledLesson row whose Lesson has at least one class membership
-    OUTSIDE ``exclude_class_ids``. Single-class lessons in excluded classes
-    are dropped (the focus class re-places them); cross-class lessons are
-    pinned whenever any sibling class would otherwise see drift on a
-    per-class re-solve. Lessons whose membership lies entirely inside
-    ``exclude_class_ids`` are dropped.
+    Returns one ``{"lesson_id", "time_block_id", "room_id", "teacher_id"}``
+    dict per ScheduledLesson row whose Lesson has at least one class
+    membership OUTSIDE ``exclude_class_ids``. Single-class lessons in
+    excluded classes are dropped (the focus class re-places them);
+    cross-class lessons are pinned whenever any sibling class would
+    otherwise see drift on a per-class re-solve. Lessons whose membership
+    lies entirely inside ``exclude_class_ids`` are dropped.
+
+    ``teacher_id`` (item 77) carries the picker's chosen teacher from
+    the prior solve so the seed Placement reflects the real teacher
+    rather than falling back to ``teacher_candidates[0]`` (which would
+    false-positive ``validate_no_double_booking`` when two pins share
+    the static fallback under unpinned mode).
 
     Output ordered by ``(lesson_id, time_block_id)`` for determinism.
     """
@@ -546,6 +552,7 @@ async def collect_pinned_placements(
             "lesson_id": str(row.lesson_id),
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
+            "teacher_id": str(row.teacher_id),
         }
         for row in rows
     ]
@@ -560,7 +567,7 @@ async def collect_own_class_pins(
     Pulls every ``ScheduledLesson`` whose ``Lesson`` is a member of
     ``class_id`` AND whose ``pinned`` flag is true. Output is ordered by
     ``(lesson_id, time_block_id)`` for determinism, matching
-    ``collect_pinned_placements``.
+    ``collect_pinned_placements``. Carries ``teacher_id`` per item 77.
     """
     own_lessons_subq = (
         select(LessonSchoolClass.lesson_id)
@@ -579,6 +586,7 @@ async def collect_own_class_pins(
             "lesson_id": str(row.lesson_id),
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
+            "teacher_id": str(row.teacher_id),
         }
         for row in rows
     ]
@@ -587,7 +595,10 @@ async def collect_own_class_pins(
 async def collect_all_pins(
     db: AsyncSession,
 ) -> list[dict[str, str]]:
-    """Return wire-format pin dicts for every ScheduledLesson with pinned=True."""
+    """Return wire-format pin dicts for every ScheduledLesson with pinned=True.
+
+    Carries ``teacher_id`` per item 77.
+    """
     stmt = (
         select(ScheduledLesson)
         .where(ScheduledLesson.pinned.is_(True))
@@ -599,6 +610,7 @@ async def collect_all_pins(
             "lesson_id": str(row.lesson_id),
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
+            "teacher_id": str(row.teacher_id),
         }
         for row in rows
     ]

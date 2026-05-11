@@ -208,6 +208,16 @@ pub struct PinnedPlacement {
     pub time_block_id: TimeBlockId,
     /// The room the lesson is pinned to.
     pub room_id: RoomId,
+    /// The teacher who actually teaches this pinned placement. Optional
+    /// for wire-format backwards compatibility: when `None`, the
+    /// pre-solve seed sites fall back to `Lesson::assigned_teacher_id()`,
+    /// which collapses to `teacher_candidates[0]` under unpinned mode
+    /// (item 77's false-positive double-booking shape). Callers
+    /// producing pins from a prior solve where the picker chose a
+    /// teacher SHOULD set this field so the seed Placement carries the
+    /// real teacher into the post-condition validators.
+    #[serde(default)]
+    pub teacher_id: Option<TeacherId>,
 }
 
 /// A single time slot (e.g., a period on a given weekday).

@@ -51,8 +51,12 @@ def solve_json_with_config(
     lahc_kempe_period=23`` (R&R + Kempe).
 
     The input JSON may include a ``pinned_placements`` array of
-    ``{lesson_id, time_block_id, room_id}`` entries; the solver preserves
-    those placements verbatim across both FFD seeding and LAHC moves, and
-    drops any malformed entry as a ``ViolationKind::PinnedConflict`` rather
-    than raising.
+    ``{lesson_id, time_block_id, room_id, teacher_id?}`` entries; the
+    solver preserves those placements verbatim across both FFD seeding
+    and LAHC moves, and drops any malformed entry as a
+    ``ViolationKind::PinnedConflict`` rather than raising. The optional
+    ``teacher_id`` (item 77) carries the picker's chosen teacher from a
+    prior solve so the seed Placement reflects the real teacher; when
+    omitted the solver falls back to ``teacher_candidates[0]`` and can
+    false-positive ``validate_no_double_booking`` under unpinned mode.
     """
