@@ -1,14 +1,19 @@
 """End-to-end solvability check for demo_grundschule_dreizuegig.
 
-The flow: seed (which itself inserts the cross-class Religion trio with
-teacher_ids pinned) -> per-class POST /api/classes/{id}/generate-lessons
-(creates non-Religion lessons; Religion subjects are skipped because the
-seed already linked them via LessonSchoolClass) -> overwrite
-Lesson.teacher_id from _TEACHER_ASSIGNMENTS_DREIZUEGIG (pins teacher
-allocation for the non-Religion lessons so the bench-stable layout does
-not drift as auto_assign_teachers_for_lessons evolves) -> per-class
-POST /api/classes/{id}/schedule -> assert each class produces
-violations == [] and at least one placement.
+Two flows: (a) the canonical pin-and-solve test
+(`_solves_with_zero_violations`) seeds the fixture (which itself inserts
+the cross-class Religion trio with teacher_ids pinned at seed time),
+generates non-Religion lessons per class, applies the
+`_TEACHER_ASSIGNMENTS_DREIZUEGIG` UPDATE to pin per-class non-Religion
+teacher allocations matching the Rust bench fixture, then schedules
+each class.
+
+(b) the production-route mirror (`_solves_without_pinned_teachers`)
+seeds the fixture, generates lessons, then schedules each class WITHOUT
+the canonical UPDATE so the solver picks teachers per ADR 0036. The
+cross-class Religion trio is still pinned at seed time because
+`LessonSchoolClass` relationships require it; only the per-class
+non-Religion teacher allocation differs from the canonical sibling.
 
 Mirrors the HTTP-route pattern from test_demo_grundschule_solvability.py
 and test_demo_grundschule_zweizuegig_solvability.py.
@@ -131,29 +136,30 @@ async def test_seeded_grundschule_dreizuegig_solves_with_zero_violations(
         "tiebreak)."
     ),
 )
-async def test_seeded_grundschule_dreizuegig_solves_with_auto_assigned_teachers(
+async def test_seeded_grundschule_dreizuegig_solves_without_pinned_teachers(
     db_session: AsyncSession,
     client: AsyncClient,
     create_test_user: CreateUserFnDr,
     login_as: LoginFnDr,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Production-route mirror for the dreizuegige seed: skips the canonical
-    _TEACHER_ASSIGNMENTS_DREIZUEGIG UPDATE so the test exercises the
-    auto-assign distribution end-to-end. Item 32.
+    """Production-route mirror for the dreizuegige seed: skips the
+    canonical _TEACHER_ASSIGNMENTS_DREIZUEGIG UPDATE so the test
+    exercises the solver-driven teacher pick path (per ADR 0036)
+    end-to-end. Item 32.
 
-    The cross-class Religion trio is still pinned at seed time (it has to
-    be, because LessonSchoolClass relationships drive auto-assign
-    eligibility); only the per-class non-Religion teacher allocation
-    differs from the canonical sibling.
+    The cross-class Religion trio is still pinned at seed time (it has
+    to be, because LessonSchoolClass relationships drive eligibility);
+    only the per-class non-Religion teacher allocation differs from the
+    canonical sibling.
     """
     monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
     await seed_demo_grundschule_dreizuegig(db_session)
     await db_session.flush()
 
     admin, password = await create_test_user(
-        email="admin-dr-autoassign-seedtest@example.com",
-        password="seed-dr-autoassign-test-password-12345",  # noqa: S106
+        email="admin-dr-unpinned-seedtest@example.com",
+        password="seed-dr-unpinned-test-password-12345",  # noqa: S106
         role="admin",
     )
     await login_as(admin.email, password)

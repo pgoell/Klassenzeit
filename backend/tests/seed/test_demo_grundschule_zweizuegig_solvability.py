@@ -1,18 +1,21 @@
 """End-to-end solvability check for demo_grundschule_zweizuegig.
 
-The flow: seed -> per-class POST /api/classes/{id}/generate-lessons ->
-overwrite Lesson.teacher_id from _TEACHER_ASSIGNMENTS_ZWEIZUEGIG (so the
-teacher allocation stays stable as auto-assign evolves) -> per-class
-POST /api/classes/{id}/schedule -> assert each class produces violations
-== [] and the union of placements totals 196.
+Two flows: (a) the canonical pin-and-solve test
+(`_solves_with_zero_violations`) seeds the fixture, generates lessons,
+applies the `_TEACHER_ASSIGNMENTS_ZWEIZUEGIG` UPDATE to pin teacher
+allocations matching the Rust bench fixture, then schedules each class
+and asserts the union of placements totals 196.
+
+(b) the production-route mirror (`_solves_without_pinned_teachers`)
+seeds the fixture, generates lessons, then schedules each class WITHOUT
+the canonical UPDATE so the solver picks teachers per ADR 0036 from each
+Lesson's `teacher_candidates` list. `Lesson.teacher_id` is pin-only
+since item 63, so `POST /generate-lessons` produces unpinned Lessons by
+default.
 
 196 is the source of truth shared with the Rust bench fixture in
 solver/solver-core/benches/solver_fixtures.rs::zweizuegig_fixture; drift
 in either side breaks one test.
-
-Mirrors the HTTP-route pattern from test_demo_grundschule_solvability.py
-(no standalone ``generate_lessons_for_class`` helper exists; lesson
-generation is a route handler that auto-commits).
 """
 
 from collections.abc import Awaitable, Callable
@@ -134,27 +137,27 @@ async def test_seeded_grundschule_zweizuegig_solves_with_zero_violations(
         "auto-assign tiebreak)."
     ),
 )
-async def test_seeded_grundschule_zweizuegig_solves_with_auto_assigned_teachers(
+async def test_seeded_grundschule_zweizuegig_solves_without_pinned_teachers(
     db_session: AsyncSession,
     client: AsyncClient,
     create_test_user: CreateUserFnZw,
     login_as: LoginFnZw,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Production-route mirror: skips the canonical _TEACHER_ASSIGNMENTS_ZWEIZUEGIG
-    UPDATE so the test exercises whatever teacher distribution
-    auto_assign_teachers_for_lessons produces inside the generate-lessons route.
+    """Production-route mirror: skips the canonical
+    _TEACHER_ASSIGNMENTS_ZWEIZUEGIG UPDATE so the test exercises the
+    solver-driven teacher pick path (per ADR 0036) end-to-end.
 
-    Item 32: a feasibility regression that only manifests on the
-    auto-assign distribution would slip through the canonical-pin sibling.
+    Item 32: a feasibility regression that only manifests on unpinned
+    teachers would slip through the canonical-pin sibling.
     """
     monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
     await seed_demo_grundschule_zweizuegig(db_session)
     await db_session.flush()
 
     admin, password = await create_test_user(
-        email="admin-zw-autoassign-seedtest@example.com",
-        password="seed-zw-autoassign-test-password-12345",  # noqa: S106
+        email="admin-zw-unpinned-seedtest@example.com",
+        password="seed-zw-unpinned-test-password-12345",  # noqa: S106
         role="admin",
     )
     await login_as(admin.email, password)
