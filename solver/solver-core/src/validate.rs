@@ -428,7 +428,7 @@ pub fn validate_no_double_booking(
                 }
             }
         }
-        let assigned_teacher = lesson.assigned_teacher_id();
+        let assigned_teacher = p.teacher_id;
         match teacher_used.entry((assigned_teacher, p.time_block_id)) {
             Entry::Vacant(v) => {
                 v.insert(p.lesson_id);
@@ -1162,13 +1162,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: TeacherId(uuid(2)),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: TeacherId(uuid(41)),
             },
         ];
         let err = validate_no_double_booking(&p, &placements).unwrap_err();
@@ -1402,13 +1402,13 @@ mod tests {
                 lesson_id: p.lessons[0].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[0].id,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: TeacherId(uuid(2)),
             },
             Placement {
                 lesson_id: p.lessons[1].id,
                 time_block_id: p.time_blocks[0].id,
                 room_id: p.rooms[1].id,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: TeacherId(uuid(111)),
             },
         ];
         validate_no_double_booking(&p, &placements).unwrap();
