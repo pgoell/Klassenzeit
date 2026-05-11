@@ -1842,9 +1842,16 @@ fn seed_greedy_state_from_pins(
                 .entry((*class, tb.day_of_week))
                 .or_insert(0) += 1;
         }
+        // Item 77 sibling site: route the teacher_positions partition
+        // key through pl.teacher_id so the (teacher, day) partition
+        // matches state.used_teacher's (teacher, tb) seed. Reading
+        // lesson.assigned_teacher_id() here would partition under the
+        // teacher_candidates[0] fallback while used_teacher records the
+        // real teacher, drifting class_gap / teacher_gap delta
+        // arithmetic.
         let part = state
             .teacher_positions
-            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
+            .entry((pl.teacher_id, tb.day_of_week))
             .or_default();
         let ins = part.binary_search(&tb.position).unwrap_or_else(|i| i);
         if part.get(ins).copied() != Some(tb.position) {
