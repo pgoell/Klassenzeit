@@ -144,7 +144,7 @@ pub fn quality_report(
                 .push(tb.position);
         }
         by_teacher_day
-            .entry((lesson.assigned_teacher_id(), tb.day_of_week))
+            .entry((p.teacher_id, tb.day_of_week))
             .or_default()
             .push(tb.position);
     }

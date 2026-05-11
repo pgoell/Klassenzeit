@@ -67,23 +67,23 @@ Lessons in this section have `teacher_pin = None` and `teacher_candidates` widen
 
 | Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| grundschule | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| grundschule | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| grundschule | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| grundschule | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 32 | 0 | 1 | 0 | 2 | 0.00 | 1824 | 142036 | 720 | 1427 | 1 | 1.00 | 0 | - | 4/4 |
-| zweizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| grundschule | lahc | - | - | 20 | 20/20 | 0 | 45/45 | 24 | 0 | 0 | 0 | 2 | 0.54 | 60000 | 2816 | 0 | - | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_rr | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 42 | 0 | 1 | 0 | 2 | 0.53 | 64 | 2944 | 0 | 55 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_kempe | - | - | 20 | 20/20 | 0 | 45/45 | 24 | 0 | 0 | 0 | 2 | 0.78 | 60000 | 2816 | 0 | 5 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | lahc_rr_kempe | 5 | 25 | 20 | 20/20 | 0 | 45/45 | 44 | 0 | 1 | 0 | 2 | 1.02 | 16 | 2944 | 0 | 14 | 1 | 1.00 | 0 | - | 4/4 |
+| grundschule | cpsat | - | - | 20 | 20/20 | 0 | 45/45 | 22 | 0 | 0 | 0 | 2 | 0.00 | 1746 | 141760 | 715 | 1357 | 1 | 1.00 | 0 | - | 4/4 |
+| zweizuegig | lahc | - | - | 20 | 0/20 | 2 | 194/196 | - | - | - | - | - | 4.23 | 60000 | 2944 | - | - | - | - | - | - | - |
 | zweizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| zweizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | lahc_kempe | - | - | 20 | 0/20 | 2 | 194/196 | - | - | - | - | - | 6.70 | 60000 | 3072 | - | - | - | - | - | - | - |
 | zweizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1058 | 40 | 11 | 41 | 30 | 0.00 | 62347 | 965248 | 24903 | - | 5 | 0.65 | 40 | 1.00 | 2/4 |
-| dreizuegig | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| zweizuegig | cpsat | - | - | 20 | 20/20 | 0 | 196/196 | 1328 | 41 | 43 | 45 | 31 | 0.00 | 62351 | 1017280 | 24990 | - | 4 | 0.59 | 41 | 1.00 | 1/4 |
+| dreizuegig | lahc | - | - | 20 | 0/20 | 13 | 281/294 | - | - | - | - | - | 17.23 | 60000 | 3328 | - | - | - | - | - | - | - |
 | dreizuegig | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| dreizuegig | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | lahc_kempe | - | - | 20 | 0/20 | 13 | 281/294 | - | - | - | - | - | 15.14 | 60000 | 3200 | - | - | - | - | - | - | - |
 | dreizuegig | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 65469 | 2359320 | - | - | - | - | - | - | - |
-| lock_in | lahc | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| dreizuegig | cpsat | - | - | 20 | 0/20 | 294 | 0/294 | - | - | - | - | - | 0.00 | 65477 | 2357636 | - | - | - | - | - | - | - |
+| lock_in | lahc | - | - | 20 | 0/20 | 1 | 96/98 | - | - | - | - | - | 3.55 | 60000 | 2944 | - | - | - | - | - | - | - |
 | lock_in | lahc_rr | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| lock_in | lahc_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| lock_in | lahc_kempe | - | - | 20 | 0/20 | 1 | 96/98 | - | - | - | - | - | 3.19 | 60000 | 2944 | - | - | - | - | - | - | - |
 | lock_in | lahc_rr_kempe | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 477 | 6 | 5 | 48 | 11 | 0.00 | 60497 | 232144 | 2542 | - | 3 | 0.00 | 6 | - | 1/4 |
+| lock_in | cpsat | - | - | 20 | 20/20 | 0 | 98/98 | 481 | 7 | 5 | 48 | 12 | 0.00 | 60501 | 241896 | 2616 | - | 4 | 0.00 | 7 | - | 1/4 |
