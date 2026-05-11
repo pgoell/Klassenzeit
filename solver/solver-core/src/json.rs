@@ -282,6 +282,7 @@ mod tests {
                 lesson_id: LessonId(lesson_uuid),
                 time_block_id: TimeBlockId(time_block_uuid),
                 room_id: RoomId(room_uuid),
+                teacher_id: None,
             }],
         };
         let json = serde_json::to_string(&original).unwrap();

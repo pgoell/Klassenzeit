@@ -845,6 +845,7 @@ fn build_lahc_pinned_problem() -> Problem {
             lesson_id: lesson_pinned,
             time_block_id: tb_zero,
             room_id: room,
+            teacher_id: None,
         }],
     }
 }

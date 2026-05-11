@@ -1753,8 +1753,18 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
             continue;
         }
 
-        let pin_teacher = lesson.assigned_teacher_id();
+        // Per-pin teacher_id: prefer the wire-format pin.teacher_id
+        // (which a caller passing in placements from a prior solve sets
+        // to the picker's actual choice). Fall back to
+        // lesson.assigned_teacher_id() (legacy callers + pinned-mode
+        // callers where teacher_pin matches teacher_candidates[0]); item
+        // 77 demoted this from the unconditional source so pins
+        // produced under unpinned mode don't collapse two distinct
+        // teachers to the same teacher_candidates[0] fallback.
         for pin in &pins {
+            let pin_teacher = pin
+                .teacher_id
+                .unwrap_or_else(|| lesson.assigned_teacher_id());
             seed.push(Placement {
                 lesson_id: pin.lesson_id,
                 time_block_id: pin.time_block_id,
@@ -1783,17 +1793,15 @@ fn seed_greedy_state_from_pins(
     for pl in placements {
         let lesson = lessons_by_id[&pl.lesson_id];
         let tb = tb_by_id[&pl.time_block_id];
-        state
-            .used_teacher
-            .insert((lesson.assigned_teacher_id(), tb.id));
+        // Item 77: read pl.teacher_id (stamped by validate_pins from
+        // pin.teacher_id when present), not lesson.assigned_teacher_id().
+        // Mirrors the post-solve-readers rule from item 74.
+        state.used_teacher.insert((pl.teacher_id, tb.id));
         state.used_room.insert((pl.room_id, tb.id));
         for class in &lesson.school_class_ids {
             state.used_class.insert((*class, tb.id));
         }
-        *state
-            .hours_by_teacher
-            .entry(lesson.assigned_teacher_id())
-            .or_insert(0) += 1;
+        *state.hours_by_teacher.entry(pl.teacher_id).or_insert(0) += 1;
         for class in &lesson.school_class_ids {
             let part = state
                 .class_positions
@@ -2773,6 +2781,7 @@ mod tests {
             lesson_id: LessonId(solve_uuid(60)),
             time_block_id: TimeBlockId(solve_uuid(11)),
             room_id: RoomId(solve_uuid(30)),
+            teacher_id: None,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -2811,6 +2820,7 @@ mod tests {
             lesson_id: bogus_lesson_id,
             time_block_id: TimeBlockId(solve_uuid(10)),
             room_id: RoomId(solve_uuid(30)),
+            teacher_id: None,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -2948,21 +2958,25 @@ mod tests {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(10)),
                 room_id: RoomId(solve_uuid(30)),
+                teacher_id: None,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(11)),
                 room_id: RoomId(solve_uuid(30)),
+                teacher_id: None,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(12)),
                 room_id: RoomId(solve_uuid(30)),
+                teacher_id: None,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(13)),
                 room_id: RoomId(solve_uuid(30)),
+                teacher_id: None,
             },
         ];
 
@@ -3530,21 +3544,25 @@ mod tests {
                     lesson_id: lesson_a,
                     time_block_id: tb_d0_p0,
                     room_id,
+                    teacher_id: None,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_b,
                     time_block_id: tb_d0_p1,
                     room_id,
+                    teacher_id: None,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_c,
                     time_block_id: tb_d0_p2,
                     room_id,
+                    teacher_id: None,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_d,
                     time_block_id: tb_d1_p0,
                     room_id,
+                    teacher_id: None,
                 },
             ],
         };
