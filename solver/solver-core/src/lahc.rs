@@ -28,10 +28,14 @@ const LAHC_LIST_LEN: usize = 500;
 /// pair), the lock is the source of truth. Otherwise fall back to
 /// `lesson.assigned_teacher_id()` (the pin shorthand).
 ///
-/// LAHC bookkeeping (`rr_remove_row_bookkeeping`, `replay_placement`,
-/// `kempe_rollback`) flows through this helper so the same key the
-/// solver used to populate `state.used_teacher` etc. is the key we
-/// decrement on row removal.
+/// Kempe BFS conflict-detection sites (`kempe_build_chain`'s
+/// popped-vs-new-neighbour check and the bipartiteness same-color
+/// cross-check) flow through this helper because they read teacher
+/// identity from `&[Placement]` views without a row in hand. Row-based
+/// callers (rollback, row removal) read `row.teacher_id` directly
+/// instead; the row is the canonical record of which teacher actually
+/// populated `state.used_teacher` at apply time, and trusting state
+/// during rollback drifts (item 75).
 fn lesson_teacher_in_state(state: &crate::solve::GreedyState, lesson: &Lesson) -> TeacherId {
     for class in &lesson.school_class_ids {
         if let Some(t) = state
@@ -1287,12 +1291,16 @@ fn rr_remove_row_bookkeeping(
         .expect("removed row's tb resolves");
     let day = tb.day_of_week;
     let position = tb.position;
-    // Item 68: prefer the per-(class, subject) teacher lock when set
-    // (that is the teacher whose state was actually populated by the
-    // solver pick). Fall back to `lesson.assigned_teacher_id()` for
-    // pinned-only paths and unit tests that pre-seed state from
-    // `assigned_teacher_id()`.
-    let teacher = lesson_teacher_in_state(state, lesson);
+    // Item 75: read the teacher from the row itself. The Placement was
+    // written by `try_place_block` / `kempe_apply_block` with
+    // `teacher_id = chosen_teacher` and the matching
+    // `state.used_teacher.insert((chosen_teacher, tb.id))`, so the row
+    // is the canonical record of which slot we must decrement.
+    // `lesson_teacher_in_state` is unsafe here because
+    // `state.class_subject_teacher` may have drifted (R&R rollback can
+    // run after a recreate inserted a different teacher into the lock
+    // map, while the snapshot row preserves the original teacher).
+    let teacher = row.teacher_id;
     state.used_teacher.remove(&(teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
         state.used_class.remove(&(*class, row.time_block_id));
@@ -1355,12 +1363,14 @@ fn replay_placement(
     let day = tb.day_of_week;
     let position = tb.position;
 
-    // Item 68: replay using the lock-map teacher when set (the original
-    // chosen teacher); fall back to `lesson.assigned_teacher_id()`
-    // otherwise. The placement row itself carries the same teacher; we
-    // prefer the state-derived helper for symmetry with
-    // `rr_remove_row_bookkeeping`.
-    let teacher = lesson_teacher_in_state(state, lesson);
+    // Item 75: read the teacher from the row itself, not from
+    // `state.class_subject_teacher`. The snapshot row preserves the
+    // original solver-picked teacher; reading state during R&R rollback
+    // returns the recreate's pick (the lock map drifted) and inserts
+    // into the wrong `used_teacher` slot, desynchronising state from
+    // the replayed placement and surfacing as a double-booking when a
+    // subsequent move writes a conflicting placement.
+    let teacher = row.teacher_id;
     placements.push(row.clone());
     state.used_teacher.insert((teacher, row.time_block_id));
     for class in &lesson.school_class_ids {
@@ -2391,10 +2401,11 @@ fn kempe_rollback(
                 .expect("rollback tb resolves");
             let day = tb.day_of_week;
             let position = tb.position;
-            // Item 68: prefer the lock-map teacher (the original solver
-            // pick); fall back to `lesson.assigned_teacher_id()` if no
-            // lock is set.
-            let teacher = lesson_teacher_in_state(state, lesson);
+            // Item 75: read the teacher from the row itself. Same
+            // canonical-record argument as `rr_remove_row_bookkeeping`;
+            // safer than the state-derived helper because the lock map
+            // may have drifted before rollback runs.
+            let teacher = p.teacher_id;
             state.used_teacher.remove(&(teacher, p.time_block_id));
             for class in &lesson.school_class_ids {
                 state.used_class.remove(&(*class, p.time_block_id));
@@ -2579,11 +2590,13 @@ mod tests {
             lesson_group_id: None,
         };
 
+        // Item 75: rr_remove_row_bookkeeping reads row.teacher_id, so the
+        // placeholder must match the teacher_id seeded into state.
         let mut placements = vec![Placement {
             lesson_id,
             time_block_id: tb.id,
             room_id: room,
-            teacher_id: TeacherId(Uuid::nil()),
+            teacher_id: teacher,
         }];
         let mut state = crate::solve::GreedyState::new();
         state.used_teacher.insert((teacher, tb.id));
@@ -2698,18 +2711,21 @@ mod tests {
             lesson_group_id: None,
         };
 
+        // Item 75: rr_remove_row_bookkeeping reads row.teacher_id (the
+        // canonical record of which used_teacher slot to decrement), so
+        // the placeholder must match the teacher_id seeded into state.
         let mut placements = vec![
             Placement {
                 lesson_id,
                 time_block_id: tb_a.id,
                 room_id: room,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher,
             },
             Placement {
                 lesson_id,
                 time_block_id: tb_b.id,
                 room_id: room,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher,
             },
         ];
         let mut state = crate::solve::GreedyState::new();
@@ -3656,6 +3672,77 @@ mod tests {
         );
     }
 
+    /// RED for OPEN_THINGS item 75. Without `Placement.teacher_id` keying,
+    /// LAHC R&R's rollback path silently desynchronises `state.used_teacher`
+    /// from `placements`: `replay_placement` reads
+    /// `lesson_teacher_in_state(state, lesson)`, but the recreate attempt
+    /// may have inserted a different teacher into
+    /// `state.class_subject_teacher` before the rollback fires, so the
+    /// helper returns the recreate's pick instead of the snapshot's
+    /// canonical teacher. `state.used_teacher` is inserted with the wrong
+    /// key, the running `state.canonical_score` diverges from
+    /// `score::score_solution(...)`, and the per-iteration
+    /// `debug_assert_eq!` at the LAHC iteration tail (lahc.rs:256) trips
+    /// within a few thousand iterations. In release builds the same drift
+    /// surfaces later as a `validate_no_double_booking` failure.
+    ///
+    /// Exercises the canonical zweizuegig fixture with `teacher_pin`
+    /// cleared and `teacher_candidates` widened to the dedup'd,
+    /// qualified-teachers set (mirrors `solver-bench --teacher-pins off`,
+    /// per OPEN_THINGS item 75) under production-active weights.
+    ///
+    /// Iteration-count-bound (not wall-clock-bound) so the same
+    /// (seed, max_iterations) shape REDs deterministically in DEBUG mode
+    /// (which CI runs via `cargo nextest run --workspace`) as well as
+    /// RELEASE. `lahc_rr_period = 5` raises R&R frequency relative to the
+    /// bench default (50) so a fixed iteration cap stays within ~15s of
+    /// wall-clock in debug; seed=1 plus `max_iterations=10_000` REDs
+    /// inside ~3.3s pre-fix (debug `debug_assert_eq!` at the iteration
+    /// tail trips well before iter 10000) and PASSES inside ~14s post-fix
+    /// (debug, exhausts the full iteration cap). The generous 60s
+    /// `deadline` exists only so debug-mode runtime is never truncated;
+    /// the actual stopping criterion is `max_iterations`.
+    #[test]
+    fn rr_attempt_rollback_does_not_desync_used_teacher_when_classes_share_unpinned_teacher() {
+        use std::collections::HashMap as Map;
+
+        let mut problem = crate::test_fixtures::zweizuegig_fixture();
+        let mut quals_by_subject: Map<SubjectId, Vec<TeacherId>> = Map::new();
+        for q in &problem.teacher_qualifications {
+            quals_by_subject
+                .entry(q.subject_id)
+                .or_default()
+                .push(q.teacher_id);
+        }
+        for v in quals_by_subject.values_mut() {
+            v.sort_by_key(|t| t.0);
+            v.dedup();
+        }
+        for lesson in &mut problem.lessons {
+            lesson.teacher_pin = None;
+            lesson.teacher_candidates = quals_by_subject
+                .get(&lesson.subject_id)
+                .cloned()
+                .unwrap_or_default();
+        }
+
+        let cfg = SolveConfig {
+            seed: 1,
+            deadline: Some(std::time::Duration::from_secs(60)),
+            max_iterations: Some(10_000),
+            lahc_rr_period: Some(5),
+            weights: crate::PRODUCTION_ACTIVE_WEIGHTS,
+            ..SolveConfig::default()
+        };
+
+        let result = crate::solve_with_config(&problem, &cfg);
+        assert!(
+            result.is_ok(),
+            "LAHC R&R must not produce a double-booked teacher under unpinned candidates; got {:?}",
+            result.err()
+        );
+    }
+
     /// Build a tiny problem-shape used by several Kempe unit tests:
     /// `n_lessons` block_size=1 lessons all sharing class A, each with a
     /// distinct teacher and distinct lesson-id. Two days, `slots_per_day`
@@ -3771,22 +3858,24 @@ mod tests {
         let tb_d0_p0 = kempe_tb_at(&tb_ids, 2, 0, 0);
         let tb_d1_p0 = kempe_tb_at(&tb_ids, 2, 1, 0);
 
+        let teacher0 = problem_for_attempt.lessons[0].assigned_teacher_id();
+        let teacher1 = problem_for_attempt.lessons[1].assigned_teacher_id();
+        // Item 75: Kempe rollback reads p.teacher_id; seed the rows with
+        // the canonical teacher (matches the used_teacher slot below).
         let mut placements = vec![
             Placement {
                 lesson_id: lessons[0],
                 time_block_id: tb_d0_p0,
                 room_id: room,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher0,
             },
             Placement {
                 lesson_id: lessons[1],
                 time_block_id: tb_d1_p0,
                 room_id: room,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher1,
             },
         ];
-        let teacher0 = problem_for_attempt.lessons[0].assigned_teacher_id();
-        let teacher1 = problem_for_attempt.lessons[1].assigned_teacher_id();
         let class = problem_for_attempt.lessons[0].school_class_ids[0];
         let subject0 = problem_for_attempt.lessons[0].subject_id;
         let subject1 = problem_for_attempt.lessons[1].subject_id;
@@ -4865,30 +4954,34 @@ mod tests {
             ],
             ..problem
         };
+        // Item 75: kempe_rollback reads p.teacher_id (the row is the
+        // canonical record of which `used_teacher` slot was populated at
+        // apply time), so the placeholders must match the teacher_ids
+        // seeded into state.used_teacher below.
         let placements_pre = vec![
             Placement {
                 lesson_id: lesson0,
                 time_block_id: tb_d0_p0,
                 room_id: room_a,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher0,
             },
             Placement {
                 lesson_id: lesson1,
                 time_block_id: tb_d1_p0,
                 room_id: room_b,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher1,
             },
             Placement {
                 lesson_id: lesson_lock_d1,
                 time_block_id: tb_d1_p0,
                 room_id: room_a,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher_lock,
             },
             Placement {
                 lesson_id: lesson_lock_d0,
                 time_block_id: tb_d0_p0,
                 room_id: room_b,
-                teacher_id: TeacherId(Uuid::nil()),
+                teacher_id: teacher_lock,
             },
         ];
         let mut state_pre = crate::solve::GreedyState::new();
