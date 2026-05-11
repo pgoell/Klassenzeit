@@ -206,6 +206,8 @@ pub fn solve_with_config_stats(
                             &teacher_max,
                             &class_max_lessons_per_day,
                             &config.weights,
+                            &class_teacher_lookup,
+                            &subject_qualified_teachers,
                             &mut state,
                             &mut solution.placements,
                             &tb_order,
@@ -1112,6 +1114,8 @@ fn try_place_group(
     teacher_max: &HashMap<TeacherId, u8>,
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     weights: &ConstraintWeights,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
     state: &mut GreedyState,
     placements: &mut Vec<Placement>,
     tb_order: &[usize],
@@ -1134,6 +1138,49 @@ fn try_place_group(
         }
     }
 
+    // Item 74: per-member teacher pre-resolution. For each member, build
+    // its effective candidate list:
+    //   * If any of the member's classes already has a
+    //     `class_subject_teacher` lock for the member's subject, the
+    //     candidates collapse to the locked teacher; disagreement among
+    //     the member's class locks is hard-infeasible.
+    //   * Else if `member.teacher_pin` is set, collapse to [pin].
+    //   * Else use `member.teacher_candidates`.
+    // The picker iterates the member's candidates at each window and
+    // skips any candidate already in `state.used_teacher` for any TB in
+    // the window OR already chosen by an earlier member in this window.
+    //
+    // For each member we store (locked_teacher, locked_flag); the
+    // locked flag suppresses `prefer_class_teacher_lock_cost` since a
+    // pre-locked or pinned teacher already lives in `state.canonical_score`.
+    // When `locked_teacher` is `Some`, the per-window picker treats it as
+    // a 1-element candidate set; otherwise it walks `member.teacher_candidates`.
+    let mut member_locked: Vec<Option<TeacherId>> = Vec::with_capacity(members.len());
+    for member in &members {
+        let mut existing_lock: Option<TeacherId> = None;
+        let mut lock_conflict = false;
+        for class in &member.school_class_ids {
+            if let Some(t) = state
+                .class_subject_teacher
+                .get(&(*class, member.subject_id))
+            {
+                match existing_lock {
+                    None => existing_lock = Some(*t),
+                    Some(prev) if prev != *t => {
+                        lock_conflict = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if lock_conflict {
+            return false;
+        }
+        let locked = existing_lock.or(member.teacher_pin);
+        member_locked.push(locked);
+    }
+
     #[derive(Debug, Clone)]
     struct GroupCandidate {
         outer_pos: usize,
@@ -1141,9 +1188,12 @@ fn try_place_group(
         start_pos: u8,
         end_pos: u8,
         rooms: Vec<RoomId>,
+        teachers: Vec<TeacherId>,
         score: u32,
     }
     let mut best: Option<GroupCandidate> = None;
+    // Reused per-window buffer to avoid allocation in the hot loop.
+    let mut chosen_teachers_buf: Vec<TeacherId> = Vec::with_capacity(members.len());
 
     'outer: for outer_pos in 0..tb_order.len() {
         if outer_pos + n_usize > tb_order.len() {
@@ -1160,35 +1210,14 @@ fn try_place_group(
             }
         }
 
+        // Class-side hard-feasibility (teacher-independent). The teacher
+        // feasibility check moves into the per-member picker below.
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[outer_pos + k]];
-            for member in &members {
-                if state
-                    .used_teacher
-                    .contains(&(member.assigned_teacher_id(), tb.id))
-                    || idx.teacher_blocked(member.assigned_teacher_id(), tb.id)
-                {
-                    continue 'outer;
-                }
-            }
             for class in &class_set {
                 if state.used_class.contains(&(*class, tb.id)) {
                     continue 'outer;
                 }
-            }
-        }
-        for member in &members {
-            let current = state
-                .hours_by_teacher
-                .get(&member.assigned_teacher_id())
-                .copied()
-                .unwrap_or(0);
-            let max = teacher_max
-                .get(&member.assigned_teacher_id())
-                .copied()
-                .unwrap_or(0);
-            if current.saturating_add(n) > max {
-                continue 'outer;
             }
         }
 
@@ -1313,8 +1342,132 @@ fn try_place_group(
             continue;
         }
 
+        // Item 74: per-member teacher picker. Mirrors the room picker's
+        // `taken: HashSet<RoomId>` shape with a per-window
+        // `chosen_teachers_buf: Vec<TeacherId>` (allocation-reused). For
+        // each member: iterate the member's effective candidates, skip
+        // any teacher already busy in the window, already chosen by an
+        // earlier member, over capacity, or teacher-blocked. Score each
+        // feasible candidate by per-member teacher_gap delta plus
+        // prefer_class_teacher_lock_cost across the member's classes
+        // (only when this placement would freshly set the lock; pre-
+        // locked candidates contribute zero per the closed-form scorer
+        // contract). Tiebreak on lowest TeacherId.0 (byte-stable, matches
+        // unpin_teachers_in_problem's sort).
         let start_pos = first_tb.position;
         let end_pos = start_pos + n - 1;
+        chosen_teachers_buf.clear();
+        let mut teacher_delta_sum: i64 = 0;
+        let mut prefer_class_teacher_cost_sum: u32 = 0;
+        let mut all_teachers_assigned = true;
+        for (m_idx, member) in members.iter().enumerate() {
+            let locked = member_locked[m_idx];
+            let is_locked = locked.is_some();
+            // When the member is locked or pinned, iterate a 1-element
+            // view; otherwise walk `member.teacher_candidates`. The locked
+            // single-element slice is materialised on the stack as a
+            // `[TeacherId; 1]` so iteration shares one code path.
+            let locked_slot: [TeacherId; 1];
+            let cands_slice: &[TeacherId] = if let Some(t) = locked {
+                locked_slot = [t];
+                &locked_slot[..]
+            } else {
+                &member.teacher_candidates[..]
+            };
+            let mut best_for_member: Option<(TeacherId, i64, u32)> = None; // (teacher, teacher_delta, lock_cost)
+            for &candidate in cands_slice {
+                // Hard-feasibility against the window for this candidate.
+                let mut busy_in_window = false;
+                for k in 0..n_usize {
+                    let tb = &problem.time_blocks[tb_order[outer_pos + k]];
+                    if state.used_teacher.contains(&(candidate, tb.id))
+                        || idx.teacher_blocked(candidate, tb.id)
+                    {
+                        busy_in_window = true;
+                        break;
+                    }
+                }
+                if busy_in_window {
+                    continue;
+                }
+                if chosen_teachers_buf.contains(&candidate) {
+                    continue;
+                }
+                let current = state.hours_by_teacher.get(&candidate).copied().unwrap_or(0);
+                let max = teacher_max.get(&candidate).copied().unwrap_or(0);
+                if current.saturating_add(n) > max {
+                    continue;
+                }
+
+                // Per-candidate teacher_gap delta on the member's day partition.
+                let teacher_partition = state
+                    .teacher_positions
+                    .get(&(candidate, first_tb.day_of_week));
+                let teacher_old = match teacher_partition {
+                    Some(p) => crate::score::gap_count(p),
+                    None => 0,
+                };
+                let teacher_new =
+                    gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
+                let teacher_delta = i64::from(teacher_new) - i64::from(teacher_old);
+
+                // prefer_class_teacher cost: sum across member's classes only
+                // when the lock would be freshly set by this placement.
+                let mut lock_cost: u32 = 0;
+                if !is_locked && weights.prefer_class_teacher != 0 {
+                    for class in &member.school_class_ids {
+                        lock_cost = lock_cost.saturating_add(prefer_class_teacher_lock_cost(
+                            *class,
+                            member.subject_id,
+                            candidate,
+                            class_teacher_lookup,
+                            subject_qualified_teachers,
+                            weights,
+                        ));
+                    }
+                }
+
+                // Score this candidate as (teacher_delta * weight + lock_cost).
+                let cand_cost = teacher_delta
+                    .saturating_mul(i64::from(weights.teacher_gap))
+                    .saturating_add(i64::from(lock_cost));
+                let take = match best_for_member {
+                    None => true,
+                    Some((best_t, best_delta, best_lock)) => {
+                        let best_cost = best_delta
+                            .saturating_mul(i64::from(weights.teacher_gap))
+                            .saturating_add(i64::from(best_lock));
+                        if cand_cost < best_cost {
+                            true
+                        } else if cand_cost == best_cost {
+                            // Tiebreak: lowest TeacherId.0 (byte order) wins.
+                            candidate.0 < best_t.0
+                        } else {
+                            false
+                        }
+                    }
+                };
+                if take {
+                    best_for_member = Some((candidate, teacher_delta, lock_cost));
+                }
+            }
+            match best_for_member {
+                Some((t, delta, lock_cost)) => {
+                    chosen_teachers_buf.push(t);
+                    teacher_delta_sum += delta;
+                    prefer_class_teacher_cost_sum =
+                        prefer_class_teacher_cost_sum.saturating_add(lock_cost);
+                }
+                None => {
+                    all_teachers_assigned = false;
+                    break;
+                }
+            }
+        }
+        if !all_teachers_assigned {
+            continue;
+        }
+
         let mut class_delta_sum: i64 = 0;
         for class in &class_set {
             let class_partition = state.class_positions.get(&(*class, first_tb.day_of_week));
@@ -1324,18 +1477,6 @@ fn try_place_group(
             };
             let class_new = gap_count_after_window_insert(class_partition, start_pos, end_pos);
             class_delta_sum += i64::from(class_new) - i64::from(class_old);
-        }
-        let mut teacher_delta_sum: i64 = 0;
-        for member in &members {
-            let teacher_partition = state
-                .teacher_positions
-                .get(&(member.assigned_teacher_id(), first_tb.day_of_week));
-            let teacher_old = match teacher_partition {
-                Some(p) => crate::score::gap_count(p),
-                None => 0,
-            };
-            let teacher_new = gap_count_after_window_insert(teacher_partition, start_pos, end_pos);
-            teacher_delta_sum += i64::from(teacher_new) - i64::from(teacher_old);
         }
         let max_pos = max_position_per_day
             .get(&first_tb.day_of_week)
@@ -1381,7 +1522,9 @@ fn try_place_group(
             }
             weights.class_day_balance.saturating_mul(acc)
         };
-        let score = slice_score.saturating_add(balance_post);
+        let score = slice_score
+            .saturating_add(balance_post)
+            .saturating_add(prefer_class_teacher_cost_sum);
 
         if let Some(b) = &best {
             if score >= b.score {
@@ -1395,6 +1538,7 @@ fn try_place_group(
             start_pos,
             end_pos,
             rooms: chosen,
+            teachers: chosen_teachers_buf.clone(),
             score,
         });
 
@@ -1409,7 +1553,7 @@ fn try_place_group(
 
     for (member_pos, member) in members.iter().enumerate() {
         let room_id = c.rooms[member_pos];
-        let member_teacher = member.assigned_teacher_id();
+        let member_teacher = c.teachers[member_pos];
         for k in 0..n_usize {
             let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
             placements.push(Placement {
@@ -1421,10 +1565,7 @@ fn try_place_group(
             state.used_teacher.insert((member_teacher, tb.id));
             state.used_room.insert((room_id, tb.id));
         }
-        *state
-            .hours_by_teacher
-            .entry(member.assigned_teacher_id())
-            .or_insert(0) += n;
+        *state.hours_by_teacher.entry(member_teacher).or_insert(0) += n;
     }
     for k in 0..n_usize {
         let tb = &problem.time_blocks[tb_order[c.outer_pos + k]];
@@ -1439,10 +1580,11 @@ fn try_place_group(
             part.insert(ins, pos);
         }
     }
-    for member in &members {
+    for (member_pos, _member) in members.iter().enumerate() {
+        let member_teacher = c.teachers[member_pos];
         let part = state
             .teacher_positions
-            .entry((member.assigned_teacher_id(), c.day))
+            .entry((member_teacher, c.day))
             .or_default();
         for pos in c.start_pos..=c.end_pos {
             let ins = part.binary_search(&pos).unwrap_or_else(|i| i);
@@ -1451,7 +1593,7 @@ fn try_place_group(
     }
     for (member_pos, member) in members.iter().enumerate() {
         let room_id = c.rooms[member_pos];
-        let member_teacher = member.assigned_teacher_id();
+        let member_teacher = c.teachers[member_pos];
         for class in &member.school_class_ids {
             let entry = state
                 .locked_room
@@ -1462,7 +1604,9 @@ fn try_place_group(
             // subject) teacher lock per member. Each lesson-group member
             // is a distinct subject (per-Jahrgang Religion trio: RK / RE
             // / ETH), so members do not collide on the same (class,
-            // subject) key.
+            // subject) key. Item 74: the chosen teacher comes from the
+            // per-member picker walk, not member.assigned_teacher_id().
+            // `or_insert` (not `insert`) preserves R&R rollback semantics.
             state
                 .class_subject_teacher
                 .entry((*class, member.subject_id))
@@ -3769,5 +3913,176 @@ mod tests {
             "picker must skip TB_0 because the locked teacher T1 is already busy there; \
              producing a placement at TB_0 would be the item 74 double-book"
         );
+    }
+
+    #[test]
+    fn try_place_group_picker_avoids_same_teacher_across_members() {
+        // Lesson-group co-placement: 3 members sharing one lesson_group_id,
+        // each on its own subject, all in one class. Each member's
+        // teacher_candidates is [T0, T1, T2] (widened/unpinned). State
+        // pre-binds (T0, TB_0). The picker must place all 3 members at a
+        // window where each member chooses a distinct teacher; no member
+        // landing at TB_0 may pick T0.
+        //
+        // Item 74: pre-fix, the group picker reads `member.assigned_teacher_id()`
+        // = `teacher_candidates[0]` = T0 for every member, so either the
+        // placement collapses to a triple-T0 double-book or the second-member
+        // used_teacher precheck rejects every window.
+        use crate::ids::LessonGroupId;
+        let day = 0u8;
+        let tb_ids: Vec<TimeBlockId> = (0..5).map(|i| TimeBlockId(solve_uuid(100 + i))).collect();
+        let time_blocks: Vec<TimeBlock> = tb_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| TimeBlock {
+                id: *id,
+                day_of_week: day,
+                position: i as u8,
+            })
+            .collect();
+
+        let t0 = TeacherId(solve_uuid(30));
+        let t1 = TeacherId(solve_uuid(31));
+        let t2 = TeacherId(solve_uuid(32));
+        let teachers = vec![
+            Teacher {
+                id: t0,
+                max_hours_per_week: 28,
+            },
+            Teacher {
+                id: t1,
+                max_hours_per_week: 28,
+            },
+            Teacher {
+                id: t2,
+                max_hours_per_week: 28,
+            },
+        ];
+        let rooms: Vec<Room> = (0..3)
+            .map(|i| Room {
+                id: RoomId(solve_uuid(50 + i)),
+            })
+            .collect();
+
+        let subjects: Vec<Subject> = (0..3)
+            .map(|i| Subject {
+                id: SubjectId(solve_uuid(60 + i)),
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            })
+            .collect();
+
+        let class = SchoolClass {
+            id: SchoolClassId(solve_uuid(70)),
+            home_room_id: Some(rooms[0].id),
+            max_lessons_per_day: None,
+            class_teacher_id: None,
+        };
+
+        let group_id = LessonGroupId(solve_uuid(80));
+        let lessons: Vec<Lesson> = subjects
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Lesson {
+                id: LessonId(solve_uuid(200 + (i as u8))),
+                school_class_ids: vec![class.id],
+                subject_id: s.id,
+                teacher_candidates: vec![t0, t1, t2],
+                teacher_pin: None,
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: Some(group_id),
+            })
+            .collect();
+
+        let teacher_qualifications: Vec<TeacherQualification> = {
+            let mut quals: Vec<TeacherQualification> = Vec::new();
+            for s in &subjects {
+                for &t in &[t0, t1, t2] {
+                    quals.push(TeacherQualification {
+                        teacher_id: t,
+                        subject_id: s.id,
+                    });
+                }
+            }
+            quals
+        };
+
+        let problem = Problem {
+            time_blocks: time_blocks.clone(),
+            teachers: teachers.clone(),
+            rooms: rooms.clone(),
+            subjects: subjects.clone(),
+            school_classes: vec![class.clone()],
+            lessons: lessons.clone(),
+            teacher_qualifications,
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let idx = crate::index::Indexed::new(&problem);
+        let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        let mut state = GreedyState::new();
+        state.used_teacher.insert((t0, tb_ids[0]));
+        state.hours_by_teacher.insert(t0, 1);
+
+        let teacher_max: HashMap<TeacherId, u8> = teachers
+            .iter()
+            .map(|t| (t.id, t.max_hours_per_week))
+            .collect();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> =
+            std::iter::once((class.id, None)).collect();
+        let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+        for s in &subjects {
+            subject_qualified_teachers
+                .entry(s.id)
+                .or_default()
+                .extend([t0, t1, t2]);
+        }
+        let tb_order: Vec<usize> = (0..time_blocks.len()).collect();
+        let room_order: Vec<usize> = (0..rooms.len()).collect();
+        let max_position_per_day: HashMap<u8, u8> = std::iter::once((day, 4)).collect();
+
+        let member_indices: Vec<usize> = (0..lessons.len()).collect();
+        let mut placements: Vec<Placement> = Vec::new();
+        let placed = try_place_group(
+            &problem,
+            &member_indices,
+            1,
+            &idx,
+            &teacher_max,
+            &class_max_lessons_per_day,
+            &weights,
+            &class_teacher_lookup,
+            &subject_qualified_teachers,
+            &mut state,
+            &mut placements,
+            &tb_order,
+            &room_order,
+            &max_position_per_day,
+            1,
+        );
+
+        assert!(placed, "group must place");
+        assert_eq!(placements.len(), 3, "one placement per member");
+        let chosen: HashSet<TeacherId> = placements.iter().map(|p| p.teacher_id).collect();
+        assert_eq!(chosen.len(), 3, "every member must pick a distinct teacher");
+        // T0 is busy at TB_0; if any member lands at TB_0, that member must
+        // not pick T0. (If the window lands at TB_1+, T0 may legitimately
+        // be picked by one member.)
+        for p in &placements {
+            if p.time_block_id == tb_ids[0] {
+                assert_ne!(
+                    p.teacher_id, t0,
+                    "member at TB_0 must not pick T0 because T0 is busy at TB_0"
+                );
+            }
+        }
     }
 }
