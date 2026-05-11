@@ -76,15 +76,26 @@ pub fn score_solution(
             .push(tb.position);
     }
 
+    // Dedup `by_class_day` Vec values in-place by sort+dedup so a single
+    // (class, day, position) slot counts once regardless of how many
+    // lesson-group co-placed lessons sit on it. Mirrors the per-class
+    // partition shape that LAHC's `state.class_positions` maintains
+    // (`apply_change_move` / `apply_kempe`'s dedup-on-insert guard at
+    // `lahc.rs::apply_change_move`'s class-positions update site). The
+    // dedup must happen BEFORE `class_day_balance_cost` so its `.len()`
+    // count matches the per-class-day partition cardinality, not the
+    // raw placement count. Without this, `score_solution`'s
+    // `class_day_balance` over-counts lesson-group placements (3 per
+    // trio slot) while LAHC's `class_day_balance_cost_for_class` delta
+    // arithmetic reads the dedup'd count (1 per trio slot); the
+    // mismatch surfaces as a per-iteration `state.canonical_score`
+    // drift over Change-move iterations (OPEN_THINGS item 76).
+    for v in by_class_day.values_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
     let class_balance = class_day_balance_cost(&by_class_day, &problem.school_classes, days);
-    let class_gaps: u32 = by_class_day
-        .into_values()
-        .map(|mut v| {
-            v.sort_unstable();
-            v.dedup();
-            gap_count(&v)
-        })
-        .sum();
+    let class_gaps: u32 = by_class_day.into_values().map(|v| gap_count(&v)).sum();
     let teacher_gaps: u32 = by_teacher_day
         .into_values()
         .map(|mut v| {
