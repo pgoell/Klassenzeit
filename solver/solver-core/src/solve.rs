@@ -3467,4 +3467,307 @@ mod tests {
              actual day = {chosen_day}"
         );
     }
+
+    #[test]
+    fn try_place_block_picker_skips_busy_teacher_candidate() {
+        // 2-teacher 1-subject 1-class problem. Pre-bind state.used_teacher
+        // for (T1, TB_0) so the picker MUST choose T2 at TB_0 when called on
+        // a lesson with teacher_candidates = [T1, T2].
+        //
+        // Item 74: under unpinned candidates, this is the exact mechanism
+        // the FFD picker must guard. The line-839 check inside
+        // `try_place_block` iterates each candidate and skips any that is
+        // already busy at any TB in the window; this test pins that
+        // contract so future picker edits cannot regress it.
+        let day = 0u8;
+        let tb_ids: Vec<TimeBlockId> = (0..5).map(|i| TimeBlockId(solve_uuid(100 + i))).collect();
+        let time_blocks: Vec<TimeBlock> = tb_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| TimeBlock {
+                id: *id,
+                day_of_week: day,
+                position: i as u8,
+            })
+            .collect();
+
+        let t1 = TeacherId(solve_uuid(30));
+        let t2 = TeacherId(solve_uuid(31));
+        let teachers = vec![
+            Teacher {
+                id: t1,
+                max_hours_per_week: 28,
+            },
+            Teacher {
+                id: t2,
+                max_hours_per_week: 28,
+            },
+        ];
+
+        let room = Room {
+            id: RoomId(solve_uuid(50)),
+        };
+        let subject = Subject {
+            id: SubjectId(solve_uuid(60)),
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        };
+        let class = SchoolClass {
+            id: SchoolClassId(solve_uuid(70)),
+            home_room_id: Some(room.id),
+            max_lessons_per_day: None,
+            class_teacher_id: None,
+        };
+
+        let lesson = Lesson {
+            id: LessonId(solve_uuid(200)),
+            school_class_ids: vec![class.id],
+            subject_id: subject.id,
+            teacher_candidates: vec![t1, t2],
+            teacher_pin: None,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+
+        let problem = Problem {
+            time_blocks: time_blocks.clone(),
+            teachers: teachers.clone(),
+            rooms: vec![room.clone()],
+            subjects: vec![subject.clone()],
+            school_classes: vec![class.clone()],
+            lessons: vec![lesson.clone()],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: t1,
+                    subject_id: subject.id,
+                },
+                TeacherQualification {
+                    teacher_id: t2,
+                    subject_id: subject.id,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let idx = crate::index::Indexed::new(&problem);
+        let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        let mut state = GreedyState::new();
+        // Pre-bind T1 at TB_0 to simulate a previously placed lesson.
+        state.used_teacher.insert((t1, tb_ids[0]));
+        state.hours_by_teacher.insert(t1, 1);
+
+        let teacher_max: HashMap<TeacherId, u8> = teachers
+            .iter()
+            .map(|t| (t.id, t.max_hours_per_week))
+            .collect();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> =
+            std::iter::once((class.id, Some(room.id))).collect();
+        let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> =
+            std::iter::once((class.id, None)).collect();
+        let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+        subject_qualified_teachers
+            .entry(subject.id)
+            .or_default()
+            .extend([t1, t2]);
+        let tb_order: Vec<usize> = (0..time_blocks.len()).collect();
+        let room_order: Vec<usize> = vec![0];
+        let max_position_per_day: HashMap<u8, u8> = std::iter::once((day, 4)).collect();
+
+        let mut placements: Vec<Placement> = Vec::new();
+        let placed = try_place_block(
+            &problem,
+            &lesson,
+            1,
+            &idx,
+            &teacher_max,
+            &class_max_lessons_per_day,
+            &weights,
+            &home_room_lookup,
+            &class_teacher_lookup,
+            &subject_qualified_teachers,
+            &mut state,
+            &mut placements,
+            &tb_order,
+            &room_order,
+            &max_position_per_day,
+            1,
+        );
+
+        assert!(placed, "picker must place the lesson");
+        assert_eq!(placements.len(), 1, "exactly one placement for n=1 lesson");
+        // The picker is free to land on TB_0 with T2 (T1 busy, T2 free) or to
+        // pick a later TB; either way it must NOT pick T1 at TB_0 because the
+        // (T1, TB_0) pair is already in state.used_teacher.
+        let placement = &placements[0];
+        if placement.time_block_id == tb_ids[0] {
+            assert_eq!(
+                placement.teacher_id, t2,
+                "picker landed at TB_0 but T1 is already busy there; \
+                 picker chose teacher_id={:?}",
+                placement.teacher_id,
+            );
+        }
+        // In every case, the (teacher, tb) pair must not duplicate the
+        // pre-existing (T1, TB_0) entry: that would be the double-book
+        // item 74 is hunting.
+        assert!(
+            !(placement.teacher_id == t1 && placement.time_block_id == tb_ids[0]),
+            "picker must not double-book (T1, TB_0); state already holds that pair"
+        );
+    }
+
+    #[test]
+    fn try_place_block_picker_does_not_pick_locked_teacher_when_busy() {
+        // Same shape as `try_place_block_picker_skips_busy_teacher_candidate`,
+        // but with state.class_subject_teacher pre-locked to T1 for the
+        // (class, subject) pair AND state.used_teacher pre-bound to
+        // (T1, TB_0). The lock collapses teacher_candidates to Singleton([T1]);
+        // the picker must therefore skip TB_0 (T1 busy) and place at a later
+        // TB rather than producing a double-book.
+        let day = 0u8;
+        let tb_ids: Vec<TimeBlockId> = (0..5).map(|i| TimeBlockId(solve_uuid(100 + i))).collect();
+        let time_blocks: Vec<TimeBlock> = tb_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| TimeBlock {
+                id: *id,
+                day_of_week: day,
+                position: i as u8,
+            })
+            .collect();
+
+        let t1 = TeacherId(solve_uuid(30));
+        let t2 = TeacherId(solve_uuid(31));
+        let teachers = vec![
+            Teacher {
+                id: t1,
+                max_hours_per_week: 28,
+            },
+            Teacher {
+                id: t2,
+                max_hours_per_week: 28,
+            },
+        ];
+
+        let room = Room {
+            id: RoomId(solve_uuid(50)),
+        };
+        let subject = Subject {
+            id: SubjectId(solve_uuid(60)),
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        };
+        let class = SchoolClass {
+            id: SchoolClassId(solve_uuid(70)),
+            home_room_id: Some(room.id),
+            max_lessons_per_day: None,
+            class_teacher_id: None,
+        };
+
+        let lesson = Lesson {
+            id: LessonId(solve_uuid(200)),
+            school_class_ids: vec![class.id],
+            subject_id: subject.id,
+            teacher_candidates: vec![t1, t2],
+            teacher_pin: None,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+
+        let problem = Problem {
+            time_blocks: time_blocks.clone(),
+            teachers: teachers.clone(),
+            rooms: vec![room.clone()],
+            subjects: vec![subject.clone()],
+            school_classes: vec![class.clone()],
+            lessons: vec![lesson.clone()],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: t1,
+                    subject_id: subject.id,
+                },
+                TeacherQualification {
+                    teacher_id: t2,
+                    subject_id: subject.id,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+
+        let idx = crate::index::Indexed::new(&problem);
+        let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        let mut state = GreedyState::new();
+        // Lock the (class, subject) pair to T1 and pre-bind T1 at TB_0.
+        state
+            .class_subject_teacher
+            .insert((class.id, subject.id), t1);
+        state.used_teacher.insert((t1, tb_ids[0]));
+        state.hours_by_teacher.insert(t1, 1);
+
+        let teacher_max: HashMap<TeacherId, u8> = teachers
+            .iter()
+            .map(|t| (t.id, t.max_hours_per_week))
+            .collect();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> =
+            std::iter::once((class.id, Some(room.id))).collect();
+        let class_teacher_lookup: HashMap<SchoolClassId, Option<TeacherId>> =
+            std::iter::once((class.id, None)).collect();
+        let mut subject_qualified_teachers: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+        subject_qualified_teachers
+            .entry(subject.id)
+            .or_default()
+            .extend([t1, t2]);
+        let tb_order: Vec<usize> = (0..time_blocks.len()).collect();
+        let room_order: Vec<usize> = vec![0];
+        let max_position_per_day: HashMap<u8, u8> = std::iter::once((day, 4)).collect();
+
+        let mut placements: Vec<Placement> = Vec::new();
+        let placed = try_place_block(
+            &problem,
+            &lesson,
+            1,
+            &idx,
+            &teacher_max,
+            &class_max_lessons_per_day,
+            &weights,
+            &home_room_lookup,
+            &class_teacher_lookup,
+            &subject_qualified_teachers,
+            &mut state,
+            &mut placements,
+            &tb_order,
+            &room_order,
+            &max_position_per_day,
+            1,
+        );
+
+        assert!(placed, "picker must place the lesson at a non-TB_0 window");
+        assert_eq!(placements.len(), 1, "exactly one placement for n=1 lesson");
+        let placement = &placements[0];
+        assert_eq!(
+            placement.teacher_id, t1,
+            "lock collapsed candidates to Singleton([T1]); picker must honour the lock"
+        );
+        assert_ne!(
+            placement.time_block_id, tb_ids[0],
+            "picker must skip TB_0 because the locked teacher T1 is already busy there; \
+             producing a placement at TB_0 would be the item 74 double-book"
+        );
+    }
 }
