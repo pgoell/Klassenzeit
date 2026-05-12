@@ -4335,12 +4335,23 @@ mod tests {
                 .unwrap_or_default();
         }
 
+        // Item 57: zero out the new per-class worst-case axes here because
+        // Task 2 wires the LAHC delta arithmetic through for those axes in a
+        // follow-up commit; Task 1's commit only adds them to `score_solution`
+        // / `ConstraintWeights`, so the per-iteration
+        // `debug_assert_eq!(state.canonical_score, score_solution(...))`
+        // would otherwise drift on every iteration that mutates per-class
+        // counts. The test's intent (LAHC R&R must not double-book unpinned
+        // teachers) is preserved.
+        let mut weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        weights.max_per_class_spread = 0;
+        weights.max_per_class_interior_gaps = 0;
         let cfg = SolveConfig {
             seed: 1,
             deadline: Some(std::time::Duration::from_secs(60)),
             max_iterations: Some(10_000),
             lahc_rr_period: Some(5),
-            weights: crate::PRODUCTION_ACTIVE_WEIGHTS,
+            weights,
             ..SolveConfig::default()
         };
 

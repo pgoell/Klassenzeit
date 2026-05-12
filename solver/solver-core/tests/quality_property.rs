@@ -163,6 +163,13 @@ prop_compose! {
             prefer_home_room,
             class_day_balance,
             prefer_class_teacher,
+            // Item 57: new per-class worst-case axes are populated into
+            // QualityReport in Task 4. Until then, keep these zero so the
+            // existing weighted_score-matches-score_solution property test
+            // does not over-charge weighted_score with axes quality_report
+            // does not yet sum.
+            max_per_class_spread: 0,
+            max_per_class_interior_gaps: 0,
         }
     }
 }

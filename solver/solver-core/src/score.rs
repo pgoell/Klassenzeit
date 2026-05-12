@@ -26,6 +26,8 @@ pub fn score_solution(
         && weights.prefer_late_period == 0
         && weights.class_day_balance == 0
         && weights.prefer_class_teacher == 0
+        && weights.max_per_class_spread == 0
+        && weights.max_per_class_interior_gaps == 0
     {
         return 0;
     }
@@ -171,12 +173,114 @@ pub fn score_solution(
         .saturating_add(weights.teacher_gap.saturating_mul(teacher_gaps))
         .saturating_add(subject_preference)
         .saturating_add(weights.class_day_balance.saturating_mul(class_balance))
+        .saturating_add(
+            weights
+                .max_per_class_spread
+                .saturating_mul(worst_class_spread(problem, placements)),
+        )
+        .saturating_add(
+            weights
+                .max_per_class_interior_gaps
+                .saturating_mul(worst_class_interior_gaps(problem, placements)),
+        )
         .saturating_add(home_room_total)
         .saturating_add(
             weights
                 .prefer_class_teacher
                 .saturating_mul(prefer_class_teacher_misses),
         )
+}
+
+/// Worst per-class daily-load spread:
+/// `max over classes of (max(daily_count) - min(daily_count))`
+/// where `daily_count` is the dedup'd per-(class, day) placement count.
+/// Mirrors the bench predicate `solver_bench::quality::worst_class_day_spread`:
+/// counts run over `day_of_week in 0..5` for each class that has any
+/// placement, treating zero-placement days as 0 in the `min`. Classes with
+/// zero total placements contribute 0 (they do not appear in the
+/// inner-class map). Item 57.
+pub(crate) fn worst_class_spread(problem: &Problem, placements: &[Placement]) -> u32 {
+    let tb_day: HashMap<TimeBlockId, u8> = problem
+        .time_blocks
+        .iter()
+        .map(|tb| (tb.id, tb.day_of_week))
+        .collect();
+    let lesson_classes: HashMap<LessonId, &Vec<SchoolClassId>> = problem
+        .lessons
+        .iter()
+        .map(|l| (l.id, &l.school_class_ids))
+        .collect();
+    // Bench predicate uses a fixed-width [0; 5] per-class day array; mirror.
+    let mut counts: HashMap<SchoolClassId, [u32; 5]> = HashMap::new();
+    for placement in placements {
+        let day = match tb_day.get(&placement.time_block_id).copied() {
+            Some(d) if d < 5 => d as usize,
+            _ => continue,
+        };
+        let classes = match lesson_classes.get(&placement.lesson_id).copied() {
+            Some(c) => c,
+            None => continue,
+        };
+        for class_id in classes {
+            counts.entry(*class_id).or_insert([0; 5])[day] += 1;
+        }
+    }
+    counts
+        .values()
+        .map(|per_day| {
+            per_day.iter().max().copied().unwrap_or(0) - per_day.iter().min().copied().unwrap_or(0)
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// Worst per-class interior gaps:
+/// `max over classes of (sum over days of interior_gaps_in_day)`.
+/// Mirrors the per-(class, day) gap definition of
+/// `solver_bench::quality::total_interior_gaps` but aggregates per-class
+/// (max-over-classes) rather than the bench predicate's cross-class sum,
+/// so the new axis bounds the WORST class, not the cumulative total.
+/// Item 57.
+pub(crate) fn worst_class_interior_gaps(problem: &Problem, placements: &[Placement]) -> u32 {
+    let tb_meta: HashMap<TimeBlockId, (u8, u8)> = problem
+        .time_blocks
+        .iter()
+        .map(|tb| (tb.id, (tb.day_of_week, tb.position)))
+        .collect();
+    let lesson_classes: HashMap<LessonId, &Vec<SchoolClassId>> = problem
+        .lessons
+        .iter()
+        .map(|l| (l.id, &l.school_class_ids))
+        .collect();
+    let mut positions: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+    for placement in placements {
+        let (day, pos) = match tb_meta.get(&placement.time_block_id).copied() {
+            Some(p) => p,
+            None => continue,
+        };
+        let classes = match lesson_classes.get(&placement.lesson_id).copied() {
+            Some(c) => c,
+            None => continue,
+        };
+        for class_id in classes {
+            positions.entry((*class_id, day)).or_default().push(pos);
+        }
+    }
+    let mut per_class: HashMap<SchoolClassId, u32> = HashMap::new();
+    for ((class_id, _day), ps) in positions.iter_mut() {
+        ps.sort_unstable();
+        ps.dedup();
+        if let (Some(&first), Some(&last)) = (ps.first(), ps.last()) {
+            let span = u32::from(last - first + 1);
+            let gaps = span.saturating_sub(ps.len() as u32);
+            *per_class.entry(*class_id).or_insert(0) = per_class
+                .get(class_id)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(gaps);
+        }
+    }
+    per_class.values().copied().max().unwrap_or(0)
 }
 
 /// L1 distance from per-day mean placement count, summed across classes.
@@ -1000,6 +1104,8 @@ mod tests {
             prefer_late_period: 0,
             class_day_balance: 0,
             prefer_class_teacher: 0,
+            max_per_class_spread: 0,
+            max_per_class_interior_gaps: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
@@ -1715,6 +1821,238 @@ mod tests {
         assert_eq!(
             score_solution(&problem, &placements, &weights_on),
             score_solution(&problem, &placements, &weights_off),
+        );
+    }
+
+    // ---- item 57: per-class worst-case axes ----
+
+    /// Build a synthetic Problem with two classes, 5 weekdays, `width`
+    /// positions per day, one subject per class, one teacher per class.
+    /// Time-block ids are deterministic per `(day, position)` so test
+    /// helpers can mint Placements without consulting the problem. The
+    /// single subject / teacher / room arrangement and `class_teacher_id:
+    /// None` keep the `prefer_class_teacher` axis inert (short-circuits in
+    /// `score_solution`) so the new per-class worst-case axes are the
+    /// only structural contributors the per-axis tests below need to
+    /// reason about. Mirrors the bench predicate `worst_class_day_spread`
+    /// in `solver-bench/src/quality.rs`, which fixes the day axis at
+    /// `0..5`.
+    fn synthetic_two_class_five_day_problem(width: u8) -> Problem {
+        let class_a = SchoolClassId(score_uuid(50));
+        let class_b = SchoolClassId(score_uuid(51));
+        let teacher_a = TeacherId(score_uuid(20));
+        let teacher_b = TeacherId(score_uuid(21));
+        let subject_id = SubjectId(score_uuid(40));
+        let room_id = RoomId(score_uuid(30));
+        let mut time_blocks: Vec<TimeBlock> = Vec::new();
+        for day in 0u8..5 {
+            for pos in 0u8..width {
+                // tb_id encoding: day * 10 + pos + 100 (avoids collision with
+                // teacher / class / lesson ids 20 / 50 / 60).
+                time_blocks.push(TimeBlock {
+                    id: TimeBlockId(score_uuid(100 + day * 10 + pos)),
+                    day_of_week: day,
+                    position: pos,
+                });
+            }
+        }
+        Problem {
+            time_blocks,
+            teachers: vec![
+                Teacher {
+                    id: teacher_a,
+                    max_hours_per_week: 50,
+                },
+                Teacher {
+                    id: teacher_b,
+                    max_hours_per_week: 50,
+                },
+            ],
+            rooms: vec![Room { id: room_id }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_a,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+                SchoolClass {
+                    id: class_b,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+            ],
+            lessons: vec![
+                Lesson {
+                    id: LessonId(score_uuid(60)),
+                    school_class_ids: vec![class_a],
+                    subject_id,
+                    teacher_candidates: vec![teacher_a],
+                    teacher_pin: Some(teacher_a),
+                    hours_per_week: u8::max(1, width * 5),
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: LessonId(score_uuid(61)),
+                    school_class_ids: vec![class_b],
+                    subject_id,
+                    teacher_candidates: vec![teacher_b],
+                    teacher_pin: Some(teacher_b),
+                    hours_per_week: u8::max(1, width * 5),
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher_a,
+                    subject_id,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_b,
+                    subject_id,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        }
+    }
+
+    /// Mint a Placement for class A's lesson at the synthetic problem's
+    /// time-block at (day, position).
+    fn synthetic_place_class_a(day: u8, position: u8) -> Placement {
+        Placement {
+            lesson_id: LessonId(score_uuid(60)),
+            time_block_id: TimeBlockId(score_uuid(100 + day * 10 + position)),
+            room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(score_uuid(20)),
+        }
+    }
+
+    /// Mint a Placement for class B's lesson at the synthetic problem's
+    /// time-block at (day, position).
+    fn synthetic_place_class_b(day: u8, position: u8) -> Placement {
+        Placement {
+            lesson_id: LessonId(score_uuid(61)),
+            time_block_id: TimeBlockId(score_uuid(100 + day * 10 + position)),
+            room_id: RoomId(score_uuid(30)),
+            teacher_id: TeacherId(score_uuid(21)),
+        }
+    }
+
+    /// Both classes: 1 placement on every weekday (Mon-Fri), giving
+    /// per-day counts [1,1,1,1,1] for each class. spread = 0.
+    fn synthetic_placements_balanced_two_class() -> Vec<Placement> {
+        let mut out: Vec<Placement> = Vec::new();
+        for day in 0u8..5 {
+            out.push(synthetic_place_class_a(day, 0));
+            out.push(synthetic_place_class_b(day, 0));
+        }
+        out
+    }
+
+    /// Class A: 4 Monday, 0 elsewhere -> per-day counts [4,0,0,0,0],
+    /// spread = 4. Class B: 1 placement on every weekday -> spread = 0.
+    /// `max over classes = 4`.
+    fn synthetic_placements_unbalanced_two_class() -> Vec<Placement> {
+        let mut out: Vec<Placement> = Vec::new();
+        for pos in 0u8..4 {
+            out.push(synthetic_place_class_a(0, pos));
+        }
+        for day in 0u8..5 {
+            out.push(synthetic_place_class_b(day, 0));
+        }
+        out
+    }
+
+    /// Class A occupies positions {0, 3} on Monday only; class B is
+    /// contiguous at {0, 1} on Monday only. Class A's interior gaps =
+    /// 4 - 2 = 2; class B = 0. `max over classes = 2`.
+    fn synthetic_placements_class_a_gaps_one_day() -> Vec<Placement> {
+        vec![
+            synthetic_place_class_a(0, 0),
+            synthetic_place_class_a(0, 3),
+            synthetic_place_class_b(0, 0),
+            synthetic_place_class_b(0, 1),
+        ]
+    }
+
+    /// Both classes contiguous on Monday only.
+    fn synthetic_placements_contiguous_one_day() -> Vec<Placement> {
+        vec![
+            synthetic_place_class_a(0, 0),
+            synthetic_place_class_a(0, 1),
+            synthetic_place_class_b(0, 0),
+            synthetic_place_class_b(0, 1),
+        ]
+    }
+
+    #[test]
+    fn worst_class_spread_returns_zero_on_balanced_two_class_problem() {
+        let problem = synthetic_two_class_five_day_problem(4);
+        let placements = synthetic_placements_balanced_two_class();
+        assert_eq!(worst_class_spread(&problem, &placements), 0);
+    }
+
+    #[test]
+    fn worst_class_spread_returns_four_on_unbalanced_two_class_problem() {
+        // Class A: [4,0,0,0,0] -> max - min = 4 - 0 = 4.
+        // Class B: [1,1,1,1,1] -> max - min = 1 - 1 = 0.
+        // max across classes = 4.
+        let problem = synthetic_two_class_five_day_problem(4);
+        let placements = synthetic_placements_unbalanced_two_class();
+        assert_eq!(worst_class_spread(&problem, &placements), 4);
+    }
+
+    #[test]
+    fn worst_class_interior_gaps_returns_zero_when_every_class_day_is_contiguous() {
+        let problem = synthetic_two_class_five_day_problem(4);
+        let placements = synthetic_placements_contiguous_one_day();
+        assert_eq!(worst_class_interior_gaps(&problem, &placements), 0);
+    }
+
+    #[test]
+    fn worst_class_interior_gaps_returns_two_when_one_class_has_two_gap_hours() {
+        // Class A occupies positions {0, 3} on Monday => 2 interior gaps;
+        // class B contiguous.
+        let problem = synthetic_two_class_five_day_problem(4);
+        let placements = synthetic_placements_class_a_gaps_one_day();
+        assert_eq!(worst_class_interior_gaps(&problem, &placements), 2);
+    }
+
+    #[test]
+    fn score_solution_increases_when_worst_class_spread_grows() {
+        let problem = synthetic_two_class_five_day_problem(4);
+        let balanced = synthetic_placements_balanced_two_class();
+        let unbalanced = synthetic_placements_unbalanced_two_class();
+        let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        assert!(
+            score_solution(&problem, &unbalanced, &weights)
+                > score_solution(&problem, &balanced, &weights)
+        );
+    }
+
+    #[test]
+    fn score_solution_increases_when_worst_class_interior_gaps_grows() {
+        let problem = synthetic_two_class_five_day_problem(4);
+        let contiguous = synthetic_placements_contiguous_one_day();
+        let gappy = synthetic_placements_class_a_gaps_one_day();
+        let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
+        assert!(
+            score_solution(&problem, &gappy, &weights)
+                > score_solution(&problem, &contiguous, &weights)
         );
     }
 }

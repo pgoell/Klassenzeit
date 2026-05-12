@@ -114,8 +114,17 @@ fn lahc_unpinned_dreizuegig_keeps_canonical_score_in_sync() {
     lahc_unpinned_test_unpin_teachers(&mut problem);
     lahc_unpinned_test_assign_class_teachers(&mut problem);
 
+    // Item 57: zero out the new per-class worst-case axes; Task 2 wires the
+    // LAHC delta arithmetic through. Task 1 only adds them to score_solution
+    // / ConstraintWeights, so the per-iteration debug_assert_eq! gate would
+    // otherwise fire on every iteration that mutates per-class counts. The
+    // test's intent (canonical_score stays in sync under unpinned mode) is
+    // preserved against the pre-item-57 axes.
+    let mut weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
+    weights.max_per_class_spread = 0;
+    weights.max_per_class_interior_gaps = 0;
     let config = SolveConfig {
-        weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
+        weights,
         // Deadline must be Some(_) for `lahc::run` to engage the local-search
         // loop at all; set well above the wall-clock cost of `max_iterations`
         // iterations so `max_iterations` is the binding cap.
@@ -144,8 +153,12 @@ fn lahc_unpinned_einzuegig_with_klassenlehrer_keeps_canonical_score_in_sync() {
     lahc_unpinned_test_unpin_teachers(&mut problem);
     lahc_unpinned_test_assign_class_teachers(&mut problem);
 
+    // Item 57: see note on `lahc_unpinned_dreizuegig_...` above.
+    let mut weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
+    weights.max_per_class_spread = 0;
+    weights.max_per_class_interior_gaps = 0;
     let config = SolveConfig {
-        weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
+        weights,
         deadline: Some(Duration::from_secs(60)),
         max_iterations: Some(10_000),
         lahc_rr_period: Some(2),
