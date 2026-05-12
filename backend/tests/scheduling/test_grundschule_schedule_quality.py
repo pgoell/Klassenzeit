@@ -7,7 +7,7 @@ gaps, day length) returns no issues for the persisted schedule.
 
 This guards against future solver / weight / seed changes producing
 visually bad schedules without a hard-violation gate to catch them.
-The test opts into the production 200ms LAHC pass (the rest of the
+The test opts into the production 5000 ms LAHC pass (the rest of the
 backend test suite stays greedy-only via ``KZ_SOLVE_DEADLINE_MS=0``)
 because the soft costs the new constraints rely on are LAHC-driven;
 greedy alone produces a lopsided baseline that cannot pass the bar.
@@ -101,21 +101,6 @@ def _positions_per_class_day(
     return positions
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Demo Grundschule schedule quality bar not yet met by the current "
-        "solver: imbalance (spread up to 5) and home_room_miss (ratios as "
-        "low as 0/17) still fire even with class_gap=10, prefer_home_room=5, "
-        "class_day_balance=5 and the new same-room hard constraint. Tracking "
-        "in OPEN_THINGS as 'tighten Grundschule schedule quality bar'. The "
-        "room_hop predicate (the new hard constraint) is consistently green; "
-        "imbalance + home_room_miss + interior_gap improve when the solver "
-        "is taught to plan home-room day-blocks up front and to balance "
-        "before scoring. Remove this xfail once the integration test passes "
-        "5/5 on this seed."
-    ),
-    strict=False,
-)
 async def test_grundschule_schedule_meets_quality_bar(
     db_session: AsyncSession,
     client: AsyncClient,
@@ -123,7 +108,7 @@ async def test_grundschule_schedule_meets_quality_bar(
     login_as: LoginFn,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 200)
+    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 
