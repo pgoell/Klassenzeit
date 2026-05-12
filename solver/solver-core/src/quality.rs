@@ -83,6 +83,14 @@ pub struct QualityReport {
     /// `quality_report_weighted_score_matches_score_solution` property
     /// test pins this equality.
     pub weighted_score: u32,
+    /// Worst per-class daily-load spread:
+    /// `max over classes of (max(daily_count) - min(daily_count))`.
+    /// Mirrors `score::worst_class_spread`. Item 57.
+    pub worst_per_class_spread: u32,
+    /// Worst per-class summed interior gaps:
+    /// `max over classes of (sum over days of interior_gaps_in_day)`.
+    /// Mirrors `score::worst_class_interior_gaps`. Item 57.
+    pub worst_per_class_interior_gaps: u32,
 }
 
 /// Build a [`QualityReport`] for a solver result. Pure: depends only on
@@ -288,6 +296,12 @@ pub fn quality_report(
         }
     }
 
+    // Per-class worst-case raw counts. `quality_report` is cold-path
+    // (post-solve), so one extra walk per axis is fine. Item 57.
+    let worst_per_class_spread = crate::score::worst_class_spread(problem, placements);
+    let worst_per_class_interior_gaps =
+        crate::score::worst_class_interior_gaps(problem, placements);
+
     let weighted_score = weights
         .class_gap
         .saturating_mul(class_gap_hours)
@@ -297,6 +311,16 @@ pub fn quality_report(
             weights
                 .class_day_balance
                 .saturating_mul(class_day_balance_cost_value),
+        )
+        .saturating_add(
+            weights
+                .max_per_class_spread
+                .saturating_mul(worst_per_class_spread),
+        )
+        .saturating_add(
+            weights
+                .max_per_class_interior_gaps
+                .saturating_mul(worst_per_class_interior_gaps),
         )
         .saturating_add(home_room_weighted)
         .saturating_add(
@@ -318,6 +342,8 @@ pub fn quality_report(
         prefer_late_units,
         prefer_class_teacher_misses,
         weighted_score,
+        worst_per_class_spread,
+        worst_per_class_interior_gaps,
     }
 }
 
@@ -479,6 +505,7 @@ fn build_backend_objectives() -> Vec<BackendObjective> {
 mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
+    use crate::score;
     use crate::score::score_solution;
     use crate::solve_with_config;
     use crate::test_fixtures::grundschule_fixture;
@@ -700,15 +727,10 @@ mod tests {
     #[test]
     fn quality_report_weighted_score_equals_score_solution_on_grundschule() {
         let problem = grundschule_fixture();
-        // Item 57: zero out the new per-class worst-case axes; Task 4 widens
-        // `quality_report` to populate them into `weighted_score`. Until then
-        // the property `quality_report.weighted_score == score_solution(...)`
-        // only holds for the pre-item-57 weight axes; zero out the new axes
-        // here so the test's contract intent (axis-by-axis parity) survives
-        // Task 1's commit unchanged.
-        let mut weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
-        weights.max_per_class_spread = 0;
-        weights.max_per_class_interior_gaps = 0;
+        // Item 57 Task 4: `quality_report.weighted_score` now folds in the
+        // per-class worst-case summands, so the parity test runs against
+        // unmodified PRODUCTION_ACTIVE_WEIGHTS.
+        let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
         let cfg = SolveConfig {
             weights: weights.clone(),
             deadline: None,
@@ -776,6 +798,185 @@ mod tests {
         assert!(
             bo.declared_skipped.is_empty(),
             "cpsat: post-port objective skips no QualityComponent",
+        );
+    }
+
+    /// Two classes over five days, one shared room, one shared subject, no
+    /// `class_teacher_id` (so `prefer_class_teacher` stays inert). Mirrors
+    /// `score::tests::synthetic_two_class_five_day_problem` in shape so the
+    /// `worst_class_*` helpers walk a non-trivial partition. Item 57.
+    fn quality_synthetic_two_class_five_day_problem(width: u8) -> Problem {
+        let class_a = SchoolClassId(quality_uuid(150));
+        let class_b = SchoolClassId(quality_uuid(151));
+        let teacher_a = TeacherId(quality_uuid(120));
+        let teacher_b = TeacherId(quality_uuid(121));
+        let subject_id = SubjectId(quality_uuid(140));
+        let room_id = RoomId(quality_uuid(130));
+        let mut time_blocks: Vec<TimeBlock> = Vec::new();
+        for day in 0u8..5 {
+            for pos in 0u8..width {
+                time_blocks.push(TimeBlock {
+                    id: TimeBlockId(quality_uuid(100 + day * 10 + pos)),
+                    day_of_week: day,
+                    position: pos,
+                });
+            }
+        }
+        Problem {
+            time_blocks,
+            teachers: vec![
+                Teacher {
+                    id: teacher_a,
+                    max_hours_per_week: 50,
+                },
+                Teacher {
+                    id: teacher_b,
+                    max_hours_per_week: 50,
+                },
+            ],
+            rooms: vec![Room { id: room_id }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_a,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+                SchoolClass {
+                    id: class_b,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+            ],
+            lessons: vec![
+                Lesson {
+                    id: LessonId(quality_uuid(160)),
+                    school_class_ids: vec![class_a],
+                    subject_id,
+                    teacher_candidates: vec![teacher_a],
+                    teacher_pin: Some(teacher_a),
+                    hours_per_week: u8::max(1, width * 5),
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: LessonId(quality_uuid(161)),
+                    school_class_ids: vec![class_b],
+                    subject_id,
+                    teacher_candidates: vec![teacher_b],
+                    teacher_pin: Some(teacher_b),
+                    hours_per_week: u8::max(1, width * 5),
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher_a,
+                    subject_id,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_b,
+                    subject_id,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        }
+    }
+
+    fn quality_synthetic_place_class_a(day: u8, position: u8) -> Placement {
+        Placement {
+            lesson_id: LessonId(quality_uuid(160)),
+            time_block_id: TimeBlockId(quality_uuid(100 + day * 10 + position)),
+            room_id: RoomId(quality_uuid(130)),
+            teacher_id: TeacherId(quality_uuid(120)),
+        }
+    }
+
+    fn quality_synthetic_place_class_b(day: u8, position: u8) -> Placement {
+        Placement {
+            lesson_id: LessonId(quality_uuid(161)),
+            time_block_id: TimeBlockId(quality_uuid(100 + day * 10 + position)),
+            room_id: RoomId(quality_uuid(130)),
+            teacher_id: TeacherId(quality_uuid(121)),
+        }
+    }
+
+    /// Class A: 4 placements on Monday positions 0..3 -> per-day counts
+    /// [4,0,0,0,0], spread = 4. Class B: 1 placement on every weekday ->
+    /// spread = 0. `max over classes = 4`.
+    fn quality_synthetic_two_class_unbalanced() -> (Problem, Vec<Placement>) {
+        let problem = quality_synthetic_two_class_five_day_problem(4);
+        let mut placements: Vec<Placement> = Vec::new();
+        for pos in 0u8..4 {
+            placements.push(quality_synthetic_place_class_a(0, pos));
+        }
+        for day in 0u8..5 {
+            placements.push(quality_synthetic_place_class_b(day, 0));
+        }
+        (problem, placements)
+    }
+
+    /// Class A occupies positions {0, 3} on Monday only; class B is
+    /// contiguous at {0, 1} on Monday only. Class A's interior gaps =
+    /// 4 - 2 = 2; class B = 0. `max over classes = 2`.
+    fn quality_synthetic_one_class_gappy() -> (Problem, Vec<Placement>) {
+        let problem = quality_synthetic_two_class_five_day_problem(4);
+        let placements = vec![
+            quality_synthetic_place_class_a(0, 0),
+            quality_synthetic_place_class_a(0, 3),
+            quality_synthetic_place_class_b(0, 0),
+            quality_synthetic_place_class_b(0, 1),
+        ];
+        (problem, placements)
+    }
+
+    #[test]
+    fn quality_report_worst_per_class_spread_matches_score_helper() {
+        let (problem, placements) = quality_synthetic_two_class_unbalanced();
+        let weights = ConstraintWeights::default();
+        let report = quality_report(&problem, &placements, &[], &weights);
+        assert_eq!(
+            report.worst_per_class_spread,
+            score::worst_class_spread(&problem, &placements)
+        );
+        // Sanity: the partition is non-trivial.
+        assert_eq!(report.worst_per_class_spread, 4);
+    }
+
+    #[test]
+    fn quality_report_worst_per_class_interior_gaps_matches_score_helper() {
+        let (problem, placements) = quality_synthetic_one_class_gappy();
+        let weights = ConstraintWeights::default();
+        let report = quality_report(&problem, &placements, &[], &weights);
+        assert_eq!(
+            report.worst_per_class_interior_gaps,
+            score::worst_class_interior_gaps(&problem, &placements)
+        );
+        // Sanity: the partition is non-trivial.
+        assert_eq!(report.worst_per_class_interior_gaps, 2);
+    }
+
+    #[test]
+    fn quality_report_weighted_score_matches_score_solution_under_widened_axes() {
+        let (problem, placements) = quality_synthetic_two_class_unbalanced();
+        let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
+        let report = quality_report(&problem, &placements, &[], &weights);
+        assert_eq!(
+            report.weighted_score,
+            score::score_solution(&problem, &placements, &weights)
         );
     }
 }

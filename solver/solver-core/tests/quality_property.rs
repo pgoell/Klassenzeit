@@ -152,6 +152,12 @@ prop_compose! {
         prefer_home_room in 0u32..=10,
         class_day_balance in 0u32..=10,
         prefer_class_teacher in 0u32..=20,
+        // Item 57 Task 4: per-class worst-case axes are now populated into
+        // QualityReport and folded into weighted_score, so the property
+        // test exercises them with non-zero weights. The 0..=10 / 0..=5
+        // shapes match the sibling axes.
+        max_per_class_spread in 0u32..=10,
+        max_per_class_interior_gaps in 0u32..=5,
     ) -> ConstraintWeights {
         ConstraintWeights {
             class_gap,
@@ -163,13 +169,8 @@ prop_compose! {
             prefer_home_room,
             class_day_balance,
             prefer_class_teacher,
-            // Item 57: new per-class worst-case axes are populated into
-            // QualityReport in Task 4. Until then, keep these zero so the
-            // existing weighted_score-matches-score_solution property test
-            // does not over-charge weighted_score with axes quality_report
-            // does not yet sum.
-            max_per_class_spread: 0,
-            max_per_class_interior_gaps: 0,
+            max_per_class_spread,
+            max_per_class_interior_gaps,
         }
     }
 }
