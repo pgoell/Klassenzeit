@@ -52,7 +52,14 @@ class Placement:
 class QualityIssue:
     """Structured record of a quality-bar violation."""
 
-    kind: Literal["room_hop", "imbalance", "home_room_miss", "day_too_long", "interior_gap"]
+    kind: Literal[
+        "room_hop",
+        "imbalance",
+        "home_room_miss",
+        "day_too_long",
+        "interior_gap",
+        "class_teacher_subject_share",
+    ]
     school_class_id: UUID
     day_of_week: int | None = None
     subject_id: UUID | None = None
@@ -179,4 +186,43 @@ def check_day_length(
             school_class_id=class_id,
             day_of_week=day,
             detail={"max_position": max_position, "worst_position": worst_position},
+        )
+
+
+def check_class_teacher_subject_share(
+    placements: list[Placement],
+    class_teacher_lookup: dict[UUID, UUID | None],
+    placement_teacher_lookup: dict[UUID, UUID],
+) -> Iterable[QualityIssue]:
+    """Yield one issue per `(class, subject)` pair whose teacher is not the class's Klassenlehrer.
+
+    Classes with `class_teacher_id = None` are skipped (filtered out of
+    the denominator). Pairs whose teacher matches Klassenlehrer yield
+    nothing; pairs whose single teacher differs yield one issue carrying
+    the offending teacher set.
+    """
+    by_pair: dict[tuple[UUID, UUID, UUID], set[UUID]] = {}
+    for placement in placements:
+        klassenlehrer = class_teacher_lookup.get(placement.class_id)
+        if klassenlehrer is None:
+            continue
+        teacher = placement_teacher_lookup.get(placement.lesson_id)
+        if teacher is None:
+            continue
+        by_pair.setdefault((placement.class_id, placement.subject_id, klassenlehrer), set()).add(
+            teacher
+        )
+    for (class_id, subject_id, klassenlehrer), teachers in by_pair.items():
+        if teachers == {klassenlehrer}:
+            continue
+        offending = sorted(t for t in teachers if t != klassenlehrer)
+        yield QualityIssue(
+            kind="class_teacher_subject_share",
+            school_class_id=class_id,
+            subject_id=subject_id,
+            detail={
+                "klassenlehrer": str(klassenlehrer),
+                "teachers": [str(t) for t in sorted(teachers)],
+                "offending": [str(t) for t in offending],
+            },
         )

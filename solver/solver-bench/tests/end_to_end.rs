@@ -79,7 +79,11 @@ fn supervisor_emits_observability_and_quality_columns() {
         "missing lahc-family optimised set in objectives section (item 52: lahc accepts on full canonical): {body}",
     );
     assert!(
-        body.contains("Quality (pass / 4)"),
+        body.contains("Klassenlehrer share (median)"),
+        "missing klassenlehrer-share header: {body}"
+    );
+    assert!(
+        body.contains("Quality (pass / 5)"),
         "missing quality column header: {body}"
     );
     assert!(
