@@ -890,14 +890,27 @@ pub(crate) fn try_place_block(
                 continue;
             }
 
-            // Teacher capacity (per-week max).
+            // Teacher capacity (per-week max). When this placement
+            // would freshly set the (class, subject) teacher lock (no
+            // existing lock and no `teacher_pin`), the same teacher
+            // will be required for every remaining block of this
+            // lesson; require capacity for the WHOLE lesson's
+            // `hours_per_week` so we do not lock a teacher who cannot
+            // complete it. When the lock or pin is set, candidates
+            // collapse to a singleton and the per-block ceiling `n`
+            // remains the correct invariant. Item 79.
             let current = state
                 .hours_by_teacher
                 .get(&candidate_teacher)
                 .copied()
                 .unwrap_or(0);
             let max = teacher_max.get(&candidate_teacher).copied().unwrap_or(0);
-            if current.saturating_add(n) > max {
+            let required = if existing_lock.is_none() && lesson.teacher_pin.is_none() {
+                lesson.hours_per_week
+            } else {
+                n
+            };
+            if current.saturating_add(required) > max {
                 #[cfg(feature = "solver-trace")]
                 trace::ffd_trace(
                     lesson.id,
@@ -1426,9 +1439,19 @@ pub(crate) fn try_place_group(
                 if chosen_teachers_buf.contains(&candidate) {
                     continue;
                 }
+                // Mirror of try_place_block's lesson-hours-aware
+                // capacity check (item 79). When the member is not
+                // locked AND has no teacher_pin, require capacity for
+                // the whole member's `hours_per_week`; otherwise
+                // `n` is the correct per-block ceiling.
                 let current = state.hours_by_teacher.get(&candidate).copied().unwrap_or(0);
                 let max = teacher_max.get(&candidate).copied().unwrap_or(0);
-                if current.saturating_add(n) > max {
+                let required = if !is_locked && member.teacher_pin.is_none() {
+                    member.hours_per_week
+                } else {
+                    n
+                };
+                if current.saturating_add(required) > max {
                     continue;
                 }
 

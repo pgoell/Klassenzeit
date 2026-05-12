@@ -128,16 +128,20 @@ async def test_seeded_grundschule_zweizuegig_solves_with_zero_violations(
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "OPEN_THINGS item 11 flake-loop (2026-05-12, 20 iters at "
-        "solve_deadline_ms=5000) measured 7/20 RED with dominant "
-        "violation kind teacher_over_capacity (secondary "
-        "no_suitable_room); failing class rotates across 1a / 2b / "
-        "3a / 4a. The solver-driven teacher picker (per ADR 0036) "
-        "over-allocates teachers without tracking cumulative weekly "
-        "hours across classes; tracked under OPEN_THINGS item 79 "
-        "(solver teacher picker over-allocates on multi-school "
-        "Grundschule unpinned mode). Strict=False so XPASS doesn't "
-        "fail the suite once item 79 ships."
+        "OPEN_THINGS item 11 post-item-79 flake-loop (2026-05-12, 20 "
+        "iters at solve_deadline_ms=5000) measured 5/20 RED (down "
+        "from pre-fix 7/20). Item 79's picker-capacity fix biased "
+        "FFD's first-pick capacity gate by lesson.hours_per_week; "
+        "residual axis is still teacher_over_capacity (4/5 fails) "
+        "plus 1/5 no_suitable_room on Sport. Every fail now happens "
+        "on the FIRST /schedule call of an early class (1a / 1b / "
+        "2a / 3b) with no prior-class pins; the picker-capacity "
+        "check is correct but FFD's lesson ordering doesn't "
+        "prioritise scarce-candidate lessons, leaving them "
+        "infeasible by the time FFD reaches them. Tracked under "
+        "OPEN_THINGS item 80 (FFD lesson-ordering myopia). "
+        "Strict=False so XPASS doesn't fail the suite once item 80 "
+        "ships."
     ),
 )
 async def test_seeded_grundschule_zweizuegig_solves_without_pinned_teachers(
