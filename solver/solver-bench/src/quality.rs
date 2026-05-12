@@ -10,7 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use solver_core::{Problem, RoomId, SchoolClassId, Solution, SubjectId};
+use solver_core::{Problem, RoomId, SchoolClassId, Solution, SubjectId, TeacherId};
 
 pub use solver_core::QualityReport;
 
@@ -33,6 +33,12 @@ pub const QUALITY_MAX_INTERIOR_GAPS: u32 = 2;
 /// Borrowed from OPEN_THINGS item 14's xfail bar.
 pub const QUALITY_MIN_LATE_PERIOD_RATIO: f64 = 0.5;
 
+/// Threshold: fraction of `(class, subject)` pairs taught by the class's
+/// `class_teacher_id` must meet or exceed this for the predicate to pass.
+/// OPEN_THINGS item 72 tentative value; revisit after the next production
+/// bench refresh on Klassenlehrer-stamped fixtures.
+pub const QUALITY_MIN_CLASS_TEACHER_SHARE: f64 = 0.5;
+
 /// Per-cell quality summary returned by [`evaluate_quality_predicates`]. All four metrics
 /// are pure functions over [`Problem`] + [`Solution`]; `None` on either ratio
 /// means "no relevant placements to evaluate" and counts as a pass for the
@@ -52,6 +58,11 @@ pub struct QualityPredicates {
     /// `position / max_position_per_day(day_of_week)`. `None` when no
     /// subject has `prefer_late_period > 0` or no such placements exist.
     pub late_period_ratio: Option<f64>,
+    /// Fraction of `(class, subject)` pairs whose single teacher equals
+    /// the class's `class_teacher_id`, filtered to classes with
+    /// Klassenlehrer set. `None` when no class has `class_teacher_id`
+    /// set (vacuous truth; counts as pass for the composite predicate).
+    pub class_teacher_subject_share: Option<f64>,
 }
 
 fn worst_class_day_spread(problem: &Problem, solution: &Solution) -> u32 {
@@ -260,6 +271,53 @@ fn late_period_ratio(problem: &Problem, solution: &Solution) -> Option<f64> {
     Some(ratios[ratios.len() / 2])
 }
 
+fn class_teacher_subject_share(problem: &Problem, solution: &Solution) -> Option<f64> {
+    let class_teacher: HashMap<SchoolClassId, TeacherId> = problem
+        .school_classes
+        .iter()
+        .filter_map(|c| c.class_teacher_id.map(|t| (c.id, t)))
+        .collect();
+    if class_teacher.is_empty() {
+        return None;
+    }
+    let lesson_meta: HashMap<_, _> = problem
+        .lessons
+        .iter()
+        .map(|l| (l.id, (l.subject_id, &l.school_class_ids)))
+        .collect();
+    let mut by_pair: HashMap<(SchoolClassId, SubjectId), Vec<TeacherId>> = HashMap::new();
+    for placement in &solution.placements {
+        let (subject_id, class_ids) = match lesson_meta.get(&placement.lesson_id).copied() {
+            Some(m) => m,
+            None => continue,
+        };
+        for class_id in class_ids {
+            if !class_teacher.contains_key(class_id) {
+                continue;
+            }
+            by_pair
+                .entry((*class_id, subject_id))
+                .or_default()
+                .push(placement.teacher_id);
+        }
+    }
+    if by_pair.is_empty() {
+        return None;
+    }
+    let mut numerator: u32 = 0;
+    let denominator = by_pair.len() as u32;
+    for ((class_id, _subject_id), teachers) in &by_pair {
+        let kl = class_teacher
+            .get(class_id)
+            .copied()
+            .expect("class filtered to those with Klassenlehrer");
+        if teachers.iter().all(|t| *t == kl) {
+            numerator += 1;
+        }
+    }
+    Some(f64::from(numerator) / f64::from(denominator))
+}
+
 /// Pure function over [`Problem`] + [`Solution`]. See module rustdoc for the
 /// per-predicate semantics. Never panics; treats empty placements gracefully.
 pub fn evaluate_quality_predicates(problem: &Problem, solution: &Solution) -> QualityPredicates {
@@ -273,10 +331,11 @@ pub fn evaluate_quality_predicates(problem: &Problem, solution: &Solution) -> Qu
         worst_home_room_ratio: worst_home_room_ratio(problem, solution, &home_rooms),
         total_interior_gaps: total_interior_gaps(problem, solution),
         late_period_ratio: late_period_ratio(problem, solution),
+        class_teacher_subject_share: class_teacher_subject_share(problem, solution),
     }
 }
 
-/// Returns the count (0..=4) of predicates that pass at the configured
+/// Returns the count (0..=5) of predicates that pass at the configured
 /// thresholds. `None` ratios count as passing (vacuous truth).
 pub fn quality_pass_count(report: &QualityPredicates) -> u32 {
     let mut n = 0;
@@ -295,6 +354,12 @@ pub fn quality_pass_count(report: &QualityPredicates) -> u32 {
     if report
         .late_period_ratio
         .is_none_or(|v| v >= QUALITY_MIN_LATE_PERIOD_RATIO)
+    {
+        n += 1;
+    }
+    if report
+        .class_teacher_subject_share
+        .is_none_or(|v| v >= QUALITY_MIN_CLASS_TEACHER_SHARE)
     {
         n += 1;
     }
@@ -340,33 +405,36 @@ mod tests {
             worst_home_room_ratio: None,
             total_interior_gaps: 0,
             late_period_ratio: None,
+            class_teacher_subject_share: None,
         };
-        assert_eq!(quality_pass_count(&report), 4);
+        assert_eq!(quality_pass_count(&report), 5);
     }
 
     #[test]
     fn quality_pass_count_counts_each_failing_predicate() {
         let report = QualityPredicates {
-            worst_spread: 5,                  // fail
-            worst_home_room_ratio: Some(0.3), // fail
-            total_interior_gaps: 10,          // fail
-            late_period_ratio: Some(0.2),     // fail
+            worst_spread: 5,                        // fail
+            worst_home_room_ratio: Some(0.3),       // fail
+            total_interior_gaps: 10,                // fail
+            late_period_ratio: Some(0.2),           // fail
+            class_teacher_subject_share: Some(0.1), // fail
         };
         assert_eq!(quality_pass_count(&report), 0);
 
         let report = QualityPredicates {
-            worst_spread: 2,                  // pass
-            worst_home_room_ratio: Some(0.7), // pass
-            total_interior_gaps: 0,           // pass
-            late_period_ratio: Some(0.4),     // fail
+            worst_spread: 2,                        // pass
+            worst_home_room_ratio: Some(0.7),       // pass
+            total_interior_gaps: 0,                 // pass
+            late_period_ratio: Some(0.4),           // fail
+            class_teacher_subject_share: Some(0.6), // pass
         };
-        assert_eq!(quality_pass_count(&report), 3);
+        assert_eq!(quality_pass_count(&report), 4);
     }
 
     #[test]
     fn quality_report_default_passes_every_predicate() {
         let report = QualityPredicates::default();
-        assert_eq!(quality_pass_count(&report), 4);
+        assert_eq!(quality_pass_count(&report), 5);
     }
 
     #[test]
@@ -385,8 +453,8 @@ mod tests {
         let report = evaluate_quality_predicates(&problem, &solution);
         let n = quality_pass_count(&report);
         assert!(
-            n >= 3,
-            "expected at least 3 of 4 predicates to pass on grundschule greedy: {report:?}",
+            n >= 4,
+            "expected at least 4 of 5 predicates to pass on grundschule greedy: {report:?}",
         );
     }
 
@@ -682,5 +750,437 @@ mod tests {
         };
         let ratio = late_period_ratio(&problem, &solution).expect("late ratio");
         assert!((ratio - 2.0 / 3.0).abs() < 1e-9, "got {ratio}");
+    }
+
+    // -----------------------------------------------------------------------
+    // class_teacher_subject_share helpers and tests
+    // -----------------------------------------------------------------------
+
+    /// Build a tiny problem with one class (no Klassenlehrer), one subject,
+    /// one lesson, one TB, one teacher. Returns the problem plus the lesson_id
+    /// so the test can build a matching Solution via `test_solution_one_placement`.
+    fn test_problem_no_klassenlehrer() -> solver_core::Problem {
+        let class_id = SchoolClassId(quality_test_uuid(101));
+        let subject_id = SubjectId(quality_test_uuid(102));
+        let lesson_id = LessonId(quality_test_uuid(103));
+        let tb_id = TimeBlockId(quality_test_uuid(104));
+        let teacher = solver_core::TeacherId(quality_test_uuid(105));
+        solver_core::Problem {
+            time_blocks: vec![TimeBlock {
+                id: tb_id,
+                day_of_week: 0,
+                position: 0,
+            }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: None,
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                school_class_ids: vec![class_id],
+                subject_id,
+                teacher_candidates: vec![teacher],
+                teacher_pin: Some(teacher),
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            ..empty_problem()
+        }
+    }
+
+    /// Build a `Solution` with one placement on the first lesson and first TB
+    /// of the given problem; the teacher is taken from the lesson's first
+    /// candidate. Used together with `test_problem_no_klassenlehrer` to keep
+    /// boilerplate compact.
+    fn test_solution_one_placement(problem: &solver_core::Problem) -> CoreSolution {
+        let lesson = &problem.lessons[0];
+        let tb = &problem.time_blocks[0];
+        let room_id = RoomId(quality_test_uuid(199));
+        let teacher_id = lesson.teacher_candidates[0];
+        CoreSolution {
+            placements: vec![CorePlacement {
+                lesson_id: lesson.id,
+                time_block_id: tb.id,
+                room_id,
+                teacher_id,
+            }],
+            violations: vec![],
+            soft_score: 0,
+        }
+    }
+
+    /// One class with Klassenlehrer set; two subjects, two lessons, both
+    /// taught by the Klassenlehrer. Returns (problem, solution).
+    fn test_problem_with_klassenlehrer_all_match() -> (solver_core::Problem, CoreSolution) {
+        let class_id = SchoolClassId(quality_test_uuid(201));
+        let subj_a = SubjectId(quality_test_uuid(202));
+        let subj_b = SubjectId(quality_test_uuid(203));
+        let lesson_a = LessonId(quality_test_uuid(204));
+        let lesson_b = LessonId(quality_test_uuid(205));
+        let tb_a = TimeBlockId(quality_test_uuid(206));
+        let tb_b = TimeBlockId(quality_test_uuid(207));
+        let klassenlehrer = solver_core::TeacherId(quality_test_uuid(208));
+        let room_id = RoomId(quality_test_uuid(209));
+        let make_subject = |id| Subject {
+            id,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        };
+        let make_lesson = |id, sid| Lesson {
+            id,
+            school_class_ids: vec![class_id],
+            subject_id: sid,
+            teacher_candidates: vec![klassenlehrer],
+            teacher_pin: Some(klassenlehrer),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = solver_core::Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_a,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_b,
+                    day_of_week: 0,
+                    position: 1,
+                },
+            ],
+            subjects: vec![make_subject(subj_a), make_subject(subj_b)],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: Some(klassenlehrer),
+            }],
+            lessons: vec![make_lesson(lesson_a, subj_a), make_lesson(lesson_b, subj_b)],
+            ..empty_problem()
+        };
+        let solution = CoreSolution {
+            placements: vec![
+                CorePlacement {
+                    lesson_id: lesson_a,
+                    time_block_id: tb_a,
+                    room_id,
+                    teacher_id: klassenlehrer,
+                },
+                CorePlacement {
+                    lesson_id: lesson_b,
+                    time_block_id: tb_b,
+                    room_id,
+                    teacher_id: klassenlehrer,
+                },
+            ],
+            violations: vec![],
+            soft_score: 0,
+        };
+        (problem, solution)
+    }
+
+    /// One class with Klassenlehrer set; two subjects, two lessons. One pair
+    /// is taught by the Klassenlehrer, the other by a different teacher.
+    /// Returns (problem, solution) with expected share = 0.5.
+    fn test_problem_with_klassenlehrer_half_match() -> (solver_core::Problem, CoreSolution) {
+        let class_id = SchoolClassId(quality_test_uuid(301));
+        let subj_a = SubjectId(quality_test_uuid(302));
+        let subj_b = SubjectId(quality_test_uuid(303));
+        let lesson_a = LessonId(quality_test_uuid(304));
+        let lesson_b = LessonId(quality_test_uuid(305));
+        let tb_a = TimeBlockId(quality_test_uuid(306));
+        let tb_b = TimeBlockId(quality_test_uuid(307));
+        let klassenlehrer = solver_core::TeacherId(quality_test_uuid(308));
+        let other = solver_core::TeacherId(quality_test_uuid(309));
+        let room_id = RoomId(quality_test_uuid(310));
+        let make_subject = |id| Subject {
+            id,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        };
+        let problem = solver_core::Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_a,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_b,
+                    day_of_week: 0,
+                    position: 1,
+                },
+            ],
+            subjects: vec![make_subject(subj_a), make_subject(subj_b)],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: Some(klassenlehrer),
+            }],
+            lessons: vec![
+                Lesson {
+                    id: lesson_a,
+                    school_class_ids: vec![class_id],
+                    subject_id: subj_a,
+                    teacher_candidates: vec![klassenlehrer],
+                    teacher_pin: Some(klassenlehrer),
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_b,
+                    school_class_ids: vec![class_id],
+                    subject_id: subj_b,
+                    teacher_candidates: vec![other],
+                    teacher_pin: Some(other),
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            ..empty_problem()
+        };
+        let solution = CoreSolution {
+            placements: vec![
+                CorePlacement {
+                    lesson_id: lesson_a,
+                    time_block_id: tb_a,
+                    room_id,
+                    teacher_id: klassenlehrer,
+                },
+                CorePlacement {
+                    lesson_id: lesson_b,
+                    time_block_id: tb_b,
+                    room_id,
+                    teacher_id: other,
+                },
+            ],
+            violations: vec![],
+            soft_score: 0,
+        };
+        (problem, solution)
+    }
+
+    /// One class with Klassenlehrer set; one subject taught by a teacher who
+    /// is NOT the Klassenlehrer. Share = 0.0.
+    fn test_problem_with_klassenlehrer_none_match() -> (solver_core::Problem, CoreSolution) {
+        let class_id = SchoolClassId(quality_test_uuid(401));
+        let subj_id = SubjectId(quality_test_uuid(402));
+        let lesson_id = LessonId(quality_test_uuid(403));
+        let tb_id = TimeBlockId(quality_test_uuid(404));
+        let klassenlehrer = solver_core::TeacherId(quality_test_uuid(405));
+        let other = solver_core::TeacherId(quality_test_uuid(406));
+        let room_id = RoomId(quality_test_uuid(407));
+        let problem = solver_core::Problem {
+            time_blocks: vec![TimeBlock {
+                id: tb_id,
+                day_of_week: 0,
+                position: 0,
+            }],
+            subjects: vec![Subject {
+                id: subj_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: Some(klassenlehrer),
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                school_class_ids: vec![class_id],
+                subject_id: subj_id,
+                teacher_candidates: vec![other],
+                teacher_pin: Some(other),
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+            }],
+            ..empty_problem()
+        };
+        let solution = CoreSolution {
+            placements: vec![CorePlacement {
+                lesson_id,
+                time_block_id: tb_id,
+                room_id,
+                teacher_id: other,
+            }],
+            violations: vec![],
+            soft_score: 0,
+        };
+        (problem, solution)
+    }
+
+    /// Two classes; one has Klassenlehrer set with a matching lesson, the
+    /// other has `class_teacher_id = None` and a teacher who is not the
+    /// other class's Klassenlehrer. Share = 1.0 (the unset class is excluded
+    /// from the denominator).
+    fn test_problem_mixed_klassenlehrer() -> (solver_core::Problem, CoreSolution) {
+        let c1 = SchoolClassId(quality_test_uuid(501));
+        let c2 = SchoolClassId(quality_test_uuid(502));
+        let subj_id = SubjectId(quality_test_uuid(503));
+        let lesson_c1 = LessonId(quality_test_uuid(504));
+        let lesson_c2 = LessonId(quality_test_uuid(505));
+        let tb_a = TimeBlockId(quality_test_uuid(506));
+        let tb_b = TimeBlockId(quality_test_uuid(507));
+        let klassenlehrer_c1 = solver_core::TeacherId(quality_test_uuid(508));
+        let other = solver_core::TeacherId(quality_test_uuid(509));
+        let room_id = RoomId(quality_test_uuid(510));
+        let problem = solver_core::Problem {
+            time_blocks: vec![
+                TimeBlock {
+                    id: tb_a,
+                    day_of_week: 0,
+                    position: 0,
+                },
+                TimeBlock {
+                    id: tb_b,
+                    day_of_week: 0,
+                    position: 1,
+                },
+            ],
+            subjects: vec![Subject {
+                id: subj_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: c1,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: Some(klassenlehrer_c1),
+                },
+                SchoolClass {
+                    id: c2,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+            ],
+            lessons: vec![
+                Lesson {
+                    id: lesson_c1,
+                    school_class_ids: vec![c1],
+                    subject_id: subj_id,
+                    teacher_candidates: vec![klassenlehrer_c1],
+                    teacher_pin: Some(klassenlehrer_c1),
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+                Lesson {
+                    id: lesson_c2,
+                    school_class_ids: vec![c2],
+                    subject_id: subj_id,
+                    teacher_candidates: vec![other],
+                    teacher_pin: Some(other),
+                    hours_per_week: 1,
+                    preferred_block_size: 1,
+                    lesson_group_id: None,
+                },
+            ],
+            ..empty_problem()
+        };
+        let solution = CoreSolution {
+            placements: vec![
+                CorePlacement {
+                    lesson_id: lesson_c1,
+                    time_block_id: tb_a,
+                    room_id,
+                    teacher_id: klassenlehrer_c1,
+                },
+                CorePlacement {
+                    lesson_id: lesson_c2,
+                    time_block_id: tb_b,
+                    room_id,
+                    teacher_id: other,
+                },
+            ],
+            violations: vec![],
+            soft_score: 0,
+        };
+        (problem, solution)
+    }
+
+    #[test]
+    fn class_teacher_subject_share_returns_none_when_no_class_has_klassenlehrer() {
+        let problem = test_problem_no_klassenlehrer();
+        let solution = test_solution_one_placement(&problem);
+        assert_eq!(class_teacher_subject_share(&problem, &solution), None);
+    }
+
+    #[test]
+    fn class_teacher_subject_share_returns_one_when_all_pairs_match_klassenlehrer() {
+        let (problem, solution) = test_problem_with_klassenlehrer_all_match();
+        assert_eq!(class_teacher_subject_share(&problem, &solution), Some(1.0));
+    }
+
+    #[test]
+    fn class_teacher_subject_share_returns_half_when_half_pairs_match() {
+        let (problem, solution) = test_problem_with_klassenlehrer_half_match();
+        let share = class_teacher_subject_share(&problem, &solution).expect("eligible pairs exist");
+        assert!((share - 0.5).abs() < 1e-9, "expected 0.5, got {share}");
+    }
+
+    #[test]
+    fn class_teacher_subject_share_returns_zero_when_no_pair_matches() {
+        let (problem, solution) = test_problem_with_klassenlehrer_none_match();
+        assert_eq!(class_teacher_subject_share(&problem, &solution), Some(0.0));
+    }
+
+    #[test]
+    fn class_teacher_subject_share_skips_classes_without_klassenlehrer() {
+        let (problem, solution) = test_problem_mixed_klassenlehrer();
+        let share = class_teacher_subject_share(&problem, &solution)
+            .expect("at least one class has Klassenlehrer set");
+        assert!((share - 1.0).abs() < 1e-9, "expected 1.0, got {share}");
+    }
+
+    #[test]
+    fn quality_pass_count_passes_class_teacher_share_at_or_above_threshold() {
+        let pass = QualityPredicates {
+            class_teacher_subject_share: Some(0.5),
+            ..QualityPredicates::default()
+        };
+        assert_eq!(quality_pass_count(&pass), 5);
+        let fail = QualityPredicates {
+            class_teacher_subject_share: Some(0.49),
+            ..QualityPredicates::default()
+        };
+        assert_eq!(quality_pass_count(&fail), 4);
+        let vacuous = QualityPredicates {
+            class_teacher_subject_share: None,
+            ..QualityPredicates::default()
+        };
+        assert_eq!(quality_pass_count(&vacuous), 5);
     }
 }

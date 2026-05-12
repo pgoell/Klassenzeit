@@ -157,6 +157,7 @@ struct CellResult {
     worst_home_room_ratio_median: Option<f64>,
     total_interior_gaps_median: Option<u32>,
     late_period_ratio_median: Option<f64>,
+    class_teacher_subject_share_median: Option<f64>,
     quality_pass_count_median: Option<u32>,
     unplaced_hours_median: Option<u32>,
     class_gap_hours_median: Option<u32>,
@@ -624,7 +625,7 @@ where
                     "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
                      placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
                      tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
-                     quality_med={}",
+                     kl_share_med={} quality_med={}",
                     spec.fixture,
                     spec.backend.label(),
                     teacher_pins_label,
@@ -656,8 +657,11 @@ where
                     cell.late_period_ratio_median
                         .map(|v| format!("{v:.2}"))
                         .unwrap_or_else(|| "-".to_string()),
+                    cell.class_teacher_subject_share_median
+                        .map(|v| format!("{v:.2}"))
+                        .unwrap_or_else(|| "-".to_string()),
                     cell.quality_pass_count_median
-                        .map(|v| format!("{v}/4"))
+                        .map(|v| format!("{v}/5"))
                         .unwrap_or_else(|| "-".to_string()),
                 );
                 write_row(
@@ -855,6 +859,7 @@ fn run_lahc_cell(
         worst_home_room_ratio_median,
         total_interior_gaps_median,
         late_period_ratio_median,
+        class_teacher_subject_share_median,
         quality_pass_count_median,
     ) = aggregate_quality_medians(&quality_reports);
     let (
@@ -897,6 +902,7 @@ fn run_lahc_cell(
         worst_home_room_ratio_median,
         total_interior_gaps_median,
         late_period_ratio_median,
+        class_teacher_subject_share_median,
         quality_pass_count_median,
         unplaced_hours_median,
         class_gap_hours_median,
@@ -1052,6 +1058,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         worst_home_room_ratio_median,
         total_interior_gaps_median,
         late_period_ratio_median,
+        class_teacher_subject_share_median,
         quality_pass_count_median,
     ) = aggregate_quality_medians(&quality_reports);
     let (
@@ -1094,6 +1101,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         worst_home_room_ratio_median,
         total_interior_gaps_median,
         late_period_ratio_median,
+        class_teacher_subject_share_median,
         quality_pass_count_median,
         unplaced_hours_median,
         class_gap_hours_median,
@@ -1122,19 +1130,21 @@ fn median_u64(values: &mut [u64]) -> u64 {
     values[mid]
 }
 
-/// Five-tuple returned by [`aggregate_quality_medians`]: worst spread, worst
-/// home-room ratio, total interior gaps, late-period ratio, quality pass count.
+/// Six-tuple returned by [`aggregate_quality_medians`]: worst spread, worst
+/// home-room ratio, total interior gaps, late-period ratio, Klassenlehrer
+/// (class-teacher subject) share, quality pass count.
 type QualityMedians = (
     Option<u32>,
     Option<f64>,
     Option<u32>,
+    Option<f64>,
     Option<f64>,
     Option<u32>,
 );
 
 fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityMedians {
     if reports.is_empty() {
-        return (None, None, None, None, None);
+        return (None, None, None, None, None, None);
     }
     let mut spreads: Vec<u32> = reports.iter().map(|r| r.worst_spread).collect();
     let worst_spread = Some(median_u32(&mut spreads));
@@ -1159,6 +1169,16 @@ fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityM
         Some(median_f64(&mut late))
     };
 
+    let mut class_teacher_shares: Vec<f64> = reports
+        .iter()
+        .filter_map(|r| r.class_teacher_subject_share)
+        .collect();
+    let class_teacher_subject_share = if class_teacher_shares.is_empty() {
+        None
+    } else {
+        Some(median_f64(&mut class_teacher_shares))
+    };
+
     let mut pass_counts: Vec<u32> = reports.iter().map(quality::quality_pass_count).collect();
     let quality_pass_count = Some(median_u32(&mut pass_counts));
 
@@ -1167,6 +1187,7 @@ fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityM
         worst_home_room_ratio,
         total_interior_gaps,
         late_period_ratio,
+        class_teacher_subject_share,
         quality_pass_count,
     )
 }
@@ -1267,17 +1288,17 @@ fn write_title_and_intro(out: &mut String) {
 fn write_table_header(out: &mut String, render_kempe_chain_col: bool) {
     if render_kempe_chain_col {
         out.push_str(
-            "| Fixture | Backend | RR_K | Period | Kempe Chain | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+            "| Fixture | Backend | RR_K | Period | Kempe Chain | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
         );
         out.push_str(
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
         );
     } else {
         out.push_str(
-            "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Quality (pass / 4) |\n",
+            "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
         );
         out.push_str(
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
         );
     }
 }
@@ -1333,8 +1354,12 @@ fn write_row(
         Some(v) => format!("{v:.2}"),
         None => "-".to_string(),
     };
+    let class_teacher_share = match cell.class_teacher_subject_share_median {
+        Some(v) => format!("{v:.2}"),
+        None => "-".to_string(),
+    };
     let quality = match cell.quality_pass_count_median {
-        Some(v) => format!("{v}/4"),
+        Some(v) => format!("{v}/5"),
         None => "-".to_string(),
     };
     let rr_k_col = match cell.rr_k {
@@ -1351,7 +1376,7 @@ fn write_row(
             None => "-".to_string(),
         };
         out.push_str(&format!(
-            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {kempe_chain_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {kempe_chain_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
             backend = backend.label(),
             seeds = cell.seeds,
             n = cell.feasibility_count,
@@ -1364,7 +1389,7 @@ fn write_row(
         ));
     } else {
         out.push_str(&format!(
-            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {quality} |\n",
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
             backend = backend.label(),
             seeds = cell.seeds,
             n = cell.feasibility_count,
@@ -1387,12 +1412,12 @@ fn write_error_row(
 ) {
     if render_kempe_chain_col {
         out.push_str(&format!(
-            "| {fixture} | {backend} | - | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            "| {fixture} | {backend} | - | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
             backend = backend.label(),
         ));
     } else {
         out.push_str(&format!(
-            "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
             backend = backend.label(),
         ));
     }
@@ -1423,10 +1448,19 @@ fn write_footer(out: &mut String) {
         "feasible and Time to optimal are medians over feasible seeds; '-' marks no feasible seed.\n\n",
     );
     out.push_str(
-        "Quality columns (rightmost five): per-cell median across feasible seeds. Predicates pass at\n",
+        "Quality columns (rightmost six): per-cell median across feasible seeds. Predicates pass at\n",
     );
     out.push_str(
-        "worst spread <= 2, worst home-room ratio >= 0.6, total interior gaps <= 2, late-period ratio >= 0.5.\n",
+        "worst spread <= 2, worst home-room ratio >= 0.6, total interior gaps <= 2, late-period ratio >= 0.5,\n",
+    );
+    out.push_str(
+        "and Klassenlehrer share >= 0.5. Klassenlehrer share is the fraction of (class, subject) pairs whose\n",
+    );
+    out.push_str(
+        "single teacher equals the class's `class_teacher_id`; classes with no Klassenlehrer set are\n",
+    );
+    out.push_str(
+        "excluded from the denominator, and a cell with no Klassenlehrer at all renders as `-` (pass).\n",
     );
     out.push_str(
         "Late-period ratio is the median normalised position (`position / max_position_per_day`) of all\n",
@@ -1793,6 +1827,7 @@ mod tests {
             worst_home_room_ratio_median: None,
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
+            class_teacher_subject_share_median: None,
             quality_pass_count_median: None,
             unplaced_hours_median: None,
             class_gap_hours_median: None,
@@ -1838,6 +1873,7 @@ mod tests {
             worst_home_room_ratio_median: None,
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
+            class_teacher_subject_share_median: None,
             quality_pass_count_median: None,
             unplaced_hours_median: None,
             class_gap_hours_median: None,
@@ -1878,7 +1914,8 @@ mod tests {
             worst_home_room_ratio_median: Some(0.75),
             total_interior_gaps_median: Some(1),
             late_period_ratio_median: Some(0.6),
-            quality_pass_count_median: Some(4),
+            class_teacher_subject_share_median: Some(0.75),
+            quality_pass_count_median: Some(5),
             unplaced_hours_median: None,
             class_gap_hours_median: None,
             teacher_gap_hours_median: None,
@@ -1918,7 +1955,11 @@ mod tests {
             "missing late-period header: {out}"
         );
         assert!(
-            out.contains("Quality (pass / 4)"),
+            out.contains("Klassenlehrer share (median)"),
+            "missing klassenlehrer-share header: {out}"
+        );
+        assert!(
+            out.contains("Quality (pass / 5)"),
             "missing quality column header: {out}"
         );
     }
@@ -1941,7 +1982,8 @@ mod tests {
             worst_home_room_ratio_median: Some(0.75),
             total_interior_gaps_median: Some(1),
             late_period_ratio_median: Some(0.6),
-            quality_pass_count_median: Some(4),
+            class_teacher_subject_share_median: Some(0.75),
+            quality_pass_count_median: Some(5),
             unplaced_hours_median: None,
             class_gap_hours_median: None,
             teacher_gap_hours_median: None,
@@ -1970,7 +2012,7 @@ mod tests {
             out.contains("| 0.60 |") || out.contains("| 0.6 |"),
             "missing late-period: {out}"
         );
-        assert!(out.contains("| 4/4 |"), "missing quality pass count: {out}");
+        assert!(out.contains("| 5/5 |"), "missing quality pass count: {out}");
     }
 
     #[test]
@@ -1991,6 +2033,7 @@ mod tests {
             worst_home_room_ratio_median: None,
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
+            class_teacher_subject_share_median: None,
             quality_pass_count_median: None,
             unplaced_hours_median: None,
             class_gap_hours_median: None,
@@ -2007,12 +2050,12 @@ mod tests {
         };
         let mut out = String::new();
         write_row(&mut out, "grundschule", BenchBackend::Lahc, &cell, false);
-        // Five dash-cells appended at the right end (worst spread, home-room
-        // ratio, interior gaps, late-period, quality).
+        // Six dash-cells appended at the right end (worst spread, home-room
+        // ratio, interior gaps, late-period, Klassenlehrer share, quality).
         let dash_count = out.matches("| - |").count();
         assert!(
-            dash_count >= 5,
-            "expected at least 5 dashes for quality cells: {out}"
+            dash_count >= 6,
+            "expected at least 6 dashes for quality cells: {out}"
         );
     }
 
@@ -2072,6 +2115,7 @@ mod tests {
             worst_home_room_ratio_median: None,
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
+            class_teacher_subject_share_median: None,
             quality_pass_count_median: None,
             unplaced_hours_median: None,
             class_gap_hours_median: None,
@@ -2200,7 +2244,8 @@ mod tests {
             worst_home_room_ratio_median: Some(0.7),
             total_interior_gaps_median: Some(0),
             late_period_ratio_median: None,
-            quality_pass_count_median: Some(4),
+            class_teacher_subject_share_median: None,
+            quality_pass_count_median: Some(5),
             unplaced_hours_median: Some(0),
             class_gap_hours_median: Some(1),
             teacher_gap_hours_median: Some(2),
@@ -2302,6 +2347,7 @@ mod tests {
             worst_home_room_ratio_median: None,
             total_interior_gaps_median: None,
             late_period_ratio_median: None,
+            class_teacher_subject_share_median: None,
             quality_pass_count_median: None,
             unplaced_hours_median: None,
             class_gap_hours_median: None,
