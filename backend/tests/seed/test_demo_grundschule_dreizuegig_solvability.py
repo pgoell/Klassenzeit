@@ -122,24 +122,6 @@ async def test_seeded_grundschule_dreizuegig_solves_with_zero_violations(
         assert len(body["placements"]) > 0, school_class.name
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "OPEN_THINGS item 11 post-item-79 flake-loop (2026-05-12, "
-        "20 iters at solve_deadline_ms=5000) measured 5/20 RED "
-        "(down from pre-fix 12/20). Item 79's picker-capacity fix "
-        "biased FFD's first-pick capacity gate by "
-        "lesson.hours_per_week; residual axis is still "
-        "teacher_over_capacity (5/5 fails) on classes 1a / 2b / 2c. "
-        "Every fail happens on the FIRST /schedule call of an early "
-        "class with no prior-class pins; the picker-capacity check "
-        "is correct but FFD's lesson ordering doesn't prioritise "
-        "scarce-candidate lessons, leaving them infeasible by the "
-        "time FFD reaches them. Tracked under OPEN_THINGS item 80 "
-        "(FFD lesson-ordering myopia). Strict=False so XPASS "
-        "doesn't fail the suite once item 80 ships."
-    ),
-)
 async def test_seeded_grundschule_dreizuegig_solves_without_pinned_teachers(
     db_session: AsyncSession,
     client: AsyncClient,

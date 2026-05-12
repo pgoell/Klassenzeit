@@ -52,19 +52,30 @@ pub(crate) fn ffd_order(problem: &Problem, idx: &Indexed) -> Vec<usize> {
     let no_blocks =
         problem.teacher_blocked_times.is_empty() && problem.room_blocked_times.is_empty();
 
-    let scores: Vec<(u32, u32)> = if no_blocks {
+    // Primary FFD key is `teacher_candidates.len()` ascending: lessons whose
+    // qualified teacher pool is narrow get placed first so the FFD loop does
+    // not exhaust a hard lesson's only candidate by committing it to an
+    // earlier broader-pool lesson. See OPEN_THINGS item 80 and the spec at
+    // /tmp/kz-autopilot/2026-05-12-ffd-scarcity-ordering-design.md.
+    let scores: Vec<(u32, u32, u32)> = if no_blocks {
         problem
             .lessons
             .iter()
             .map(|l| {
-                same_room_eligibility_no_blocks(l, problem, idx, &tbs_by_day, &home_room_pairs)
+                let (viable_pairs, home_pairs) =
+                    same_room_eligibility_no_blocks(l, problem, idx, &tbs_by_day, &home_room_pairs);
+                (l.teacher_candidates.len() as u32, viable_pairs, home_pairs)
             })
             .collect()
     } else {
         problem
             .lessons
             .iter()
-            .map(|l| same_room_eligibility(l, problem, idx, &tbs_by_day, &home_room_pairs))
+            .map(|l| {
+                let (viable_pairs, home_pairs) =
+                    same_room_eligibility(l, problem, idx, &tbs_by_day, &home_room_pairs);
+                (l.teacher_candidates.len() as u32, viable_pairs, home_pairs)
+            })
             .collect()
     };
     let mut order: Vec<usize> = (0..problem.lessons.len()).collect();
@@ -422,6 +433,50 @@ mod tests {
         let idx = Indexed::new(&problem);
         let order = ffd_order(&problem, &idx);
         assert_eq!(order, vec![0]);
+    }
+
+    #[test]
+    fn ffd_order_scarcer_teacher_pool_sorts_first() {
+        // Two lessons share the same subject, room-suitability shape, and
+        // preferred block size, so they tie on the existing
+        // `(viable_pairs, home_pairs)` keys. They differ only in
+        // `teacher_candidates.len()`: L1 has a pool of 2 qualified teachers,
+        // L2 has a pool of 1. Lesson ids are picked so today's id tiebreak
+        // sorts L1 (id 70) before L2 (id 71). The scarcity-first comparator
+        // sorts L2 (narrower pool) before L1 (broader pool); see OPEN_THINGS
+        // item 80 spec at /tmp/kz-autopilot/2026-05-12-ffd-scarcity-ordering-design.md.
+        let mut problem = two_blocks_two_rooms();
+        // Widen subject 40's qualified-teacher pool: teacher 21 also qualifies
+        // for subject 40 so L1's two-candidate pool is structurally valid.
+        problem.teacher_qualifications.push(TeacherQualification {
+            teacher_id: TeacherId(ord_uuid(21)),
+            subject_id: SubjectId(ord_uuid(40)),
+        });
+        // L1 (idx 0, id 70): broader pool with two qualified candidates.
+        problem.lessons.push(Lesson {
+            id: LessonId(ord_uuid(70)),
+            school_class_ids: vec![SchoolClassId(ord_uuid(50))],
+            subject_id: SubjectId(ord_uuid(40)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20)), TeacherId(ord_uuid(21))],
+            teacher_pin: None,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        // L2 (idx 1, id 71): narrower pool with one qualified candidate.
+        problem.lessons.push(Lesson {
+            id: LessonId(ord_uuid(71)),
+            school_class_ids: vec![SchoolClassId(ord_uuid(51))],
+            subject_id: SubjectId(ord_uuid(40)),
+            teacher_candidates: vec![TeacherId(ord_uuid(20))],
+            teacher_pin: None,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        });
+        let idx = Indexed::new(&problem);
+        // Scarcer pool sorts first: L2 (idx 1) before L1 (idx 0).
+        assert_eq!(ffd_order(&problem, &idx), vec![1, 0]);
     }
 
     #[test]
