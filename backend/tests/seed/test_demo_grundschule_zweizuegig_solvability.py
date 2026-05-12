@@ -128,13 +128,16 @@ async def test_seeded_grundschule_zweizuegig_solves_with_zero_violations(
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "auto_assign_teachers_for_lessons distribution intermittently "
-        "produces a teacher allocation that the production solver path "
-        "(lahc_rr_kempe at 5000 ms) cannot recover from on class 3a; "
-        "observed kinds rotate between no_suitable_room and "
-        "no_free_time_block (~3/5 fail rate in isolation). Tracked under "
-        "OPEN_THINGS item 4 (subject UUID order leak in scarcity-first "
-        "auto-assign tiebreak)."
+        "OPEN_THINGS item 11 flake-loop (2026-05-12, 20 iters at "
+        "solve_deadline_ms=5000) measured 7/20 RED with dominant "
+        "violation kind teacher_over_capacity (secondary "
+        "no_suitable_room); failing class rotates across 1a / 2b / "
+        "3a / 4a. The solver-driven teacher picker (per ADR 0036) "
+        "over-allocates teachers without tracking cumulative weekly "
+        "hours across classes; tracked under OPEN_THINGS item 79 "
+        "(solver teacher picker over-allocates on multi-school "
+        "Grundschule unpinned mode). Strict=False so XPASS doesn't "
+        "fail the suite once item 79 ships."
     ),
 )
 async def test_seeded_grundschule_zweizuegig_solves_without_pinned_teachers(

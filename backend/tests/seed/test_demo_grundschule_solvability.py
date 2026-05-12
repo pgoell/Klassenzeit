@@ -28,19 +28,6 @@ CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
 LoginFn = Callable[[str, str], Awaitable[None]]
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Auto-assigned teacher distribution under lahc_rr_kempe at 5000 ms "
-        "LAHC budget intermittently produces a double-booking that the "
-        "solver's `validate_no_double_booking` post-condition rejects with "
-        "an `input: double-booking` ValueError before placements are "
-        "returned. R&R + Kempe usually escapes the FFD lock-in but not "
-        "always; tracked under OPEN_THINGS item 4 (subject UUID order leak "
-        "in scarcity-first auto-assign tiebreak). Strict=False so XPASS "
-        "doesn't fail the suite once the underlying flake is fixed."
-    ),
-)
 async def test_seeded_grundschule_solves_without_pinned_teachers(
     db_session: AsyncSession,
     client: AsyncClient,

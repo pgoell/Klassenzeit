@@ -125,15 +125,18 @@ async def test_seeded_grundschule_dreizuegig_solves_with_zero_violations(
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "auto_assign_teachers_for_lessons distribution intermittently "
-        "produces a teacher allocation that the production solver path "
-        "(lahc_rr_kempe at 5000 ms) cannot recover from; the failing class "
-        "rotates across the cohort (1a, 2a, 3a, 4b observed) with "
-        "lesson_group_split as the dominant violation kind and "
-        "no_suitable_room as a secondary mode (~4/5 fail rate in "
-        "isolation on the dreizuegige fixture). Tracked under OPEN_THINGS "
-        "item 4 (subject UUID order leak in scarcity-first auto-assign "
-        "tiebreak)."
+        "OPEN_THINGS item 11 flake-loop (2026-05-12, 20 iters at "
+        "solve_deadline_ms=5000) measured 12/20 RED with dominant "
+        "violation kind teacher_over_capacity (29 instances; "
+        "secondary no_suitable_room, 2 instances); failing class "
+        "rotates across the cohort with 1b the modal offender (5/12 "
+        "fails) plus 2a / 2b / 2c / 3b / 3c / 4a. The solver-driven "
+        "teacher picker (per ADR 0036) over-allocates teachers "
+        "without tracking cumulative weekly hours across classes; "
+        "tracked under OPEN_THINGS item 79 (solver teacher picker "
+        "over-allocates on multi-school Grundschule unpinned mode). "
+        "Strict=False so XPASS doesn't fail the suite once item 79 "
+        "ships."
     ),
 )
 async def test_seeded_grundschule_dreizuegig_solves_without_pinned_teachers(
