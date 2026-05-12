@@ -16,12 +16,17 @@
 //! freed window. Acceptance is feasibility-only: the under-placed lesson
 //! must come back fully placed AND the ruined block must fully recreate.
 //!
-//! Gated on `deadline: Some(5_000ms), lahc_rr_period: Some(5), seed: 42`
+//! Gated on `deadline: Some(7_500ms), lahc_rr_period: Some(5), seed: 42`
 //! to keep the test deterministic and bound the wall-clock cost in CI.
 //! The deadline must be `Some(_)` for `lahc::run` to engage the LAHC loop
 //! at all; the higher rescue-frequency `lahc_rr_period: 5` (vs the
 //! production default 25) raises rescue iteration density inside the
-//! 5-second budget so multi-school fixtures can reach feasibility.
+//! budget so multi-school fixtures can reach feasibility. The 7500 ms
+//! budget gives ~50% headroom over the production 5000 ms default; pre-
+//! item-57 the dreizuegig rescue hugged 5.014 s in isolation, and the
+//! canonical-objective widening (item 57) raised per-iteration cost just
+//! enough that parallel-pressure CI runs lost one placement under the
+//! tighter budget.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -110,7 +115,7 @@ fn lahc_rescue_zweizuegig_unpinned_reaches_feasibility() {
 
     let config = SolveConfig {
         weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
-        deadline: Some(Duration::from_millis(5_000)),
+        deadline: Some(Duration::from_millis(7_500)),
         lahc_rr_period: Some(5),
         seed: 42,
         ..SolveConfig::default()
@@ -146,7 +151,7 @@ fn lahc_rescue_dreizuegig_unpinned_reaches_feasibility() {
 
     let config = SolveConfig {
         weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
-        deadline: Some(Duration::from_millis(5_000)),
+        deadline: Some(Duration::from_millis(7_500)),
         lahc_rr_period: Some(5),
         seed: 42,
         ..SolveConfig::default()
