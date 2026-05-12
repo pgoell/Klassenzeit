@@ -6,9 +6,10 @@ use solver_core::{
     ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId},
     solve, solve_with_config,
     types::{
-        ConstraintWeights, Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, SolveConfig,
-        Subject, Teacher, TeacherQualification, TimeBlock,
+        Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, SolveConfig, Subject, Teacher,
+        TeacherQualification, TimeBlock,
     },
+    PRODUCTION_ACTIVE_WEIGHTS,
 };
 use uuid::Uuid;
 
@@ -133,26 +134,16 @@ fn ffd_solve_places_a_lesson_that_input_order_leaves_unplaced() {
 
 #[test]
 fn ffd_solve_active_default_weights_match_explicit() {
-    // `solve()` carries active default `class_gap = teacher_gap = 1` plus a
-    // 200ms LAHC deadline. The fixture has one time-block, so LAHC has no
-    // legal Change move and the placements coincide with the greedy result.
-    // This test asserts the structural equivalence: greedy with active
-    // weights (1, 1) and no deadline produces the same Solution as `solve()`
-    // on this LAHC-degenerate fixture.
+    // `solve()` uses `PRODUCTION_ACTIVE_WEIGHTS` plus a 200 ms LAHC deadline.
+    // The fixture has one time-block, so LAHC has no legal Change move and
+    // the placements coincide with the greedy result. This test asserts the
+    // structural equivalence: greedy with production-active weights and no
+    // deadline produces the same Solution as `solve()` on this LAHC-
+    // degenerate fixture.
     let problem = pessimal_input_problem();
     let s_default = solve(&problem).expect("solve");
     let greedy_cfg = SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 1,
-            teacher_gap: 1,
-            prefer_early_period: 1,
-            avoid_first_period: 1,
-            prefer_home_room: 0,
-            avoid_last_period: 1,
-            prefer_late_period: 0,
-            class_day_balance: 0,
-            prefer_class_teacher: 0,
-        },
+        weights: PRODUCTION_ACTIVE_WEIGHTS,
         ..SolveConfig::default()
     };
     let s_explicit = solve_with_config(&problem, &greedy_cfg).expect("solve_with_config");

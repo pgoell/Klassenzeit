@@ -39,6 +39,9 @@ _W_AVOID_LAST_PERIOD = 1
 _W_PREFER_LATE_PERIOD = 1
 _W_CLASS_DAY_BALANCE = 5
 _W_PREFER_CLASS_TEACHER = 5  # item 67: tentative, mirrors _W_PREFER_HOME_ROOM
+# item 57: mirror PRODUCTION_ACTIVE_WEIGHTS per-class worst-case axes
+_W_MAX_PER_CLASS_SPREAD = 10
+_W_MAX_PER_CLASS_INTERIOR_GAPS = 10
 
 
 class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
@@ -789,19 +792,19 @@ def _build_per_slot_presence(  # noqa: PLR0912 (scope_kind branching plus per-da
     return presence
 
 
-def _objective_gap_term(
+def _build_gap_vars_by_entity_day(
     model: cp_model.CpModel,
     problem: dict[str, Any],
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
     scope_kind: str,
-    weight: int,
     y_and_t: dict[tuple[str, str, AnchorKey], cp_model.IntVar] | None = None,
-) -> cp_model.LinearExpr | int:
-    """Build per-(entity, day, position) gap indicators and weight the sum.
+) -> dict[tuple[str, int], list[cp_model.IntVar]]:
+    """Build per-(entity, day, position) gap BoolVars, indexed by (entity, day).
 
-    For each (entity, day, position) presence indicator, build
-    has_left/has_right/gap channeling and return weight * sum(gap[...]).
+    Channels has_left/has_right/gap exactly once per (entity, day, position)
+    so the class_gap summand and the per-class worst-case interior-gaps
+    summand (item 57) share the same gap variables.
     """
     presence = _build_per_slot_presence(model, problem, anchor_vars, lookups, scope_kind, y_and_t)
     positions_per_day = lookups["positions_per_day"]
@@ -810,7 +813,7 @@ def _objective_gap_term(
     else:
         entity_ids = {t["id"] for t in problem["teachers"]}
 
-    gap_vars: list[cp_model.IntVar] = []
+    gaps_by_entity_day: dict[tuple[str, int], list[cp_model.IntVar]] = defaultdict(list)
     for entity_id in entity_ids:
         for day, positions in positions_per_day.items():
             sorted_positions = sorted(positions)
@@ -832,37 +835,43 @@ def _objective_gap_term(
                 model.add(gap <= has_left)
                 model.add(gap <= has_right)
                 model.add(gap <= 1 - pres_p)
-                gap_vars.append(gap)
+                gaps_by_entity_day[(entity_id, day)].append(gap)
+    return gaps_by_entity_day
+
+
+def _objective_gap_term(
+    gaps_by_entity_day: dict[tuple[str, int], list[cp_model.IntVar]],
+    weight: int,
+) -> cp_model.LinearExpr | int:
+    """Weighted sum of all per-(entity, day, position) gap BoolVars.
+
+    Consumes the gap vars built by ``_build_gap_vars_by_entity_day``.
+    """
+    gap_vars: list[cp_model.IntVar] = []
+    for vars_list in gaps_by_entity_day.values():
+        gap_vars.extend(vars_list)
     return weight * cp_model.LinearExpr.sum(gap_vars) if gap_vars else 0
 
 
-def _objective_class_day_balance_term(
+def _build_class_count_per_day(
     model: cp_model.CpModel,
     problem: dict[str, Any],
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
-) -> cp_model.LinearExpr | int:
-    """Per-class scaled L1 day-balance cost mirroring score::class_day_balance_cost.
+) -> dict[str, dict[int, cp_model.IntVar]]:
+    """Per-class per-day placement count IntVar; channels N(l) * y[anchor].
 
-    For each class:
-      class_total = sum lesson.hours_per_week for lessons where class is in school_class_ids
-      c_count[class, day] = sum over anchors (l, day, p, r) where day matches
-        and class is in scope: N(l) * y[..]
-      dev[class, day] = abs(c_count[class, day] * D - class_total)
-      scaled[class] = sum_day dev[class, day]
-      quotient[class] = scaled[class] // D (CP-SAT add_division_equality)
-    Returns _W_CLASS_DAY_BALANCE * sum_class quotient[class].
-
-    Class with class_total == 0 contributes 0 by construction (all c_count
-    vars are 0, dev is 0, quotient is 0). Skipped at build time to avoid
-    creating unused vars.
+    Shared by ``_objective_class_day_balance_term`` and the per-class
+    worst-case spread summand (item 57). For each class with at least one
+    contributing lesson, builds one IntVar per day in ``positions_per_day``;
+    the var equals ``sum over anchors (l, day, *, *) where c_id in
+    lesson.school_class_ids of N(l) * y[anchor]``. Classes with zero total
+    hours are omitted from the returned map (they would contribute 0 to
+    either consumer).
     """
     lesson_lookup = lookups["lesson_lookup"]
     positions_per_day = lookups["positions_per_day"]
     days_set: set[int] = set(positions_per_day.keys())
-    if not days_set:
-        return 0
-    d = len(days_set)
     classes = problem["school_classes"]
 
     class_total: dict[str, int] = {}
@@ -874,13 +883,12 @@ def _objective_class_day_balance_term(
                 total += lesson["hours_per_week"]
         class_total[c_id] = total
 
-    quotients: list[cp_model.IntVar] = []
+    per_class: dict[str, dict[int, cp_model.IntVar]] = {}
     for cls in classes:
         c_id = cls["id"]
         total = class_total[c_id]
         if total == 0:
             continue
-        # c_count[day]: sum over anchors covering (c_id, day) of N(l) * y[..]
         c_count_terms: dict[int, list[cp_model.LinearExpr]] = {day: [] for day in days_set}
         for (l_id, day, _start_pos, _r_id), var in anchor_vars.items():
             lesson = lesson_lookup[l_id]
@@ -897,6 +905,46 @@ def _objective_class_day_balance_term(
             else:
                 model.add(cc == 0)
             c_count_vars[day] = cc
+        per_class[c_id] = c_count_vars
+    return per_class
+
+
+def _objective_class_day_balance_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    lookups: dict[str, Any],
+    class_count_per_day: dict[str, dict[int, cp_model.IntVar]],
+) -> cp_model.LinearExpr | int:
+    """Per-class scaled L1 day-balance cost mirroring score::class_day_balance_cost.
+
+    Consumes the per-class per-day count IntVars from
+    ``_build_class_count_per_day``. For each class with placements:
+      class_total = sum lesson.hours_per_week for lessons where class is in school_class_ids
+      dev[class, day] = abs(c_count[class, day] * D - class_total)
+      scaled[class] = sum_day dev[class, day]
+      quotient[class] = scaled[class] // D (CP-SAT add_division_equality)
+    Returns _W_CLASS_DAY_BALANCE * sum_class quotient[class].
+    """
+    positions_per_day = lookups["positions_per_day"]
+    days_set: set[int] = set(positions_per_day.keys())
+    if not days_set:
+        return 0
+    d = len(days_set)
+
+    class_total: dict[str, int] = {}
+    for cls in problem["school_classes"]:
+        c_id = cls["id"]
+        total = 0
+        for lesson in problem["lessons"]:
+            if c_id in lesson["school_class_ids"]:
+                total += lesson["hours_per_week"]
+        class_total[c_id] = total
+
+    quotients: list[cp_model.IntVar] = []
+    for c_id, c_count_vars in class_count_per_day.items():
+        total = class_total[c_id]
+        if total == 0:
+            continue
         dev_vars: list[cp_model.IntVar] = []
         for day in days_set:
             dev = model.new_int_var(0, total * d, f"dev_{c_id}_{day}")
@@ -909,6 +957,127 @@ def _objective_class_day_balance_term(
         quotients.append(quotient)
 
     return _W_CLASS_DAY_BALANCE * cp_model.LinearExpr.sum(quotients) if quotients else 0
+
+
+def _objective_max_per_class_spread_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    lookups: dict[str, Any],
+    class_count_per_day: dict[str, dict[int, cp_model.IntVar]],
+) -> cp_model.LinearExpr | int:
+    """Per-class worst-case daily-load spread, maxed across classes.
+
+    Mirrors ``score::worst_class_spread`` (item 57): the Rust helper uses a
+    fixed-width ``[0; 5]`` per-class day array (day axis 0..5), so a class
+    with placements only on Monday has ``min(daily_count) == 0`` from the
+    untouched Tuesday-Friday entries and ``spread == max - 0``. We mirror
+    by feeding the per-day count vars for every ``day_of_week`` in
+    ``positions_per_day`` PLUS one literal ``0`` for each ``day_of_week``
+    in 0..5 absent from ``positions_per_day``, so the ``min`` over an
+    under-populated day axis still resolves to ``0`` the way the Rust
+    helper does on its fixed-width array.
+
+    Classes with zero total hours are absent from ``class_count_per_day``
+    and contribute 0 by construction (the Rust helper omits them from its
+    ``counts`` map for the same reason).
+
+    Returns ``_W_MAX_PER_CLASS_SPREAD * max over classes of spread_class``,
+    or the literal ``0`` when no class has any placement.
+    """
+    if _W_MAX_PER_CLASS_SPREAD == 0 or not class_count_per_day:
+        return 0
+    positions_per_day = lookups["positions_per_day"]
+    if not positions_per_day:
+        return 0
+
+    # Per-class upper bound = total hours of lessons that include the class.
+    # Matches ``_build_class_count_per_day``'s domain on each c_count var.
+    class_total: dict[str, int] = {}
+    for cls in problem["school_classes"]:
+        c_id = cls["id"]
+        if c_id not in class_count_per_day:
+            continue
+        total = 0
+        for lesson in problem["lessons"]:
+            if c_id in lesson["school_class_ids"]:
+                total += lesson["hours_per_week"]
+        class_total[c_id] = total
+
+    # The Rust helper's fixed-width day axis runs 0..5. Days without anchors
+    # contribute a literal 0 to min/max so under-populated problems still
+    # report spread = max - 0. Materialising as a constant IntVar keeps the
+    # min/max-equality channeling untouched.
+    rust_day_axis_size = 5
+    days_in_problem: set[int] = set(positions_per_day.keys())
+    missing_days: list[int] = [d for d in range(rust_day_axis_size) if d not in days_in_problem]
+    zero_const: cp_model.IntVar | None = None
+    if missing_days:
+        zero_const = model.new_int_var(0, 0, "spread_zero_day")
+
+    spread_vars: list[cp_model.IntVar] = []
+    for c_id, c_count_vars in class_count_per_day.items():
+        per_day_vars: list[cp_model.IntVar] = list(c_count_vars.values())
+        if zero_const is not None:
+            per_day_vars.extend([zero_const] * len(missing_days))
+        upper = class_total[c_id]
+        max_var = model.new_int_var(0, upper, f"cmax_{c_id}")
+        min_var = model.new_int_var(0, upper, f"cmin_{c_id}")
+        model.add_max_equality(max_var, per_day_vars)
+        model.add_min_equality(min_var, per_day_vars)
+        spread_var = model.new_int_var(0, upper, f"cspread_{c_id}")
+        model.add(spread_var == max_var - min_var)
+        spread_vars.append(spread_var)
+
+    upper_bound = max(class_total[c_id] for c_id in class_count_per_day)
+    worst_var = model.new_int_var(0, upper_bound, "worst_per_class_spread")
+    model.add_max_equality(worst_var, spread_vars)
+    return _W_MAX_PER_CLASS_SPREAD * worst_var
+
+
+def _objective_max_per_class_interior_gaps_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    gaps_by_class_day: dict[tuple[str, int], list[cp_model.IntVar]],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Per-class summed-over-days interior gaps, maxed across classes.
+
+    Mirrors ``score::worst_class_interior_gaps`` (item 57). Reuses the
+    per-(class, day, position) gap BoolVars channelled for the class_gap
+    summand: sums gap vars over days per class, then maxes across classes.
+    Classes with no contributing gap var (i.e. classes with no interior
+    position on any day) contribute 0.
+    """
+    if _W_MAX_PER_CLASS_INTERIOR_GAPS == 0 or not gaps_by_class_day:
+        return 0
+    positions_per_day = lookups["positions_per_day"]
+    # Upper bound: total interior positions across all days. Safe loose bound.
+    interior_positions_per_day = sum(max(len(ps) - 2, 0) for ps in positions_per_day.values())
+    if interior_positions_per_day == 0:
+        return 0
+
+    # Sum gap vars over days per class.
+    per_class_gaps: dict[str, list[cp_model.IntVar]] = defaultdict(list)
+    for (entity_id, _day), gap_vars in gaps_by_class_day.items():
+        per_class_gaps[entity_id].extend(gap_vars)
+
+    if not per_class_gaps:
+        return 0
+
+    per_class_sums: list[cp_model.IntVar] = []
+    for c_id, gap_vars in per_class_gaps.items():
+        class_sum = model.new_int_var(0, interior_positions_per_day, f"cgaps_{c_id}")
+        model.add(class_sum == cp_model.LinearExpr.sum(gap_vars))
+        per_class_sums.append(class_sum)
+
+    # Include classes that have NO gap vars: they contribute 0. Adding them
+    # to the max via per_class_sums is unnecessary because zeros do not raise
+    # the max; the existing per_class_sums list is sufficient.
+    _ = problem  # signature parity with other axis helpers; problem walked above
+
+    worst_var = model.new_int_var(0, interior_positions_per_day, "worst_per_class_interior_gaps")
+    model.add_max_equality(worst_var, per_class_sums)
+    return _W_MAX_PER_CLASS_INTERIOR_GAPS * worst_var
 
 
 def _objective_prefer_class_teacher_term(
@@ -968,33 +1137,48 @@ def _emit_objective(
 ) -> None:
     """Build CP-SAT model objective mirroring solver_core::score_solution.
 
-    Six summands: subject_preference (per-anchor constant coefficient),
+    Eight summands: subject_preference (per-anchor constant coefficient),
     home_room (per-anchor constant coefficient), class_gap (per-(class,
     day, position) channeling), teacher_gap (per-(teacher, day, position)
     channeling on ``y_and_t`` so unchosen candidates do not count as
     present), class_day_balance (per-class abs-equality plus
     division-equality), prefer_class_teacher (per-(class, subject) pair
-    soft cost via ``t_chosen``).
+    soft cost via ``t_chosen``), max_per_class_spread (per-class
+    max(daily_count) - min(daily_count), maxed across classes, item 57),
+    max_per_class_interior_gaps (per-class summed gap BoolVars, maxed
+    across classes, item 57). The per-(class, day) placement-count
+    IntVars are shared between class_day_balance and max_per_class_spread
+    via ``_build_class_count_per_day``; the per-(class, day, position)
+    gap BoolVars are shared between class_gap and
+    max_per_class_interior_gaps via ``_build_gap_vars_by_entity_day``.
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
     summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
-    summand_class_gap = _objective_gap_term(
-        model, problem, anchor_vars, lookups, scope_kind="class", weight=_W_CLASS_GAP
+    class_gaps_by_day = _build_gap_vars_by_entity_day(
+        model, problem, anchor_vars, lookups, scope_kind="class"
     )
-    summand_teacher_gap = _objective_gap_term(
+    summand_class_gap = _objective_gap_term(class_gaps_by_day, _W_CLASS_GAP)
+    teacher_gaps_by_day = _build_gap_vars_by_entity_day(
         model,
         problem,
         anchor_vars,
         lookups,
         scope_kind="teacher",
-        weight=_W_TEACHER_GAP,
         y_and_t=y_and_t,
     )
+    summand_teacher_gap = _objective_gap_term(teacher_gaps_by_day, _W_TEACHER_GAP)
+    class_count_per_day = _build_class_count_per_day(model, problem, anchor_vars, lookups)
     summand_class_day_balance = _objective_class_day_balance_term(
-        model, problem, anchor_vars, lookups
+        model, problem, lookups, class_count_per_day
     )
     summand_prefer_class_teacher = _objective_prefer_class_teacher_term(
         problem, t_chosen, class_subject_lessons
+    )
+    summand_max_per_class_spread = _objective_max_per_class_spread_term(
+        model, problem, lookups, class_count_per_day
+    )
+    summand_max_per_class_interior_gaps = _objective_max_per_class_interior_gaps_term(
+        model, problem, class_gaps_by_day, lookups
     )
     model.minimize(
         summand_subject_pref
@@ -1003,6 +1187,8 @@ def _emit_objective(
         + summand_teacher_gap
         + summand_class_day_balance
         + summand_prefer_class_teacher
+        + summand_max_per_class_spread
+        + summand_max_per_class_interior_gaps
     )
 
 

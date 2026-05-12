@@ -118,6 +118,20 @@ pub struct ConstraintWeights {
     /// teacher mismatches the qualified class teacher. Zero disables the
     /// axis. Item 67.
     pub prefer_class_teacher: u32,
+    /// Penalty applied per unit of worst per-class daily-load spread
+    /// (`max over classes of (max(daily_count) - min(daily_count))`).
+    /// Targets the predicate `worst_class_day_spread` in
+    /// `solver-bench/src/quality.rs` and `check_class_day_balance` in
+    /// `backend/src/klassenzeit_backend/scheduling/quality_checks.py`.
+    /// Zero disables the axis. Item 57.
+    pub max_per_class_spread: u32,
+    /// Penalty applied per unit of worst per-class interior gaps
+    /// (`max over classes of (sum over days of interior_gaps_in_day)`).
+    /// Targets the predicate `total_interior_gaps` in
+    /// `solver-bench/src/quality.rs` and `check_interior_gaps` in
+    /// the backend quality_checks module. Zero disables the axis.
+    /// Item 57.
+    pub max_per_class_interior_gaps: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -152,6 +166,8 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     prefer_late_period: 1,
     class_day_balance: 5,
     prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
+    max_per_class_spread: 10, // item 57: per-class worst-case axis
+    max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -555,6 +571,8 @@ mod tests {
             prefer_late_period: 1,
             class_day_balance: 5,
             prefer_class_teacher: 5,
+            max_per_class_spread: 10,
+            max_per_class_interior_gaps: 10,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }

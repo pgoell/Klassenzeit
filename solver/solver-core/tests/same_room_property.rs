@@ -302,6 +302,8 @@ fn ffd_does_not_lock_in_on_demo_grundschule() {
             prefer_late_period: 1,
             class_day_balance: 5,
             prefer_class_teacher: 0,
+            max_per_class_spread: 0,
+            max_per_class_interior_gaps: 0,
         },
         deadline: None, // greedy only; Path A's contribution is at the FFD layer.
         ..SolveConfig::default()

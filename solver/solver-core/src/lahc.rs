@@ -559,7 +559,34 @@ fn try_change_move(
             i64::from(weights.class_day_balance) * acc
         };
 
-    let canonical_delta = delta + home_room_delta + class_day_balance_delta;
+    // Item 57: per-class worst-case axes delta. Both helpers walk
+    // `placements` by `lesson_id` and `time_block_id` only; `room_id` /
+    // `teacher_id` are not consulted, so a temporary swap of
+    // `placements[placement_idx].time_block_id` is a sound stand-in for
+    // the post-move shape. Short-circuit when both weights are zero.
+    // Cost: two full passes over placements per call site (O(P)); the
+    // helpers themselves allocate small per-class HashMaps internally.
+    // Acceptable because Change is the cheapest LAHC move; on reject the
+    // swap is restored before we return.
+    let new_axes_delta: i64 =
+        if weights.max_per_class_spread == 0 && weights.max_per_class_interior_gaps == 0 {
+            0
+        } else {
+            let pre_spread = i64::from(weights.max_per_class_spread)
+                * i64::from(crate::score::worst_class_spread(problem, placements));
+            let pre_gaps = i64::from(weights.max_per_class_interior_gaps)
+                * i64::from(crate::score::worst_class_interior_gaps(problem, placements));
+            let saved_tb = placements[placement_idx].time_block_id;
+            placements[placement_idx].time_block_id = new_tb.id;
+            let post_spread = i64::from(weights.max_per_class_spread)
+                * i64::from(crate::score::worst_class_spread(problem, placements));
+            let post_gaps = i64::from(weights.max_per_class_interior_gaps)
+                * i64::from(crate::score::worst_class_interior_gaps(problem, placements));
+            placements[placement_idx].time_block_id = saved_tb;
+            (post_spread - pre_spread) + (post_gaps - pre_gaps)
+        };
+
+    let canonical_delta = delta + home_room_delta + class_day_balance_delta + new_axes_delta;
     let new_canonical_signed = i64::from(state.canonical_score) + canonical_delta;
     let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
 
@@ -2497,6 +2524,31 @@ fn kempe_attempt(
     let pre_slice = state.search_score_slice;
     let pre_canonical = state.canonical_score;
 
+    // Item 57: capture the pre-attempt per-class worst-case axes cost so
+    // the canonical delta below can include the new axes alongside slice /
+    // home_room / class_day_balance. Snapshot the WEIGHTED total here;
+    // post-apply we recompute against the now-mutated `placements`. Both
+    // helpers short-circuit allocation when their weights are zero; the
+    // outer-block guard cuts the call entirely when both axes are off.
+    // Full recompute on Kempe accept is acceptable for ship-1 per the
+    // item 57 plan: per-class-max delta arithmetic over a Kempe chain is
+    // not free (chain members may belong to disjoint or overlapping
+    // class sets), and the amortised cost is bounded by `lahc_kempe_period`
+    // (default 50).
+    let pre_new_axes_cost: u32 =
+        if weights.max_per_class_spread == 0 && weights.max_per_class_interior_gaps == 0 {
+            0
+        } else {
+            weights
+                .max_per_class_spread
+                .saturating_mul(crate::score::worst_class_spread(problem, placements))
+                .saturating_add(
+                    weights.max_per_class_interior_gaps.saturating_mul(
+                        crate::score::worst_class_interior_gaps(problem, placements),
+                    ),
+                )
+        };
+
     // Seed pick: rr_collect_anchors filters (lesson, day) where FFD packed
     // multiple N=1 blocks of the same lesson on one day. See its doc
     // comment for the single-anchor-per-block invariant.
@@ -2932,7 +2984,24 @@ fn kempe_attempt(
         i64::from(weights.class_day_balance) * acc
     };
 
-    let canonical_delta = total_delta + home_room_delta + class_day_balance_delta;
+    // Item 57: per-class worst-case axes delta. `placements` is now in the
+    // post-apply state; compute the weighted post-cost and subtract the
+    // pre-attempt snapshot captured at the top of `kempe_attempt`.
+    let new_axes_delta: i64 =
+        if weights.max_per_class_spread == 0 && weights.max_per_class_interior_gaps == 0 {
+            0
+        } else {
+            let post_cost: u32 =
+                weights
+                    .max_per_class_spread
+                    .saturating_mul(crate::score::worst_class_spread(problem, placements))
+                    .saturating_add(weights.max_per_class_interior_gaps.saturating_mul(
+                        crate::score::worst_class_interior_gaps(problem, placements),
+                    ));
+            i64::from(post_cost) - i64::from(pre_new_axes_cost)
+        };
+
+    let canonical_delta = total_delta + home_room_delta + class_day_balance_delta + new_axes_delta;
     let new_canonical_signed = i64::from(pre_canonical) + canonical_delta;
     let new_canonical = u32::try_from(new_canonical_signed.max(0)).unwrap_or(u32::MAX);
 
