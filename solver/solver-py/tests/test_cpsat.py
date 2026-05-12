@@ -123,7 +123,10 @@ def test_solve_cpsat_json_trivial_problem_places_lesson() -> None:
     sol = json.loads(out)
     assert sol["violations"] == []
     assert len(sol["placements"]) == 1
-    assert sol["soft_score"] == 0
+    # Item 57 widened the canonical objective: a single placement on day 0
+    # has per-class spread = 1 - 0 = 1 (Rust fixed-width day axis 0..5) and
+    # weight 10. No other axis fires on this trivial fixture.
+    assert sol["soft_score"] == 10
 
 
 def test_solve_cpsat_json_doppelstunde_block_contiguity() -> None:
@@ -331,7 +334,10 @@ def test_cpsat_objective_value_equals_score_solution_on_subject_preference_probl
 
     The CP-SAT objective should drive the doppelstunde to anchor at p=2
     (positions 2,3) so prefer_late contribution is (3-2) + (3-3) = 1, not
-    p=0 (positions 0,1) which would contribute 5.
+    p=0 (positions 0,1) which would contribute 5. Item 57 widens the
+    canonical objective with max_per_class_spread: 2 placements on day 0
+    and 0 on days 1-4 (Rust fixed-width day axis) gives spread = 2 - 0 = 2
+    and weight 10, contributing 20. Total = 1 + 20 = 21.
     """
     problem_json = _cpsat_doppelstunde_with_prefer_late_subject()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -339,8 +345,9 @@ def test_cpsat_objective_value_equals_score_solution_on_subject_preference_probl
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    # Witness that CP-SAT actually steers: objective is 1, not the worst-case 5.
-    assert out["model_objective_value"] == 1
+    # Witness that CP-SAT actually steers: prefer_late is 1 not 5, and the
+    # per-class spread axis adds 20 for an unavoidable lopsided one-day shape.
+    assert out["model_objective_value"] == 21
 
 
 def _cpsat_home_room_problem() -> str:
@@ -396,7 +403,10 @@ def test_cpsat_objective_value_equals_score_solution_on_home_room_problem() -> N
     weights.prefer_home_room (= 5) per placement. With 2 placements (2h
     single-block), the per-block contribution is 10. Both placements
     accumulate so total = 10 * 2 = 20... no, score_solution iterates per
-    placement; 2 placements * 1 mismatched class * 5 = 10.
+    placement; 2 placements * 1 mismatched class * 5 = 10. Item 57 widens
+    the canonical objective with max_per_class_spread: each class has 2
+    placements on day 0 and 0 on days 1-4, so per-class spread = 2 and
+    worst (over both classes) = 2, weight 10 → 20. Total = 10 + 20 = 30.
     """
     problem_json = _cpsat_home_room_problem()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -404,9 +414,10 @@ def test_cpsat_objective_value_equals_score_solution_on_home_room_problem() -> N
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    # Witness: every room is one class's home and the other's mismatch.
-    # 2 placements * 1 mismatched class * weight 5 = 10.
-    assert out["model_objective_value"] == 10
+    # Witness: every room is one class's home and the other's mismatch
+    # (10), plus the per-class spread axis bills 20 for two classes each
+    # confined to a single day.
+    assert out["model_objective_value"] == 30
 
 
 def _cpsat_forced_class_gap_problem() -> str:
@@ -465,7 +476,10 @@ def _cpsat_forced_class_gap_problem() -> str:
 def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> None:
     """class_gap and teacher_gap axes: forced gap at position 1; class
     contributes 1 gap-hour (weight 10), teacher contributes 1 gap-hour
-    (weight 10); total = 20.
+    (weight 10); subtotal = 20. Item 57 widens the canonical objective with
+    max_per_class_spread (2 placements on day 0, 0 on days 1-4 → spread=2,
+    weight 10 → 20) and max_per_class_interior_gaps (1 gap, weight 10 → 10).
+    Total = 20 + 20 + 10 = 50.
     """
     problem_json = _cpsat_forced_class_gap_problem()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -473,7 +487,7 @@ def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> 
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    assert out["model_objective_value"] == 20
+    assert out["model_objective_value"] == 50
 
 
 def _cpsat_forced_lopsided_spread_problem() -> str:
@@ -529,6 +543,9 @@ def _cpsat_forced_lopsided_spread_problem() -> str:
 def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem() -> None:
     """class_day_balance axis: 3 placements on day 0, 0 on day 1.
     quotient = (|3*2-3| + |0*2-3|) // 2 = 6 // 2 = 3; weighted = 5 * 3 = 15.
+    Item 57 widens the canonical objective with max_per_class_spread (3
+    placements on day 0, 0 on days 1-4 → spread=3, weight 10 → 30).
+    Total = 15 + 30 = 45.
     """
     problem_json = _cpsat_forced_lopsided_spread_problem()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -536,7 +553,7 @@ def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem(
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    assert out["model_objective_value"] == 15
+    assert out["model_objective_value"] == 45
 
 
 def test_solve_cpsat_placement_carries_teacher_id() -> None:
