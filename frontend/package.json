@@ -1,5 +1,6 @@
 {
   "name": "klassenzeit-frontend",
+  "packageManager": "pnpm@10.33.2",
   "private": true,
   "type": "module",
   "version": "0.0.0",

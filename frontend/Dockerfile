@@ -9,6 +9,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app/frontend
 
 RUN corepack enable
+RUN corepack prepare pnpm@10.33.2 --activate
 
 # Leverage the layer cache: install deps from package.json + pnpm-lock.yaml
 # alone, then copy the rest of the source tree.
