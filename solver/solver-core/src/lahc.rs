@@ -9,7 +9,9 @@ use std::time::Instant;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
-use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
+use crate::ids::{
+    LessonGroupId, LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId,
+};
 use crate::index::Indexed;
 use crate::score::{gap_count, gap_count_after_insert, gap_count_after_remove};
 use crate::types::{
@@ -153,6 +155,18 @@ pub(crate) fn run(
     // initialiser still seeds correctly so a never-improving LAHC leaves
     // them untouched.
     let mut running_best = state.canonical_score;
+    // Item 78: track the running-best placement count alongside canonical
+    // so the R&R rescue move's feasibility-restoring accepts don't get
+    // discarded at loop exit. `score_solution` does NOT include hard
+    // violations (`NoFreeTimeBlock` / `TeacherOverCapacity`); adding a
+    // placement strictly increases canonical (more placements -> more gap
+    // / day-balance contributions). Without a placement-count axis on the
+    // running-best update, a rescue that adds the missing 12th hour gets
+    // restored away at `*placements = best_placements` because canonical
+    // rose. The lexicographic order is (higher placement count, lower
+    // canonical on tie): more placements always wins, ties broken by
+    // canonical so soft-quality improvements still register.
+    let mut running_best_count = placements.len();
     // Item 52: snapshot the running-best canonical placements so LAHC's
     // accept criterion (which can drift the current canonical above the
     // post-greedy canonical) does not contaminate the returned incumbent.
@@ -173,7 +187,14 @@ pub(crate) fn run(
             && !is_rr_iter;
 
         if is_rr_iter {
-            rr_attempt(
+            // Item 78: rescue FFD-unplaced lessons first. If rescue aborts
+            // (no under-placed lessons, no same-class anchor) or rejects
+            // (failed recreate, partial L placement), fall through to the
+            // existing ruin-only-recreate path. Each function consumes its
+            // own RNG draws from the shared `rr_rng`; the rescue branch's
+            // two draws are unconditional, so the rr_rng sequence is
+            // invariant across rescue's abort branches.
+            let rescued = rr_rescue_attempt(
                 problem,
                 idx,
                 &config.weights,
@@ -191,10 +212,31 @@ pub(crate) fn run(
                 &max_position_per_day,
                 &teacher_max,
                 class_max_lessons_per_day,
-                &lahc_list,
-                iter,
-                config.lahc_rr_k,
             );
+            if !rescued {
+                rr_attempt(
+                    problem,
+                    idx,
+                    &config.weights,
+                    &home_room_lookup,
+                    &class_teacher_lookup,
+                    &subject_qualified_teachers,
+                    &mut rr_rng,
+                    &lesson_lookup,
+                    &tb_lookup,
+                    pinned,
+                    placements,
+                    state,
+                    &tb_order,
+                    &room_order,
+                    &max_position_per_day,
+                    &teacher_max,
+                    class_max_lessons_per_day,
+                    &lahc_list,
+                    iter,
+                    config.lahc_rr_k,
+                );
+            }
         } else if is_kempe_iter {
             kempe_attempt(
                 problem,
@@ -251,8 +293,13 @@ pub(crate) fn run(
         {
             stats.time_to_first_feasible_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
-        if state.canonical_score < running_best {
+        // Item 78: lexicographic order (placement count desc, canonical asc).
+        // More placements always beats fewer; ties broken by lower canonical.
+        let is_better = placements.len() > running_best_count
+            || (placements.len() == running_best_count && state.canonical_score < running_best);
+        if is_better {
             running_best = state.canonical_score;
+            running_best_count = placements.len();
             best_placements = placements.clone();
             stats.time_to_optimal_ms = Some(solve_start.elapsed().as_secs_f64() * 1000.0);
         }
@@ -1275,6 +1322,552 @@ fn rr_rollback(
             }
         }
     }
+}
+
+/// Run one R&R rescue move: pick an under-placed lesson (whose
+/// `placement_count < hours_per_week`), ruin all of its existing
+/// placements plus one randomly-chosen same-class anchor of a different
+/// lesson (to free additional class-day slots the target needs), clear
+/// the resulting `(class, subject)` teacher locks, then re-place the
+/// target lesson from scratch in blocks of `preferred_block_size` plus
+/// recreate the ruined sibling anchor. Returns true when the move was
+/// accepted (target's placement count strictly increased), false when
+/// aborted (no under-placed lesson, no eligible sibling anchor) or
+/// rejected (no net progress on the target).
+///
+/// Two RNG draws are consumed unconditionally before any abort path so
+/// the R&R RNG sequence is invariant across rescue branches. R&R uses
+/// its own `SmallRng` seeded from `config.seed.wrapping_add(1)`,
+/// separate from the Change move's RNG, so the determinism property
+/// test in `lahc_property.rs` is untouched.
+///
+/// Acceptance gate is "rescue made forward progress on the target":
+/// the post-attempt placement count for the target lesson is strictly
+/// greater than the pre-attempt count. Soft-cost regression is
+/// permitted because hard violations dominate any solution's quality.
+/// The standard LAHC late-acceptance gate is bypassed. The canonical
+/// score is recomputed via `score::score_solution` post-accept;
+/// `state.canonical_score` and `state.search_score_slice` are updated in
+/// lockstep so the per-iteration `debug_assert_eq!` invariant holds.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn rr_rescue_attempt(
+    problem: &Problem,
+    idx: &Indexed,
+    weights: &ConstraintWeights,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
+    rr_rng: &mut SmallRng,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    pinned: &HashSet<LessonId>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+    tb_order: &[usize],
+    room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
+    teacher_max: &HashMap<TeacherId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+) -> bool {
+    // Count placements per lesson, then collect lessons whose count is
+    // below `hours_per_week`. Pinned lessons are excluded (placements
+    // caller-fixed). Lesson-group members are included; the rescue
+    // dispatches to a group-aware path that ruins all members and calls
+    // `try_place_group`.
+    let mut placement_counts: HashMap<LessonId, u8> = HashMap::new();
+    for p in placements.iter() {
+        *placement_counts.entry(p.lesson_id).or_insert(0) += 1;
+    }
+    let mut underplaced: Vec<LessonId> = problem
+        .lessons
+        .iter()
+        .filter_map(|l| {
+            if pinned.contains(&l.id) {
+                return None;
+            }
+            let count = placement_counts.get(&l.id).copied().unwrap_or(0);
+            if count < l.hours_per_week {
+                Some(l.id)
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Deterministic order before the rescue RNG samples.
+    underplaced.sort_unstable_by_key(|id| id.0);
+
+    // Consume both RNG draws unconditionally so the R&R RNG sequence is
+    // invariant across abort branches. `random_range(0..1)` always returns
+    // 0 and is the cheapest placeholder when the real range is empty.
+    let unplaced_idx = if underplaced.is_empty() {
+        let _ = rr_rng.random_range(0..1u32);
+        let _ = rr_rng.random_range(0..1u32);
+        return false;
+    } else {
+        rr_rng.random_range(0..underplaced.len())
+    };
+
+    let target_id = underplaced[unplaced_idx];
+    let target_lesson = match lesson_lookup.get(&target_id) {
+        Some(l) => *l,
+        None => {
+            let _ = rr_rng.random_range(0..1u32);
+            return false;
+        }
+    };
+
+    // Lesson-group target: dispatch to group-rescue, ruining all members'
+    // placements and re-placing the group via `try_place_group`. This
+    // path consumes its own RNG draws so the rr_rng stream stays
+    // invariant across branches.
+    if let Some(group_id) = target_lesson.lesson_group_id {
+        // Second RNG draw consumed for invariance; group rescue is
+        // deterministic given state and does not need a second decision.
+        let _ = rr_rng.random_range(0..1u32);
+        return rr_rescue_group_attempt(
+            problem,
+            idx,
+            weights,
+            class_teacher_lookup,
+            subject_qualified_teachers,
+            lesson_lookup,
+            tb_lookup,
+            placements,
+            state,
+            tb_order,
+            room_order,
+            max_position_per_day,
+            teacher_max,
+            class_max_lessons_per_day,
+            group_id,
+        );
+    }
+    let target_count_before = placement_counts.get(&target_id).copied().unwrap_or(0);
+    let target_classes: HashSet<SchoolClassId> =
+        target_lesson.school_class_ids.iter().copied().collect();
+
+    // Collect indices of same-class, non-target sibling anchors so the
+    // rescue can free additional class-day slots beyond the target's
+    // own. The sibling pick consumes the second RNG draw below;
+    // emptiness aborts after both draws are consumed.
+    let mut sibling_candidates: Vec<usize> = placements
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            if pinned.contains(&p.lesson_id) {
+                return None;
+            }
+            if p.lesson_id == target_id {
+                return None;
+            }
+            let lesson = lesson_lookup.get(&p.lesson_id)?;
+            if lesson.lesson_group_id.is_some() {
+                return None;
+            }
+            let shares_class = lesson
+                .school_class_ids
+                .iter()
+                .any(|c| target_classes.contains(c));
+            if shares_class {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect();
+    sibling_candidates.sort_unstable();
+
+    let sibling_pick = if sibling_candidates.is_empty() {
+        let _ = rr_rng.random_range(0..1u32);
+        return false;
+    } else {
+        rr_rng.random_range(0..sibling_candidates.len())
+    };
+    let sibling_anchor_idx = sibling_candidates[sibling_pick];
+    let sibling_lesson_id = placements[sibling_anchor_idx].lesson_id;
+    let sibling_lesson = lesson_lookup
+        .get(&sibling_lesson_id)
+        .copied()
+        .expect("sibling lesson must resolve");
+
+    // Snapshot every piece of state the rollback path needs to restore.
+    // Mirrors `rr_attempt`'s pre-attempt snapshot pattern.
+    let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
+    let pre_count = placements.len();
+    let pre_class_subject_teacher = state.class_subject_teacher.clone();
+
+    // Phase 1a: ruin every existing placement of the target lesson, grouped
+    // by day so `rr_ruin_block` handles the per-(lesson, day) block
+    // atomically. Collect the days first; the inner ruin call mutates
+    // placements.
+    let target_days: Vec<u8> = {
+        let mut days: HashSet<u8> = HashSet::new();
+        for p in placements.iter() {
+            if p.lesson_id == target_id {
+                if let Some(tb) = tb_lookup.get(&p.time_block_id) {
+                    days.insert(tb.day_of_week);
+                }
+            }
+        }
+        let mut v: Vec<u8> = days.into_iter().collect();
+        v.sort_unstable();
+        v
+    };
+
+    let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::with_capacity(target_days.len() + 1);
+    for day in &target_days {
+        let Some(idx_anchor) = placements.iter().position(|p| {
+            p.lesson_id == target_id
+                && tb_lookup
+                    .get(&p.time_block_id)
+                    .is_some_and(|tb| tb.day_of_week == *day)
+        }) else {
+            continue;
+        };
+        let snap = rr_ruin_block(idx_anchor, target_lesson, tb_lookup, placements, state);
+        snapshots.push((target_id, snap));
+    }
+
+    // Phase 1b: ruin the chosen same-class sibling anchor to free
+    // additional class-day slots the target needs. Look up its index
+    // fresh; the prior target-ruin may have shifted indices.
+    let sibling_snap = {
+        let Some(fresh_idx) = placements
+            .iter()
+            .position(|p| p.lesson_id == sibling_lesson_id)
+        else {
+            // Sibling vanished (would only happen if target somehow shared
+            // the sibling slot, which the filter above rules out). Abort
+            // gracefully; rollback path will re-add the target's rows.
+            rr_rollback(
+                &[Vec::new()],
+                &snapshots,
+                lesson_lookup,
+                tb_lookup,
+                placements,
+                state,
+            );
+            state.search_score_slice = pre_slice;
+            state.canonical_score = pre_canonical;
+            state.class_subject_teacher = pre_class_subject_teacher;
+            return false;
+        };
+        rr_ruin_block(fresh_idx, sibling_lesson, tb_lookup, placements, state)
+    };
+    snapshots.push((sibling_lesson_id, sibling_snap));
+
+    // Post-destroy lock cleanup: walk the surviving placements to
+    // determine which `(class, subject)` pairs still have a placement,
+    // and clear any lock for pairs whose every placement was ruined.
+    // The target lesson's `(class, subject)` pair is precisely the one
+    // we want to clear, so the next `try_place_block` can pick a fresh
+    // teacher with capacity.
+    {
+        let mut surviving_pairs: HashSet<(SchoolClassId, SubjectId)> = HashSet::new();
+        for p in placements.iter() {
+            let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
+                continue;
+            };
+            for class in &lesson.school_class_ids {
+                surviving_pairs.insert((*class, lesson.subject_id));
+            }
+        }
+        state
+            .class_subject_teacher
+            .retain(|key, _| surviving_pairs.contains(key));
+    }
+
+    let days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
+
+    // Phase 2a: re-place the target lesson from scratch in blocks of
+    // `preferred_block_size`, iterating up to `hours_per_week /
+    // preferred_block_size` times. `validate_structural` guarantees
+    // divisibility. Each successful block places `n` placements.
+    let target_n = target_lesson.preferred_block_size;
+    let block_count: u8 = target_lesson.hours_per_week / target_n.max(1);
+    let target_len_before = placements.len();
+    let mut blocks_placed: u8 = 0;
+    for _ in 0..block_count {
+        let placed = crate::solve::try_place_block(
+            problem,
+            target_lesson,
+            target_n,
+            idx,
+            teacher_max,
+            class_max_lessons_per_day,
+            weights,
+            home_room_lookup,
+            class_teacher_lookup,
+            subject_qualified_teachers,
+            state,
+            placements,
+            tb_order,
+            room_order,
+            max_position_per_day,
+            days,
+        );
+        if !placed {
+            break;
+        }
+        blocks_placed += 1;
+    }
+    let target_added: Vec<Placement> = placements[target_len_before..].to_vec();
+    let target_count_after: u8 = blocks_placed.saturating_mul(target_n);
+
+    // Phase 2b: recreate the ruined sibling anchor.
+    let sibling_n = sibling_lesson.preferred_block_size;
+    let sibling_len_before = placements.len();
+    let _ = crate::solve::try_place_block(
+        problem,
+        sibling_lesson,
+        sibling_n,
+        idx,
+        teacher_max,
+        class_max_lessons_per_day,
+        weights,
+        home_room_lookup,
+        class_teacher_lookup,
+        subject_qualified_teachers,
+        state,
+        placements,
+        tb_order,
+        room_order,
+        max_position_per_day,
+        days,
+    );
+    let sibling_added: Vec<Placement> = placements[sibling_len_before..].to_vec();
+    let sibling_fully_recreated = sibling_added.len() == sibling_n as usize;
+
+    // Acceptance gate: target's post-attempt count is strictly greater
+    // than its pre-attempt count AND the sibling anchor fully recreated.
+    // The combined gate ensures the rescue never leaves the placement
+    // count below where it started: ruin removed `target_count_before +
+    // sibling_n`; recreate adds `target_count_after + sibling_added.len()`;
+    // accepting iff `target_count_after > target_count_before AND
+    // sibling_added.len() == sibling_n` keeps net delta strictly
+    // positive (>= 1).
+    let made_progress = target_count_after > target_count_before && sibling_fully_recreated;
+
+    if !made_progress {
+        // Reject. Use `rr_rollback` to undo: target_added and sibling_added
+        // are the two recreated row groups; snapshots are the per-day
+        // ruined blocks plus the sibling snapshot.
+        let recreated_rows = vec![target_added, sibling_added];
+        rr_rollback(
+            &recreated_rows,
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            placements,
+            state,
+        );
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
+        state.class_subject_teacher = pre_class_subject_teacher;
+        debug_assert_eq!(
+            placements.len(),
+            pre_count,
+            "rr_rescue rollback left placement count drifted (pre={pre_count} post={})",
+            placements.len(),
+        );
+        return false;
+    }
+
+    // Accept. Recompute canonical and slice from the post-recreate state;
+    // mirror `rr_attempt`'s post-accept score recomputation. The
+    // per-iteration `debug_assert_eq!` invariant at the LAHC loop tail
+    // gates correctness; an off-by-something here would fire it
+    // immediately under any property or integration test.
+    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.search_score_slice =
+        running_slice_from_placements(problem, placements, weights, max_position_per_day);
+    true
+}
+
+/// Group-rescue variant of `rr_rescue_attempt`: ruin every placement of
+/// every member of the target lesson group, clear the relevant
+/// `(class, subject)` teacher locks, then re-place the group from
+/// scratch via `try_place_group`. Returns true when accepted (any
+/// member's placement count strictly increased), false when rejected.
+/// Group placement is atomic: all members co-place at the same `(day,
+/// position)` window. Acceptance requires net forward progress on the
+/// group; per-member counts move in lockstep so checking any member is
+/// sufficient.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn rr_rescue_group_attempt(
+    problem: &Problem,
+    idx: &Indexed,
+    weights: &ConstraintWeights,
+    class_teacher_lookup: &HashMap<SchoolClassId, Option<TeacherId>>,
+    subject_qualified_teachers: &HashMap<SubjectId, HashSet<TeacherId>>,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    placements: &mut Vec<Placement>,
+    state: &mut crate::solve::GreedyState,
+    tb_order: &[usize],
+    room_order: &[usize],
+    max_position_per_day: &HashMap<u8, u8>,
+    teacher_max: &HashMap<TeacherId, u8>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    group_id: LessonGroupId,
+) -> bool {
+    // Collect member indices and ids by walking problem.lessons.
+    let mut member_indices: Vec<usize> = Vec::new();
+    let mut member_ids: HashSet<LessonId> = HashSet::new();
+    for (i, l) in problem.lessons.iter().enumerate() {
+        if l.lesson_group_id == Some(group_id) {
+            member_indices.push(i);
+            member_ids.insert(l.id);
+        }
+    }
+    if member_indices.len() < 2 {
+        return false;
+    }
+
+    // First member dictates the block shape used by FFD (`try_place_group`
+    // uses the first member's `preferred_block_size` and `hours_per_week`).
+    let first_member = &problem.lessons[member_indices[0]];
+    let n = first_member.preferred_block_size;
+    let block_count: u8 = first_member.hours_per_week / n.max(1);
+
+    // Snapshot for rollback.
+    let pre_slice = state.search_score_slice;
+    let pre_canonical = state.canonical_score;
+    let pre_count = placements.len();
+    let pre_class_subject_teacher = state.class_subject_teacher.clone();
+
+    // Phase 1: ruin every existing placement of every member. Group
+    // co-placement means each `(member_lesson, day)` block contains a
+    // single `(member, day)` block, so we can use `rr_ruin_block` per
+    // member per day.
+    let mut snapshots: Vec<(LessonId, BlockSnapshot)> = Vec::new();
+    let mut member_pre_counts: HashMap<LessonId, u8> = HashMap::new();
+    for p in placements.iter() {
+        if member_ids.contains(&p.lesson_id) {
+            *member_pre_counts.entry(p.lesson_id).or_insert(0) += 1;
+        }
+    }
+    loop {
+        let Some(pos) = placements
+            .iter()
+            .position(|p| member_ids.contains(&p.lesson_id))
+        else {
+            break;
+        };
+        let lesson_id = placements[pos].lesson_id;
+        let lesson = lesson_lookup
+            .get(&lesson_id)
+            .copied()
+            .expect("member lesson must resolve");
+        let snap = rr_ruin_block(pos, lesson, tb_lookup, placements, state);
+        snapshots.push((lesson_id, snap));
+    }
+
+    // Post-destroy lock cleanup: clear locks for pairs whose every
+    // placement was ruined. The group's (member_class, member_subject)
+    // pairs are the ones we want cleared so `try_place_group` can pick
+    // fresh teachers within the per-member candidate sets.
+    {
+        let mut surviving_pairs: HashSet<(SchoolClassId, SubjectId)> = HashSet::new();
+        for p in placements.iter() {
+            let Some(lesson) = lesson_lookup.get(&p.lesson_id) else {
+                continue;
+            };
+            for class in &lesson.school_class_ids {
+                surviving_pairs.insert((*class, lesson.subject_id));
+            }
+        }
+        state
+            .class_subject_teacher
+            .retain(|key, _| surviving_pairs.contains(key));
+    }
+
+    let days: u8 = problem
+        .time_blocks
+        .iter()
+        .map(|tb| tb.day_of_week)
+        .max()
+        .map(|m| m.saturating_add(1))
+        .unwrap_or(0);
+
+    // Phase 2: re-place the group from scratch in `block_count` blocks
+    // of size `n`. `try_place_group` co-places all members at one
+    // `(day, position)` window; each successful call places
+    // `members.len() * n` placements.
+    let pre_replace_count = placements.len();
+    let mut blocks_placed: u8 = 0;
+    for _ in 0..block_count {
+        let placed = crate::solve::try_place_group(
+            problem,
+            &member_indices,
+            n,
+            idx,
+            teacher_max,
+            class_max_lessons_per_day,
+            weights,
+            class_teacher_lookup,
+            subject_qualified_teachers,
+            state,
+            placements,
+            tb_order,
+            room_order,
+            max_position_per_day,
+            days,
+        );
+        if !placed {
+            break;
+        }
+        blocks_placed += 1;
+    }
+
+    // Acceptance gate: each member's post-attempt count is strictly
+    // greater than its pre-attempt count. Since per-member counts move
+    // in lockstep with `blocks_placed * n`, check `blocks_placed` against
+    // the worst-case pre-count across members.
+    let max_pre_count: u8 = member_ids
+        .iter()
+        .map(|id| member_pre_counts.get(id).copied().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
+    let post_count: u8 = blocks_placed.saturating_mul(n);
+    let made_progress = post_count > max_pre_count;
+
+    if !made_progress {
+        // Reject. Remove every newly-added placement (rows added since
+        // pre_replace_count), then replay snapshots.
+        let recreated: Vec<Placement> = placements[pre_replace_count..].to_vec();
+        rr_rollback(
+            &[recreated],
+            &snapshots,
+            lesson_lookup,
+            tb_lookup,
+            placements,
+            state,
+        );
+        state.search_score_slice = pre_slice;
+        state.canonical_score = pre_canonical;
+        state.class_subject_teacher = pre_class_subject_teacher;
+        debug_assert_eq!(
+            placements.len(),
+            pre_count,
+            "rr_rescue_group rollback left placement count drifted (pre={pre_count} post={})",
+            placements.len(),
+        );
+        return false;
+    }
+
+    // Accept. Recompute canonical and slice in lockstep.
+    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.search_score_slice =
+        running_slice_from_placements(problem, placements, weights, max_position_per_day);
+    true
 }
 
 /// Decrement the per-row bookkeeping for one removed placement: matches the

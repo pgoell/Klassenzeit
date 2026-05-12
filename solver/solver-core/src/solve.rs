@@ -314,6 +314,37 @@ pub fn solve_with_config_stats(
         solve_start,
     );
 
+    // Item 78: LAHC's R&R rescue move can clear FFD-time under-placement
+    // violations (NoFreeTimeBlock / TeacherOverCapacity / NoSuitableRoom)
+    // by lifting an unplaced lesson into a freed window. The FFD-emitted
+    // violations vec is otherwise static across LAHC, so a fully-placed
+    // post-LAHC lesson still carries its FFD-time violation rows. Filter
+    // out any violation whose lesson now has `placement_count >=
+    // hours_per_week`; lesson-group rows are passed through verbatim
+    // (LessonGroupSplit semantics are atomic per group). PinnedConflict
+    // rows also stay because pinned-pre-solve rejection is structural.
+    {
+        let mut placement_counts: HashMap<LessonId, u8> = HashMap::new();
+        for p in &solution.placements {
+            *placement_counts.entry(p.lesson_id).or_insert(0) += 1;
+        }
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        solution.violations.retain(|v| {
+            let Some(lesson) = lesson_lookup.get(&v.lesson_id) else {
+                return true;
+            };
+            let count = placement_counts.get(&v.lesson_id).copied().unwrap_or(0);
+            match v.kind {
+                ViolationKind::NoFreeTimeBlock
+                | ViolationKind::TeacherOverCapacity
+                | ViolationKind::NoSuitableRoom
+                | ViolationKind::LessonGroupSplit => count < lesson.hours_per_week,
+                _ => true,
+            }
+        });
+    }
+
     // Post-solve hard-constraint sanity check. A failure here is a solver bug.
     validate_no_room_hopping(problem, &solution.placements)?;
     validate_no_double_booking(problem, &solution.placements)?;
@@ -1106,7 +1137,7 @@ fn unplaced_kind(
 }
 
 #[allow(clippy::too_many_arguments)] // Reason: internal helper; refactoring to a struct hurts clarity more than it helps
-fn try_place_group(
+pub(crate) fn try_place_group(
     problem: &Problem,
     member_indices: &[usize],
     n: u8,
