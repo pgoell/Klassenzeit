@@ -33,6 +33,7 @@ from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
     QualityIssue,
     check_class_day_balance,
+    check_class_teacher_subject_share,
     check_day_length,
     check_home_room_ratio,
     check_interior_gaps,
@@ -42,6 +43,8 @@ from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 
 CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
 LoginFn = Callable[[str, str], Awaitable[None]]
+
+MIN_KLASSENLEHRER_SHARE: float = 0.5
 
 
 async def _load_placements(db: AsyncSession) -> list[Placement]:
@@ -79,6 +82,28 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
         )
         for row in rows
     ]
+
+
+async def _load_class_teacher_lookup_grundschule(
+    db: AsyncSession,
+) -> dict[UUID, UUID | None]:
+    """Return `{school_class_id: class_teacher_id_or_none}` over all classes."""
+    rows = (await db.execute(select(SchoolClass.id, SchoolClass.class_teacher_id))).all()
+    return {row.id: row.class_teacher_id for row in rows}
+
+
+async def _load_placement_teacher_lookup_grundschule(
+    db: AsyncSession,
+) -> dict[UUID, UUID]:
+    """Return `{lesson_id: teacher_id}` over every persisted ScheduledLesson.
+
+    Per item 65 `ScheduledLesson.teacher_id` is non-null on solver output;
+    the dict-comprehension below relies on that and would silently drop a
+    row with `teacher_id=None`, which is the intent (a None slot would
+    indicate a regression worth surfacing elsewhere).
+    """
+    rows = (await db.execute(select(ScheduledLesson.lesson_id, ScheduledLesson.teacher_id))).all()
+    return {row.lesson_id: row.teacher_id for row in rows if row.teacher_id is not None}
 
 
 def _counts_per_class(placements: list[Placement]) -> dict[UUID, list[int]]:
@@ -157,6 +182,8 @@ async def test_grundschule_schedule_meets_quality_bar(
 
     counts_per_class = _counts_per_class(placements)
     positions_per_class_day = _positions_per_class_day(placements)
+    class_teacher_lookup = await _load_class_teacher_lookup_grundschule(db_session)
+    placement_teacher_lookup = await _load_placement_teacher_lookup_grundschule(db_session)
 
     issues: list[QualityIssue] = []
     issues.extend(check_room_hop(placements))
@@ -171,6 +198,13 @@ async def test_grundschule_schedule_meets_quality_bar(
     )
     issues.extend(check_interior_gaps(positions_per_class_day, max_gaps_per_class=2))
     issues.extend(check_day_length(placements, max_position=7))
+    issues.extend(
+        check_class_teacher_subject_share(
+            placements,
+            class_teacher_lookup=class_teacher_lookup,
+            placement_teacher_lookup=placement_teacher_lookup,
+        )
+    )
 
     assert issues == [], "demo Grundschule schedule failed quality checks:\n" + "\n".join(
         f"  - {issue}" for issue in issues

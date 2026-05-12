@@ -14,6 +14,7 @@ from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
     QualityIssue,
     check_class_day_balance,
+    check_class_teacher_subject_share,
     check_day_length,
     check_home_room_ratio,
     check_interior_gaps,
@@ -346,3 +347,101 @@ def test_quality_issue_is_frozen_dataclass() -> None:
         # Frozen dataclasses reject attribute assignment at runtime; use the
         # `setattr` builtin so static type checkers don't reject the test itself.
         setattr(issue, "day_of_week", 1)  # noqa: B010
+
+
+# ---------------------------------------------------------------------------
+# check_class_teacher_subject_share
+# ---------------------------------------------------------------------------
+
+
+def test_check_class_teacher_subject_share_yields_nothing_when_no_class_has_klassenlehrer() -> None:
+    c1 = uuid.uuid4()
+    subj = uuid.uuid4()
+    room = uuid.uuid4()
+    lesson = uuid.uuid4()
+    teacher = uuid.uuid4()
+    placements = [
+        _placement(c1, 0, subj, room, lesson_id=lesson, position=1),
+    ]
+    class_teacher_lookup: dict[UUID, UUID | None] = {c1: None}
+    placement_teacher_lookup: dict[UUID, UUID] = {lesson: teacher}
+    issues = list(
+        check_class_teacher_subject_share(
+            placements, class_teacher_lookup, placement_teacher_lookup
+        )
+    )
+    assert issues == []
+
+
+def test_check_class_teacher_subject_share_yields_nothing_when_all_pairs_match() -> None:
+    c1 = uuid.uuid4()
+    mathe = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    room = uuid.uuid4()
+    lesson_m = uuid.uuid4()
+    lesson_d = uuid.uuid4()
+    klassenlehrer = uuid.uuid4()
+    placements = [
+        _placement(c1, 0, mathe, room, lesson_id=lesson_m, position=1),
+        _placement(c1, 1, deutsch, room, lesson_id=lesson_d, position=2),
+    ]
+    class_teacher_lookup: dict[UUID, UUID | None] = {c1: klassenlehrer}
+    placement_teacher_lookup: dict[UUID, UUID] = {lesson_m: klassenlehrer, lesson_d: klassenlehrer}
+    issues = list(
+        check_class_teacher_subject_share(
+            placements, class_teacher_lookup, placement_teacher_lookup
+        )
+    )
+    assert issues == []
+
+
+def test_check_class_teacher_subject_share_yields_issue_per_mismatched_pair() -> None:
+    c1 = uuid.uuid4()
+    mathe = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    room = uuid.uuid4()
+    lesson_m = uuid.uuid4()
+    lesson_d = uuid.uuid4()
+    klassenlehrer = uuid.uuid4()
+    other = uuid.uuid4()
+    placements = [
+        _placement(c1, 0, mathe, room, lesson_id=lesson_m, position=1),
+        _placement(c1, 1, deutsch, room, lesson_id=lesson_d, position=2),
+    ]
+    class_teacher_lookup: dict[UUID, UUID | None] = {c1: klassenlehrer}
+    placement_teacher_lookup: dict[UUID, UUID] = {lesson_m: klassenlehrer, lesson_d: other}
+    issues = list(
+        check_class_teacher_subject_share(
+            placements, class_teacher_lookup, placement_teacher_lookup
+        )
+    )
+    assert len(issues) == 1
+    assert issues[0].kind == "class_teacher_subject_share"
+    assert issues[0].school_class_id == c1
+    assert issues[0].subject_id == deutsch
+
+
+def test_check_class_teacher_subject_share_skips_classes_without_klassenlehrer() -> None:
+    c1 = uuid.uuid4()
+    c2 = uuid.uuid4()
+    mathe = uuid.uuid4()
+    room = uuid.uuid4()
+    lesson_c1 = uuid.uuid4()
+    lesson_c2 = uuid.uuid4()
+    klassenlehrer_c1 = uuid.uuid4()
+    other_teacher = uuid.uuid4()
+    placements = [
+        _placement(c1, 0, mathe, room, lesson_id=lesson_c1, position=1),
+        _placement(c2, 0, mathe, room, lesson_id=lesson_c2, position=2),
+    ]
+    class_teacher_lookup: dict[UUID, UUID | None] = {c1: klassenlehrer_c1, c2: None}
+    placement_teacher_lookup: dict[UUID, UUID] = {
+        lesson_c1: klassenlehrer_c1,
+        lesson_c2: other_teacher,
+    }
+    issues = list(
+        check_class_teacher_subject_share(
+            placements, class_teacher_lookup, placement_teacher_lookup
+        )
+    )
+    assert issues == [], "c2 has no Klassenlehrer set, must not yield issues; c1's pair matches"
