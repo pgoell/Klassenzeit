@@ -108,17 +108,8 @@ fn lahc_rescue_zweizuegig_unpinned_reaches_feasibility() {
         .map(|l| l.hours_per_week as usize)
         .sum();
 
-    // Item 57: zero out the new per-class worst-case axes; Task 2 wires the
-    // LAHC delta arithmetic through. Task 1 only adds them to score_solution
-    // / ConstraintWeights, so the per-iteration debug_assert_eq! gate would
-    // otherwise fire on every iteration that mutates per-class counts. The
-    // test's intent (LAHC rescue must reach full placement on the unpinned
-    // fixture) is preserved.
-    let mut weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
-    weights.max_per_class_spread = 0;
-    weights.max_per_class_interior_gaps = 0;
     let config = SolveConfig {
-        weights,
+        weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
         deadline: Some(Duration::from_millis(5_000)),
         lahc_rr_period: Some(5),
         seed: 42,
@@ -153,17 +144,8 @@ fn lahc_rescue_dreizuegig_unpinned_reaches_feasibility() {
         .map(|l| l.hours_per_week as usize)
         .sum();
 
-    // Item 57: zero out the new per-class worst-case axes; Task 2 wires the
-    // LAHC delta arithmetic through. Task 1 only adds them to score_solution
-    // / ConstraintWeights, so the per-iteration debug_assert_eq! gate would
-    // otherwise fire on every iteration that mutates per-class counts. The
-    // test's intent (LAHC rescue must reach full placement on the unpinned
-    // fixture) is preserved.
-    let mut weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
-    weights.max_per_class_spread = 0;
-    weights.max_per_class_interior_gaps = 0;
     let config = SolveConfig {
-        weights,
+        weights: PRODUCTION_ACTIVE_WEIGHTS.clone(),
         deadline: Some(Duration::from_millis(5_000)),
         lahc_rr_period: Some(5),
         seed: 42,

@@ -1,18 +1,21 @@
 //! Property tests for the LAHC local-search loop. Reuses the same problem
 //! generator shape as `score_property.rs` so the bounds stay consistent.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
+use solver_core::test_fixtures::dreizuegig_fixture;
 use solver_core::types::{
     ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
     Subject, Teacher, TeacherQualification, TimeBlock,
 };
 use solver_core::validate::{validate_daily_caps, validate_no_double_booking};
-use solver_core::{score_solution, solve_with_config, solve_with_config_stats};
+use solver_core::{
+    score_solution, solve_with_config, solve_with_config_stats, PRODUCTION_ACTIVE_WEIGHTS,
+};
 use uuid::Uuid;
 
 /// Assert that the solution does not violate any subject's per-day hour cap.
@@ -848,4 +851,122 @@ fn build_lahc_pinned_problem() -> Problem {
             teacher_id: None,
         }],
     }
+}
+
+/// Mirror of `tests/lahc_unpinned_canonical_score.rs::lahc_unpinned_test_unpin_teachers`.
+/// Globally-unique helper name per the unique-fn-name rule in `.claude/CLAUDE.md`.
+/// Widens `teacher_candidates` to the deduplicated set of qualified teachers
+/// per subject and clears `teacher_pin` so the FFD/LAHC picker exercises the
+/// solver-driven assignment path (ADR 0036). Required to exercise the LAHC
+/// per-iteration `debug_assert_eq!` invariant under the widened axes; under
+/// pinned teachers the dreizügig fixture stabilises at the FFD seed and
+/// LAHC accepts no moves, so the new axes never get a chance to drift.
+fn lahc_property_unpin_teachers(problem: &mut Problem) {
+    let mut quals_by_subject: HashMap<SubjectId, Vec<TeacherId>> = HashMap::new();
+    for q in &problem.teacher_qualifications {
+        quals_by_subject
+            .entry(q.subject_id)
+            .or_default()
+            .push(q.teacher_id);
+    }
+    for v in quals_by_subject.values_mut() {
+        v.sort_by_key(|t| t.0);
+        v.dedup();
+    }
+    for lesson in &mut problem.lessons {
+        lesson.teacher_pin = None;
+        lesson.teacher_candidates = quals_by_subject
+            .get(&lesson.subject_id)
+            .cloned()
+            .unwrap_or_default();
+    }
+}
+
+/// Assign every class a `class_teacher_id` chosen from the teachers
+/// qualified for at least one of the class's own lessons' subjects. Mirrors
+/// `lahc_unpinned_test_assign_class_teachers` in `tests/lahc_unpinned_canonical_score.rs`;
+/// the helper is inlined here under a globally-unique name per the
+/// unique-fn-name rule in `.claude/CLAUDE.md`. The dreizügig fixture defaults
+/// to `class_teacher_id: None` on every class, which would short-circuit
+/// `prefer_class_teacher` to zero and reduce the canonical surface this test
+/// is meant to exercise.
+fn lahc_property_assign_class_teachers(problem: &mut Problem) {
+    let mut subjects_per_class: HashMap<_, HashSet<SubjectId>> = HashMap::new();
+    for lesson in &problem.lessons {
+        for class_id in &lesson.school_class_ids {
+            subjects_per_class
+                .entry(*class_id)
+                .or_default()
+                .insert(lesson.subject_id);
+        }
+    }
+    let mut qualified_for_subject: HashMap<SubjectId, HashSet<TeacherId>> = HashMap::new();
+    for q in &problem.teacher_qualifications {
+        qualified_for_subject
+            .entry(q.subject_id)
+            .or_default()
+            .insert(q.teacher_id);
+    }
+    for class in &mut problem.school_classes {
+        let Some(subjects) = subjects_per_class.get(&class.id) else {
+            continue;
+        };
+        let mut candidates: HashSet<TeacherId> = HashSet::new();
+        for sid in subjects {
+            if let Some(qs) = qualified_for_subject.get(sid) {
+                for t in qs {
+                    candidates.insert(*t);
+                }
+            }
+        }
+        let mut sorted: Vec<TeacherId> = candidates.into_iter().collect();
+        sorted.sort_unstable_by_key(|t| t.0);
+        if let Some(klt) = sorted.first().copied() {
+            class.class_teacher_id = Some(klt);
+        }
+    }
+}
+
+/// Item 57: the per-iteration `debug_assert_eq!(state.canonical_score,
+/// score_solution(...))` gate inside `lahc.rs` must remain green when
+/// `max_per_class_spread` and `max_per_class_interior_gaps` are non-zero.
+/// Drives a 10_000-iteration LAHC run on the dreizügig fixture under
+/// `PRODUCTION_ACTIVE_WEIGHTS` (which Task 1 set to weight 10 on both new
+/// axes) so the gate is exercised across every move type (Change, R&R,
+/// Kempe). Also asserts post-solve `solution.soft_score ==
+/// score_solution(problem, &solution.placements, weights)` so any LAHC-time
+/// drift that the gate somehow misses still trips the assertion.
+#[test]
+fn lahc_canonical_score_matches_score_solution_under_widened_per_class_axes() {
+    let mut problem = dreizuegig_fixture();
+    lahc_property_unpin_teachers(&mut problem);
+    lahc_property_assign_class_teachers(&mut problem);
+
+    let weights = PRODUCTION_ACTIVE_WEIGHTS;
+
+    // Mirror `tests/lahc_unpinned_canonical_score.rs`'s shape: aggressive
+    // R&R and Kempe periods so both move types fire within the 10_000
+    // iteration budget and drive `state.canonical_score` mutation through
+    // every site the new axes touch. The per-iteration
+    // `debug_assert_eq!(state.canonical_score, score_solution(...))` inside
+    // `lahc.rs` is the implicit gate; on master with the new axes weighted
+    // but their delta arithmetic NOT wired through, the gate panics within
+    // the first few hundred iterations.
+    let config = SolveConfig {
+        weights: weights.clone(),
+        deadline: Some(Duration::from_secs(60)),
+        max_iterations: Some(10_000),
+        lahc_rr_period: Some(2),
+        lahc_kempe_period: Some(2),
+        ..SolveConfig::default()
+    };
+
+    let solution = solve_with_config(&problem, &config)
+        .expect("solver should not return Err under production weights on dreizuegig");
+
+    let recomputed = score_solution(&problem, &solution.placements, &weights);
+    assert_eq!(
+        solution.soft_score, recomputed,
+        "post-solve soft_score must match score_solution under widened axes",
+    );
 }
