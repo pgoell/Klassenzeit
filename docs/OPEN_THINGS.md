@@ -8,7 +8,7 @@ The 2026-05-12 shipping of items 11 + 79 + 80 closed the multi-school flake-loop
 
 ## Next up
 
-- `[P1]` Per-class / per-teacher attribution on QualityReport (item 59).
+- `[P1]` Per-class / per-teacher attribution surfacing on the schedule UI (item 59; data axis shipped via item 2).
 - `[P2]` Production-refresh ratification of ADR 0037 (item 81; opportunistic, ~10-12h host window).
 - `[P2]` Non-Timefold third-backend spike (item 56; triggered when Rust LAHC + CP-SAT both plateau).
 - `[Paused]` Schwimmunterricht modelling, resumes after the active sprint closes.
@@ -20,8 +20,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 ### P0 (next sprint candidates)
 
 1. **Production-refresh ratification of ADR 0037.** Today's unpinned multi-school cells in `BENCH_RESULTS.md` are smoke-validated at 5s × 1 seed; the production 60s × 20-seed cell shape on unpinned is the missing data point. Re-run `mise run bench:bakeoff -- --teacher-pins on` followed by `-- --teacher-pins off --append` (~10-12h). If `lahc_rr_kempe` regains a soft-score edge at production scale, file ADR 0038-revision; if `lahc_rr` holds, ADR 0037 is ratified. Trigger: opportunistic on a quiet host window. Anchor: item 81.
-
-2. **Per-class / per-teacher attribution on `QualityReport`.** Today `class_gap_hours` is a sum across all classes; the admin demoing a schedule cannot answer "which class is the worst-spread offender on dreizügig". Add `class_gap_hours_by_class: HashMap<SchoolClassId, u32>` plus matching `teacher_gap_hours_by_teacher`, `home_room_misses_by_class`, `class_day_balance_cost_by_class`. Property test: `sum(map.values()) == legacy_field` per axis. Allocation cost is post-solve only (cold path); the LAHC hot loop is unaffected. Anchor: item 59.
 
 ### P1 (real Grundschule pain still un-modelled)
 
