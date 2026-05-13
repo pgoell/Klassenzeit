@@ -696,6 +696,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(score_uuid(20)),
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room {
                 id: RoomId(score_uuid(30)),
@@ -1010,6 +1011,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(score_uuid(20)),
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room {
                 id: RoomId(score_uuid(30)),
@@ -1463,6 +1465,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher_id,
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
@@ -1710,10 +1713,12 @@ mod tests {
                 Teacher {
                     id: t1,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: t2,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room_id }],
@@ -1862,10 +1867,12 @@ mod tests {
                 Teacher {
                     id: teacher_a,
                     max_hours_per_week: 50,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher_b,
                     max_hours_per_week: 50,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room_id }],

@@ -98,6 +98,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(u(2)),
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: RoomId(u(3)) }, Room { id: RoomId(u(4)) }],
             subjects: vec![

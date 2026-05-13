@@ -661,6 +661,7 @@ mod tests {
         let teacher = Teacher {
             id: TeacherId(uuid(2)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         };
         let room = Room {
             id: RoomId(uuid(3)),
@@ -868,6 +869,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(uuid(9)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(uuid(9)),
@@ -1141,6 +1143,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(uuid(41)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(uuid(41)),
@@ -1379,6 +1382,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(uuid(111)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(uuid(111)),
@@ -1424,6 +1428,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(uuid(121)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(uuid(121)),
@@ -1508,6 +1513,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: teacher2,
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: teacher2,

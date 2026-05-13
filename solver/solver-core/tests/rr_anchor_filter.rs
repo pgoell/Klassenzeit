@@ -66,6 +66,7 @@ fn build_anchor_filter_fixture() -> Problem {
         teachers: vec![Teacher {
             id: teacher_a,
             max_hours_per_week: 40,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room_a }],
         subjects: vec![Subject {
@@ -225,6 +226,7 @@ fn build_many_anchors_fixture() -> Problem {
         teachers.push(Teacher {
             id: teacher_id,
             max_hours_per_week: 40,
+            reserve_hours_per_week: 0,
         });
         subjects.push(Subject {
             id: subject_id,

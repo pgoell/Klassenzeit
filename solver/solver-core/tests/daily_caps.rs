@@ -46,6 +46,7 @@ fn caps_subject_hours_per_class_per_day_to_two_by_default() {
         teachers: vec![Teacher {
             id: teacher_id,
             max_hours_per_week: 30,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room_id }],
         subjects: vec![Subject {
@@ -163,6 +164,7 @@ fn caps_total_lessons_per_class_per_day_when_set() {
         teachers: vec![Teacher {
             id: teacher_id,
             max_hours_per_week: 30,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room_id }],
         subjects,

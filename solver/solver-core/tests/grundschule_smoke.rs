@@ -34,6 +34,7 @@ fn grundschule() -> Problem {
         .map(|i| Teacher {
             id: TeacherId(grundschule_uuid(30 + i)),
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         })
         .collect();
 

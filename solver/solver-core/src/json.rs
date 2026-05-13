@@ -180,6 +180,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(json_uuid(20)),
                 max_hours_per_week: 5,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room {
                 id: RoomId(json_uuid(30)),
@@ -297,6 +298,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(json_uuid(20)),
                 max_hours_per_week: 5,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room {
                 id: RoomId(room_uuid),

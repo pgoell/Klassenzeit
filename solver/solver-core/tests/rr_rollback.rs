@@ -58,6 +58,7 @@ fn rr_rollback_problem() -> Problem {
         teachers: vec![Teacher {
             id: teacher,
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![
             Room { id: room_a },

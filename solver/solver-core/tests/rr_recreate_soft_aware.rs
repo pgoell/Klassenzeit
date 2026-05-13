@@ -60,6 +60,7 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
         teachers: vec![Teacher {
             id: t1,
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: r_home }, Room { id: r_other }],
         school_classes: vec![SchoolClass {

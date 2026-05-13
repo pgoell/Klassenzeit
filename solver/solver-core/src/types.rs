@@ -256,6 +256,23 @@ pub struct Teacher {
     pub id: TeacherId,
     /// Maximum teaching hours the teacher can be scheduled for per week.
     pub max_hours_per_week: u8,
+    /// Hours per week withheld from teaching capacity to cover substitute
+    /// duty (Vertretungsreserve). Subtracted from `max_hours_per_week` via
+    /// `effective_max_hours_per_week()`. Wire format is additive: callers
+    /// omitting the field deserialise to 0.
+    #[serde(default)]
+    pub reserve_hours_per_week: u8,
+}
+
+impl Teacher {
+    /// Effective weekly teaching capacity after subtracting the
+    /// Vertretungsreserve. Uses saturating subtraction so a misconfigured row
+    /// with `reserve > max` yields 0 (teacher takes no lessons) rather than
+    /// underflow.
+    pub fn effective_max_hours_per_week(&self) -> u8 {
+        self.max_hours_per_week
+            .saturating_sub(self.reserve_hours_per_week)
+    }
 }
 
 /// A room available for placements.

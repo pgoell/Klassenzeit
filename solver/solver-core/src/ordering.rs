@@ -249,10 +249,12 @@ mod tests {
                 Teacher {
                     id: TeacherId(ord_uuid(20)),
                     max_hours_per_week: 5,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: TeacherId(ord_uuid(21)),
                     max_hours_per_week: 5,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![

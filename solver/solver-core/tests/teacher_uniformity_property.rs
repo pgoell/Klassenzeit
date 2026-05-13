@@ -68,6 +68,7 @@ prop_compose! {
             .map(|i| Teacher {
                 id: TeacherId(teacher_uniformity_uuid_from(100 + i as u32)),
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             })
             .collect();
         let teacher_ids: Vec<TeacherId> = teachers.iter().map(|t| t.id).collect();
