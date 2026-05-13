@@ -1936,12 +1936,28 @@ export interface components {
             unplaced_hours: number;
             /** Class Gap Hours */
             class_gap_hours: number;
+            /** Class Gap Hours By Class */
+            class_gap_hours_by_class: {
+                [key: string]: number;
+            };
             /** Teacher Gap Hours */
             teacher_gap_hours: number;
+            /** Teacher Gap Hours By Teacher */
+            teacher_gap_hours_by_teacher: {
+                [key: string]: number;
+            };
             /** Class Day Balance Cost */
             class_day_balance_cost: number;
+            /** Class Day Balance Cost By Class */
+            class_day_balance_cost_by_class: {
+                [key: string]: number;
+            };
             /** Home Room Misses */
             home_room_misses: number;
+            /** Home Room Misses By Class */
+            home_room_misses_by_class: {
+                [key: string]: number;
+            };
             /** Prefer Early Units */
             prefer_early_units: number;
             /** Avoid First Units */

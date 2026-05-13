@@ -737,14 +737,18 @@ async def test_schedule_post_response_carries_quality_report(
     body = resp.json()
     assert "quality_report" in body, "quality_report must be on the wire format"
     qr = body["quality_report"]
-    # Mirrors QualityReport in solver-core/src/quality.rs (14 fields total).
+    # Mirrors QualityReport in solver-core/src/quality.rs (18 fields total).
     expected_fields = {
         "hard_violations",
         "unplaced_hours",
         "class_gap_hours",
+        "class_gap_hours_by_class",
         "teacher_gap_hours",
+        "teacher_gap_hours_by_teacher",
         "class_day_balance_cost",
+        "class_day_balance_cost_by_class",
         "home_room_misses",
+        "home_room_misses_by_class",
         "prefer_early_units",
         "avoid_first_units",
         "avoid_last_units",
@@ -763,3 +767,27 @@ async def test_schedule_post_response_carries_quality_report(
         "weighted_score == soft_score parity invariant (pinned in "
         "solver-core/tests/solution_quality_report_json.rs)"
     )
+    # Per-axis attribution map shape: dict[str (UUID), int (count)].
+    for map_field in (
+        "class_gap_hours_by_class",
+        "teacher_gap_hours_by_teacher",
+        "class_day_balance_cost_by_class",
+        "home_room_misses_by_class",
+    ):
+        assert isinstance(qr[map_field], dict), f"{map_field} must be a dict"
+        for k, v in qr[map_field].items():
+            assert isinstance(k, str), f"{map_field} keys must be UUID strings"
+            assert isinstance(v, int) and v > 0, (
+                f"{map_field}[{k}] must be a positive int (skip-zero invariant)"
+            )
+
+    # Sum-equals-legacy invariant per axis (mirrors solver-core proptest).
+    for legacy, map_field in (
+        ("class_gap_hours", "class_gap_hours_by_class"),
+        ("teacher_gap_hours", "teacher_gap_hours_by_teacher"),
+        ("class_day_balance_cost", "class_day_balance_cost_by_class"),
+        ("home_room_misses", "home_room_misses_by_class"),
+    ):
+        assert sum(qr[map_field].values()) == qr[legacy], (
+            f"sum({map_field}.values()) must equal {legacy}"
+        )
