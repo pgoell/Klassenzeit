@@ -139,7 +139,7 @@ async def test_seeded_grundschule_zweizuegig_solves_without_pinned_teachers(
     Item 32: a feasibility regression that only manifests on unpinned
     teachers would slip through the canonical-pin sibling.
     """
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
     await seed_demo_grundschule_zweizuegig(db_session)
     await db_session.flush()
 

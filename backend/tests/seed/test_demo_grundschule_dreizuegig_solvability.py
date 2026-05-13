@@ -139,7 +139,7 @@ async def test_seeded_grundschule_dreizuegig_solves_without_pinned_teachers(
     only the per-class non-Religion teacher allocation differs from the
     canonical sibling.
     """
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
     await seed_demo_grundschule_dreizuegig(db_session)
     await db_session.flush()
 

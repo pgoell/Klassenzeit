@@ -32,7 +32,7 @@ async def generate_schedule_for_class(
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        request: The FastAPI request, used to read ``solve_deadline_ms`` from
+        request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
             ``app.state.settings``.
         _admin: Injected admin user (enforces authentication).
         db: Injected async database session.
@@ -51,8 +51,9 @@ async def generate_schedule_for_class(
     problem_json, class_lesson_ids, input_counts = await solver_io.build_problem_json(
         db, class_id, pinned_placements=all_pins
     )
-    deadline_ms = request.app.state.settings.solve_deadline_ms
-    solver_backend = request.app.state.settings.solver_backend
+    settings = request.app.state.settings
+    deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
+    solver_backend = settings.solver_backend
     solution = await solver_io.run_solve(
         problem_json,
         scope_id=class_id,
@@ -92,7 +93,7 @@ async def generate_schedule_for_all_classes(
     the spec contract: "Pin state in the database is unchanged").
 
     Args:
-        request: The FastAPI request, used to read ``solve_deadline_ms``.
+        request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
         _admin: Injected admin user (enforces authentication).
         db: Injected async database session.
         respect_pins: When true, pinned rows are threaded as solver input
@@ -111,8 +112,9 @@ async def generate_schedule_for_all_classes(
     problem_json, _, input_counts = await solver_io.build_problem_json(
         db, class_id=None, pinned_placements=pins
     )
-    deadline_ms = request.app.state.settings.solve_deadline_ms
-    solver_backend = request.app.state.settings.solver_backend
+    settings = request.app.state.settings
+    deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
+    solver_backend = settings.solver_backend
     solution = await solver_io.run_solve(
         problem_json,
         scope_id=None,

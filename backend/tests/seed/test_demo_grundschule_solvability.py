@@ -35,11 +35,12 @@ async def test_seeded_grundschule_solves_without_pinned_teachers(
     login_as: LoginFn,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Production deadline: 5000 ms LAHC budget per ADR 0033. Test env
-    # default is KZ_SOLVE_DEADLINE_MS=0 (greedy-only); this opts back in
+    # Production deadline: 5000 ms LAHC budget per ADR 0033 (per-backend
+    # shape per ADR 0038). Test env zeroes every per-backend entry in
+    # .env.test (greedy-only); this opts back in for the active backend
     # so the test exercises the production solver path on the
     # solver-driven teacher pick.
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 
