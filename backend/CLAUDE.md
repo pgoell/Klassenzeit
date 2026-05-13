@@ -57,6 +57,7 @@ Routes and route handlers live next to the aggregate they serve. Runtime state (
 - **Structured 422 detail dicts use `{"code": str, ...domain fields}`** for machine-readable error codes. FastAPI accepts `HTTPException(detail=<dict>)` natively; the `code` discriminator drives frontend i18n.
 - **`scheduling/schemas/__init__.py` is intentionally bare;** every schema is imported directly from its submodule.
 - **`ViolationResponse.kind` Literal lives in `scheduling/schemas/schedule.py`.** Adding a new `ViolationKind`: widen the Literal, `mise run fe:types`, extend the frontend exhaustive switch + i18n keys, update the closed-enum tests. Land all four in one commit.
+- **`QualityReport` field-set is pinned exhaustively in two tests:** `tests/scheduling/test_schedule_route.py::test_schedule_post_response_carries_quality_report` and `tests/scheduling/test_schedule_all_respect_pins.py::test_schedule_all_response_carries_quality_report` both maintain a frozen `expected_fields` set-equality assertion. Adding a `QualityReport` field touches both tests in lockstep with the Pydantic mirror (`schemas/quality_report.py`); `extra="forbid"` on `QualityReportResponse` 422s the route if the mirror drifts.
 
 ## Logging
 
