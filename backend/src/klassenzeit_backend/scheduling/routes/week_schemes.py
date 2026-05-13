@@ -161,6 +161,7 @@ async def get_week_scheme_route(
             position=b.position,
             start_time=b.start_time,
             end_time=b.end_time,
+            kind=b.kind,
         )
         for b in blocks_result.scalars()
     ]
@@ -291,6 +292,7 @@ async def create_time_block_route(
         position=block.position,
         start_time=block.start_time,
         end_time=block.end_time,
+        kind=block.kind,
     )
 
 
@@ -341,6 +343,7 @@ async def update_time_block_route(
         position=block.position,
         start_time=block.start_time,
         end_time=block.end_time,
+        kind=block.kind,
     )
 
 
