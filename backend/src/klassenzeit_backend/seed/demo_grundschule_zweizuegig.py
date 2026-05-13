@@ -240,6 +240,7 @@ async def seed_demo_grundschule_zweizuegig(session: AsyncSession) -> None:
                     position=period.position,
                     start_time=period.start,
                     end_time=period.end,
+                    kind=period.kind,
                 )
             )
     await session.flush()

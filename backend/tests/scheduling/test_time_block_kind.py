@@ -23,12 +23,14 @@ from klassenzeit_backend.db.models.week_scheme import (
     TimeBlockKind,
     WeekScheme,
 )
+from klassenzeit_backend.main import app
 from klassenzeit_backend.scheduling import solver_io
 from klassenzeit_backend.scheduling.schemas.week_scheme import (
     TimeBlockCreate,
     TimeBlockResponse,
     TimeBlockUpdate,
 )
+from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 
 type CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
 type LoginFn = Callable[[str, str], Awaitable[None]]
@@ -329,3 +331,62 @@ async def test_build_problem_json_excludes_break_time_blocks(
     assert len(payload["time_blocks"]) == 6, payload["time_blocks"]
     assert (0, 3) not in payload_positions  # break position must be absent
     assert (0, 6) not in payload_positions
+
+
+@pytest.mark.asyncio
+async def test_solve_skips_break_time_blocks_in_seed(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A solve over a seeded Grundschule class never places onto a kind=break slot.
+
+    Exercises the seed's break rows end-to-end (Task 6 follow-up to Task 4):
+    seed_demo_grundschule now emits Hofpause TimeBlocks at raw positions 3
+    and 6 of every day. The solver-IO filter must drop them before the
+    payload reaches the solver; the round-trip assertion checks that no
+    persisted ScheduledLesson points at one of those break rows.
+    """
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
+    await seed_demo_grundschule(db_session)
+    await db_session.flush()
+
+    admin, password = await create_test_user(
+        email="admin-breakseed@example.com",
+        password="break-seed-password-12345",  # noqa: S106
+        role="admin",
+    )
+    await login_as(admin.email, password)
+
+    classes = (
+        (await db_session.execute(select(SchoolClass).order_by(SchoolClass.grade_level)))
+        .scalars()
+        .all()
+    )
+    assert classes, "seed regression: expected seeded school classes"
+    school_class = classes[0]
+
+    gen_resp = await client.post(f"/api/classes/{school_class.id}/generate-lessons")
+    assert gen_resp.status_code == 201, gen_resp.text
+    sched_resp = await client.post(f"/api/classes/{school_class.id}/schedule")
+    assert sched_resp.status_code == 200, sched_resp.text
+
+    break_ids = {
+        str(tb_id)
+        for tb_id in (
+            await db_session.execute(
+                select(TimeBlock.id).where(
+                    TimeBlock.week_scheme_id == school_class.week_scheme_id,
+                    TimeBlock.kind == TimeBlockKind.BREAK,
+                )
+            )
+        ).scalars()
+    }
+    assert break_ids, "seed regression: expected at least one break TimeBlock"
+
+    placement_block_ids = {p["time_block_id"] for p in sched_resp.json()["placements"]}
+    assert placement_block_ids.isdisjoint(break_ids), (
+        f"solver placed a lesson on a break slot: {placement_block_ids & break_ids}"
+    )

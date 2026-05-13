@@ -22,7 +22,7 @@ from klassenzeit_backend.db.models.stundentafel import (
 )
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind, WeekScheme
 
 WEEK_SCHEME_NAME = "Grundschule Zeitraster"
 WEEK_SCHEME_DESCRIPTION = (
@@ -34,15 +34,23 @@ class _PeriodTimes(NamedTuple):
     position: int
     start: time
     end: time
+    kind: TimeBlockKind = TimeBlockKind.LESSON
 
 
+# Ordinal positions interleave 6 lesson slots with 2 Hofpausen (after the
+# 2nd and 4th lesson). The lesson start/end anchors stay identical to the
+# pre-break shape so existing solver-fixture tests and the quality bar
+# integration test see the same 45-minute windows; break rows fill the
+# previously-implicit gaps (09:30-09:50 and 11:20-11:35).
 _PERIODS: tuple[_PeriodTimes, ...] = (
     _PeriodTimes(1, time(8, 0), time(8, 45)),
     _PeriodTimes(2, time(8, 45), time(9, 30)),
-    _PeriodTimes(3, time(9, 50), time(10, 35)),
-    _PeriodTimes(4, time(10, 35), time(11, 20)),
-    _PeriodTimes(5, time(11, 35), time(12, 20)),
-    _PeriodTimes(6, time(12, 20), time(13, 5)),
+    _PeriodTimes(3, time(9, 30), time(9, 50), TimeBlockKind.BREAK),
+    _PeriodTimes(4, time(9, 50), time(10, 35)),
+    _PeriodTimes(5, time(10, 35), time(11, 20)),
+    _PeriodTimes(6, time(11, 20), time(11, 35), TimeBlockKind.BREAK),
+    _PeriodTimes(7, time(11, 35), time(12, 20)),
+    _PeriodTimes(8, time(12, 20), time(13, 5)),
 )
 
 _DAYS_MON_TO_FRI: tuple[int, ...] = (0, 1, 2, 3, 4)
@@ -187,6 +195,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
                     position=period.position,
                     start_time=period.start,
                     end_time=period.end,
+                    kind=period.kind,
                 )
             )
     await session.flush()

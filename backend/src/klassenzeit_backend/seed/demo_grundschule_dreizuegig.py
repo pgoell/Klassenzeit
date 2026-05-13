@@ -52,7 +52,7 @@ from klassenzeit_backend.db.models.stundentafel import (
 )
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind, WeekScheme
 from klassenzeit_backend.seed.demo_grundschule import (
     _DAYS_MON_TO_FRI,
     _KLASSENRAUM_SUITABLE_SUBJECTS,
@@ -67,30 +67,36 @@ from klassenzeit_backend.seed.demo_grundschule import (
 WEEK_SCHEME_NAME = "Grundschule (dreizuegig) Zeitraster"
 WEEK_SCHEME_DESCRIPTION = (
     "Hessen Grundschule, drei Zuege pro Jahrgang: 5 Tage, 8 Stunden a 45 Minuten, "
-    "Hofpausen nach der 2. und 4. Stunde. Stunden 7 und 8 dienen als Ganztags- / "
-    "AG-Zeitfenster und geben dem Solver Slack fuer drei Zuege plus die "
-    "jahrgangsweite Religionsdreiergruppe (RK/RE/ETH via lesson_group_id). "
-    "Die Stundentafel enthaelt deshalb keine ETH-Zeile."
+    "Hofpausen nach der 2. und 4. Stunde, Mittagspause nach der 6. Stunde. "
+    "Die Stunden 7 und 8 (am Nachmittag) dienen als Ganztags- / AG-Zeitfenster "
+    "und geben dem Solver Slack fuer drei Zuege plus die jahrgangsweite "
+    "Religionsdreiergruppe (RK/RE/ETH via lesson_group_id). Die Stundentafel "
+    "enthaelt deshalb keine ETH-Zeile."
 )
 
 
-# Dreizuegig is a Ganztagsschule pattern: 8 periods per day, defined
-# locally so the shape is independent of einzuegig's ``_PERIODS``.
-# Periods 1-6 mirror the morning Halbtag grid; periods 7 and 8 (13:20-
-# 14:05 and 14:05-14:50) are the dreizuegig-only Ganztags-Stundenfenster
-# that give the FFD greedy enough slack to place all 12 classes'
-# Stundentafel-driven lessons plus the cross-class Religion trio (3
-# lessons per Jahrgang, each spanning 3 classes) without UUID-tiebreak-
-# dependent flakiness.
+# Dreizuegig is a Ganztagsschule pattern: 11 ordinal positions per day
+# (8 lesson slots interleaved with 2 Hofpausen plus 1 Mittagspause),
+# defined locally so the shape is independent of einzuegig's ``_PERIODS``.
+# The two morning Hofpausen sit after lesson 2 (Hofpause 09:30-09:50,
+# 20 min) and lesson 4 (Hofpause 11:20-11:35, 15 min); the 45-minute
+# Mittagspause sits after lesson 6 (13:05-13:50). Afternoon lesson slots
+# at 13:50-14:35 and 14:35-15:20 give the FFD greedy enough slack to
+# place all 12 classes' Stundentafel-driven lessons plus the cross-class
+# Religion trio (3 lessons per Jahrgang, each spanning 3 classes) without
+# UUID-tiebreak-dependent flakiness.
 _PERIODS_DREIZUEGIG: tuple[_PeriodTimes, ...] = (
     _PeriodTimes(1, time(8, 0), time(8, 45)),
     _PeriodTimes(2, time(8, 45), time(9, 30)),
-    _PeriodTimes(3, time(9, 50), time(10, 35)),
-    _PeriodTimes(4, time(10, 35), time(11, 20)),
-    _PeriodTimes(5, time(11, 35), time(12, 20)),
-    _PeriodTimes(6, time(12, 20), time(13, 5)),
-    _PeriodTimes(7, time(13, 20), time(14, 5)),
-    _PeriodTimes(8, time(14, 5), time(14, 50)),
+    _PeriodTimes(3, time(9, 30), time(9, 50), TimeBlockKind.BREAK),
+    _PeriodTimes(4, time(9, 50), time(10, 35)),
+    _PeriodTimes(5, time(10, 35), time(11, 20)),
+    _PeriodTimes(6, time(11, 20), time(11, 35), TimeBlockKind.BREAK),
+    _PeriodTimes(7, time(11, 35), time(12, 20)),
+    _PeriodTimes(8, time(12, 20), time(13, 5)),
+    _PeriodTimes(9, time(13, 5), time(13, 50), TimeBlockKind.BREAK),
+    _PeriodTimes(10, time(13, 50), time(14, 35)),
+    _PeriodTimes(11, time(14, 35), time(15, 20)),
 )
 
 
@@ -387,6 +393,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
                     position=period.position,
                     start_time=period.start,
                     end_time=period.end,
+                    kind=period.kind,
                 )
             )
     await session.flush()
