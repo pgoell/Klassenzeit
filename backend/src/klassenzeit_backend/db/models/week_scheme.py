@@ -1,5 +1,6 @@
 """WeekScheme and TimeBlock ORM models."""
 
+import enum
 import uuid
 from datetime import datetime, time
 
@@ -13,9 +14,17 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
+
+
+class TimeBlockKind(enum.StrEnum):
+    """Kind of a time block: bookable lesson slot vs non-bookable break."""
+
+    LESSON = "lesson"
+    BREAK = "break"
 
 
 class WeekScheme(Base):
@@ -44,3 +53,15 @@ class TimeBlock(Base):
     position: Mapped[int] = mapped_column(SmallInteger)
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
+    kind: Mapped[TimeBlockKind] = mapped_column(
+        PG_ENUM(
+            TimeBlockKind,
+            name="time_block_kind",
+            create_type=False,
+            native_enum=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        server_default=TimeBlockKind.LESSON.value,
+        default=TimeBlockKind.LESSON,
+    )
