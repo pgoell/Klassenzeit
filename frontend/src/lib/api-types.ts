@@ -2453,6 +2453,11 @@ export interface components {
             short_code: string;
             /** Max Hours Per Week */
             max_hours_per_week: number;
+            /**
+             * Reserve Hours Per Week
+             * @default 0
+             */
+            reserve_hours_per_week: number;
         };
         /**
          * TeacherDetailResponse
@@ -2472,6 +2477,8 @@ export interface components {
             short_code: string;
             /** Max Hours Per Week */
             max_hours_per_week: number;
+            /** Reserve Hours Per Week */
+            reserve_hours_per_week: number;
             /** Is Active */
             is_active: boolean;
             /** Qualifications */
@@ -2507,6 +2514,8 @@ export interface components {
             short_code: string;
             /** Max Hours Per Week */
             max_hours_per_week: number;
+            /** Reserve Hours Per Week */
+            reserve_hours_per_week: number;
             /** Is Active */
             is_active: boolean;
             /** Subject Ids */
@@ -2535,6 +2544,8 @@ export interface components {
             short_code?: string | null;
             /** Max Hours Per Week */
             max_hours_per_week?: number | null;
+            /** Reserve Hours Per Week */
+            reserve_hours_per_week?: number | null;
         };
         /**
          * TimeBlockCreate

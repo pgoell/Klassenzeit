@@ -219,6 +219,10 @@
       "shortCode": "Short code",
       "maxHoursPerWeek": "Max hours / week"
     },
+    "fields": {
+      "reserveHoursPerWeek": "Reserve hours / week",
+      "reserveExceedsMaxWarning": "Reserve at or above max hours leaves no teaching capacity"
+    },
     "empty": {
       "title": "No teachers on staff",
       "body": "Add your teaching staff with their weekly hour caps. The solver uses this to respect workload contracts.",

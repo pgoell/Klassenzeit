@@ -54,6 +54,7 @@ export const initialTeachers = [
     last_name: "Schmidt",
     short_code: "SCH",
     max_hours_per_week: 25,
+    reserve_hours_per_week: 0,
     is_active: true,
     subject_ids: [],
     created_at: "2026-04-17T00:00:00Z",
@@ -331,10 +332,12 @@ export const defaultHandlers = [
       last_name: string;
       short_code: string;
       max_hours_per_week: number;
+      reserve_hours_per_week?: number;
     };
     return HttpResponse.json(
       {
         id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        reserve_hours_per_week: 0,
         ...body,
         is_active: true,
         created_at: "2026-04-17T00:00:00Z",

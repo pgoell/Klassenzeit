@@ -219,6 +219,10 @@
       "shortCode": "Kürzel",
       "maxHoursPerWeek": "Max. Stunden / Woche"
     },
+    "fields": {
+      "reserveHoursPerWeek": "Vertretungsreserve / Woche",
+      "reserveExceedsMaxWarning": "Reserve >= Max-Stunden lässt keine Unterrichtskapazität"
+    },
     "empty": {
       "title": "Noch keine Lehrkräfte",
       "body": "Füge das Kollegium mit Stundendeputat hinzu. Der Solver berücksichtigt damit Vertragsarbeitszeiten.",
