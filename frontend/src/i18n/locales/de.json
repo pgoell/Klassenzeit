@@ -307,6 +307,13 @@
       "errors": {
         "duplicate": "Für diesen Tag und diese Stunde existiert bereits ein Zeitblock.",
         "invalidTime": "Zeit muss im Format HH:MM sein."
+      },
+      "grid": {
+        "emptyCellLabel": "Stundenblock am {{day}} in Periode {{position}} hinzufügen",
+        "filledCellLabel": "Stundenblock am {{day}} in Periode {{position}} bearbeiten"
+      },
+      "dialog": {
+        "deleteFooter": "Löschen"
       }
     }
   },

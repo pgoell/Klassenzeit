@@ -307,6 +307,13 @@
       "errors": {
         "duplicate": "A time block with this day and position already exists.",
         "invalidTime": "Time must be HH:MM."
+      },
+      "grid": {
+        "emptyCellLabel": "Add time block on {{day}} at period {{position}}",
+        "filledCellLabel": "Edit time block on {{day}} at period {{position}}"
+      },
+      "dialog": {
+        "deleteFooter": "Delete"
       }
     }
   },

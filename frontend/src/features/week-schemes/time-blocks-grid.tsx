@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { Plus } from "lucide-react";
+import { Fragment, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -27,16 +28,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { dayLongKey } from "@/i18n/day-keys";
+import { dayLongKey, dayShortKey } from "@/i18n/day-keys";
 import { ApiError } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 import {
   type TimeBlock,
   useCreateTimeBlock,
@@ -46,79 +40,87 @@ import {
 } from "./hooks";
 import { TimeBlockFormSchema, type TimeBlockFormValues } from "./schema";
 
-export function TimeBlocksTable({ schemeId }: { schemeId: string }) {
+const DAY_INDICES = [0, 1, 2, 3, 4] as const;
+const DEFAULT_MIN_ROWS = 8;
+
+type CreateMode = {
+  mode: "create";
+  day: number;
+  position: number;
+  defaultStart?: string;
+  defaultEnd?: string;
+};
+type EditMode = { mode: "edit"; block: TimeBlock };
+type BlockDialogMode = CreateMode | EditMode;
+
+function formatTimeBlockRange(block: TimeBlock): { start: string; end: string } {
+  return { start: block.start_time.slice(0, 5), end: block.end_time.slice(0, 5) };
+}
+
+export function TimeBlocksGrid({ schemeId }: { schemeId: string }) {
   const { t } = useTranslation();
   const detail = useWeekSchemeDetail(schemeId);
-  const [blockDialogMode, setBlockDialogMode] = useState<
-    { mode: "create" } | { mode: "edit"; block: TimeBlock } | null
-  >(null);
+  const [blockDialogMode, setBlockDialogMode] = useState<BlockDialogMode | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TimeBlock | null>(null);
 
-  const blocks = [...(detail.data?.time_blocks ?? [])].sort(
-    (a, b) => a.day_of_week - b.day_of_week || a.position - b.position,
+  const blocks = detail.data?.time_blocks ?? [];
+  const blocksByCellKey = new Map<string, TimeBlock>(
+    blocks.map((b) => [`${b.day_of_week}:${b.position}`, b]),
   );
+  const maxExistingPosition = blocks.reduce((acc, b) => Math.max(acc, b.position), 0);
+  const rowCount = Math.max(maxExistingPosition + 1, DEFAULT_MIN_ROWS);
+  const positions = Array.from({ length: rowCount }, (_, i) => i + 1);
+
+  function handleAdd(day: number, position: number) {
+    const samePosition = blocks.find((b) => b.position === position);
+    setBlockDialogMode({
+      mode: "create",
+      day,
+      position,
+      defaultStart: samePosition?.start_time.slice(0, 5),
+      defaultEnd: samePosition?.end_time.slice(0, 5),
+    });
+  }
+
+  function handleEdit(block: TimeBlock) {
+    setBlockDialogMode({ mode: "edit", block });
+  }
+
+  function handleRequestDelete(block: TimeBlock) {
+    setBlockDialogMode(null);
+    setConfirmDelete(block);
+  }
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between pb-2">
-        <h3 className="text-sm font-semibold">{t("weekSchemes.timeBlocks.sectionTitle")}</h3>
-        <Button size="sm" onClick={() => setBlockDialogMode({ mode: "create" })}>
-          {t("weekSchemes.timeBlocks.add")}
-        </Button>
-      </div>
+      <h3 className="text-sm font-semibold">{t("weekSchemes.timeBlocks.sectionTitle")}</h3>
       {detail.isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-      ) : blocks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("weekSchemes.timeBlocks.empty")}</p>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="py-2">{t("weekSchemes.timeBlocks.columns.day")}</TableHead>
-                <TableHead className="py-2 text-right">
-                  {t("weekSchemes.timeBlocks.columns.position")}
-                </TableHead>
-                <TableHead className="py-2">{t("weekSchemes.timeBlocks.columns.start")}</TableHead>
-                <TableHead className="py-2">{t("weekSchemes.timeBlocks.columns.end")}</TableHead>
-                <TableHead className="py-2 text-right">{t("common.actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {blocks.map((block) => (
-                <TableRow key={block.id}>
-                  <TableCell className="py-1.5 font-medium">
-                    {t(dayLongKey(block.day_of_week))}
-                  </TableCell>
-                  <TableCell className="py-1.5 text-right font-mono text-[12.5px]">
-                    {block.position}
-                  </TableCell>
-                  <TableCell className="py-1.5 font-mono text-[12.5px]">
-                    {block.start_time}
-                  </TableCell>
-                  <TableCell className="py-1.5 font-mono text-[12.5px]">{block.end_time}</TableCell>
-                  <TableCell className="py-1.5 text-right whitespace-nowrap">
-                    <div className="inline-flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setBlockDialogMode({ mode: "edit", block })}
-                      >
-                        {t("common.edit")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setConfirmDelete(block)}
-                      >
-                        {t("common.delete")}
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+        <div className="kz-ws-grid" style={{ gridTemplateColumns: "56px repeat(5, 1fr)" }}>
+          <div className="kz-ws-cell" data-variant="header" />
+          {DAY_INDICES.map((day) => (
+            <div key={`head-${day}`} className="kz-ws-cell" data-variant="header">
+              {t(dayShortKey(day))}
+            </div>
+          ))}
+          {positions.map((position) => (
+            <Fragment key={`row-${position}`}>
+              <div className="kz-ws-cell" data-variant="time">
+                <span className="font-mono text-xs">{position}</span>
+              </div>
+              {DAY_INDICES.map((day) => (
+                <TimeBlocksGridCell
+                  key={`${day}:${position}`}
+                  day={day}
+                  position={position}
+                  block={blocksByCellKey.get(`${day}:${position}`)}
+                  onAdd={handleAdd}
+                  onEdit={handleEdit}
+                />
               ))}
-            </TableBody>
-          </Table>
+            </Fragment>
+          ))}
         </div>
       )}
       {blockDialogMode ? (
@@ -126,6 +128,7 @@ export function TimeBlocksTable({ schemeId }: { schemeId: string }) {
           schemeId={schemeId}
           mode={blockDialogMode}
           onClose={() => setBlockDialogMode(null)}
+          onRequestDelete={handleRequestDelete}
         />
       ) : null}
       {confirmDelete ? (
@@ -139,13 +142,65 @@ export function TimeBlocksTable({ schemeId }: { schemeId: string }) {
   );
 }
 
-interface TimeBlockFormDialogProps {
-  schemeId: string;
-  mode: { mode: "create" } | { mode: "edit"; block: TimeBlock };
-  onClose: () => void;
+interface TimeBlocksGridCellProps {
+  day: number;
+  position: number;
+  block: TimeBlock | undefined;
+  onAdd: (day: number, position: number) => void;
+  onEdit: (block: TimeBlock) => void;
 }
 
-function TimeBlockFormDialog({ schemeId, mode, onClose }: TimeBlockFormDialogProps) {
+function TimeBlocksGridCell({ day, position, block, onAdd, onEdit }: TimeBlocksGridCellProps) {
+  const { t } = useTranslation();
+  if (block) {
+    const { start, end } = formatTimeBlockRange(block);
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        className={cn(
+          "kz-ws-cell-button flex h-auto min-h-12 flex-col items-center justify-center gap-0 px-1 py-1",
+        )}
+        aria-label={t("weekSchemes.timeBlocks.grid.filledCellLabel", {
+          day: t(dayLongKey(day)),
+          position,
+        })}
+        onClick={() => onEdit(block)}
+      >
+        <span className="font-mono text-xs">{start}</span>
+        <span className="font-mono text-xs">{end}</span>
+      </Button>
+    );
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className={cn("kz-ws-cell-button flex h-auto min-h-12 items-center justify-center px-1 py-1")}
+      aria-label={t("weekSchemes.timeBlocks.grid.emptyCellLabel", {
+        day: t(dayLongKey(day)),
+        position,
+      })}
+      onClick={() => onAdd(day, position)}
+    >
+      <Plus aria-hidden className="size-4 text-muted-foreground" />
+    </Button>
+  );
+}
+
+interface TimeBlockFormDialogProps {
+  schemeId: string;
+  mode: BlockDialogMode;
+  onClose: () => void;
+  onRequestDelete: (block: TimeBlock) => void;
+}
+
+function TimeBlockFormDialog({
+  schemeId,
+  mode,
+  onClose,
+  onRequestDelete,
+}: TimeBlockFormDialogProps) {
   const { t } = useTranslation();
   const createMutation = useCreateTimeBlock(schemeId);
   const updateMutation = useUpdateTimeBlock(schemeId);
@@ -153,10 +208,10 @@ function TimeBlockFormDialog({ schemeId, mode, onClose }: TimeBlockFormDialogPro
   const form = useForm<TimeBlockFormValues>({
     resolver: zodResolver(TimeBlockFormSchema),
     defaultValues: {
-      day_of_week: isEdit ? mode.block.day_of_week : 0,
-      position: isEdit ? mode.block.position : 1,
-      start_time: isEdit ? mode.block.start_time.slice(0, 5) : "08:00",
-      end_time: isEdit ? mode.block.end_time.slice(0, 5) : "08:45",
+      day_of_week: isEdit ? mode.block.day_of_week : mode.day,
+      position: isEdit ? mode.block.position : mode.position,
+      start_time: isEdit ? mode.block.start_time.slice(0, 5) : (mode.defaultStart ?? "08:00"),
+      end_time: isEdit ? mode.block.end_time.slice(0, 5) : (mode.defaultEnd ?? "08:45"),
     },
   });
   const submitting = createMutation.isPending || updateMutation.isPending;
@@ -215,7 +270,7 @@ function TimeBlockFormDialog({ schemeId, mode, onClose }: TimeBlockFormDialogPro
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {[0, 1, 2, 3, 4].map((day) => (
+                      {DAY_INDICES.map((day) => (
                         <SelectItem key={day} value={String(day)}>
                           {t(dayLongKey(day))}
                         </SelectItem>
@@ -278,6 +333,15 @@ function TimeBlockFormDialog({ schemeId, mode, onClose }: TimeBlockFormDialogPro
               </p>
             ) : null}
             <DialogFooter>
+              {mode.mode === "edit" ? (
+                <Button
+                  variant="destructive"
+                  type="button"
+                  onClick={() => onRequestDelete(mode.block)}
+                >
+                  {t("weekSchemes.timeBlocks.dialog.deleteFooter")}
+                </Button>
+              ) : null}
               <Button variant="outline" type="button" onClick={onClose}>
                 {t("common.cancel")}
               </Button>
