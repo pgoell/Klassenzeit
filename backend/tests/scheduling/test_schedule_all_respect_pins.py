@@ -71,3 +71,51 @@ async def test_schedule_all_respect_pins_false_keeps_pin_state(
     assert len(pinned_rows) == 1
     # Pin state is preserved across the run; only the slot may have changed.
     assert pinned_rows[0].pinned is True
+
+
+@pytest.mark.asyncio
+async def test_schedule_all_response_carries_quality_report(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user: CreateUserFnPins,
+    login_as: LoginFnPins,
+    seeded_dreizuegig_with_one_pin: SeededDreizuegigWithPin,
+) -> None:
+    """POST /api/schedule/all response carries a quality_report payload.
+
+    Item 58 wire-format extension; same shape as the single-class endpoint,
+    scoped to the whole-school solve. ``WholeSchoolScheduleResponse`` does
+    not surface a Solution-level ``soft_score`` (only ``total_placements`` /
+    ``total_violations``), so the ``weighted_score == soft_score`` parity
+    cannot be asserted here directly; the invariant is pinned on the Rust
+    side by ``solver-core/tests/solution_quality_report_json.rs``.
+    """
+    await create_test_user(email="admin@all-pins-qr.com", role="admin")
+    await login_as("admin@all-pins-qr.com", "testpassword123")
+    fixture = seeded_dreizuegig_with_one_pin  # noqa: F841 (binds session for the fixture)
+    response = await client.post("/api/schedule/all")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "quality_report" in body, "quality_report must be on the wire format"
+    qr = body["quality_report"]
+    expected_fields = {
+        "hard_violations",
+        "unplaced_hours",
+        "class_gap_hours",
+        "teacher_gap_hours",
+        "class_day_balance_cost",
+        "home_room_misses",
+        "prefer_early_units",
+        "avoid_first_units",
+        "avoid_last_units",
+        "prefer_late_units",
+        "prefer_class_teacher_misses",
+        "weighted_score",
+        "worst_per_class_spread",
+        "worst_per_class_interior_gaps",
+    }
+    assert expected_fields == set(qr.keys()), (
+        f"quality_report fields drift from solver-core: "
+        f"missing={expected_fields - set(qr.keys())}, "
+        f"extra={set(qr.keys()) - expected_fields}"
+    )

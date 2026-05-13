@@ -20,7 +20,10 @@ pub mod validate;
 
 pub use error::Error;
 pub use ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-pub use json::{error_envelope_json, score_solution_json, solve_json, solve_json_with_config};
+pub use json::{
+    error_envelope_json, quality_report_json, score_solution_json, solve_json,
+    solve_json_with_config,
+};
 pub use quality::{
     backend_objective, quality_report, BackendObjective, QualityComponent, QualityReport,
 };

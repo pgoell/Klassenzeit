@@ -678,3 +678,88 @@ async def test_schedule_get_returns_placements_with_teacher_id_after_post(
     assert isinstance(placement["teacher_id"], str)
     # The seeded teacher is the only candidate; solver pick is deterministic.
     assert uuid.UUID(placement["teacher_id"])
+
+
+async def test_schedule_post_response_carries_quality_report(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """POST /api/classes/{id}/schedule response carries a quality_report payload.
+
+    Item 58 wire-format extension; the report decomposes ``soft_score`` into
+    its per-axis raw counts so admins can debug why a soft score is the
+    number it is. The ``weighted_score == soft_score`` parity invariant is
+    pinned on the Rust side (``solver-core/tests/solution_quality_report_json.rs``).
+    Mirrors the inline one-class shape of
+    ``test_schedule_post_response_surfaces_solver_picked_teacher_id``.
+    """
+    await create_test_user(email="admin@sched-qr.com", role="admin")
+    await login_as("admin@sched-qr.com", "testpassword123")
+    subject = await create_subject()
+    week_scheme = await create_week_scheme()
+    await create_time_block(
+        week_scheme_id=week_scheme.id,
+        position=0,
+        start_time=time(8, 0),
+        end_time=time(8, 45),
+    )
+    await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls = await create_school_class(
+        name="1a-sched-qr",
+        stundentafel_id=tafel.id,
+        week_scheme_id=week_scheme.id,
+    )
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=None,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    await db_session.flush()
+
+    resp = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "quality_report" in body, "quality_report must be on the wire format"
+    qr = body["quality_report"]
+    # Mirrors QualityReport in solver-core/src/quality.rs (14 fields total).
+    expected_fields = {
+        "hard_violations",
+        "unplaced_hours",
+        "class_gap_hours",
+        "teacher_gap_hours",
+        "class_day_balance_cost",
+        "home_room_misses",
+        "prefer_early_units",
+        "avoid_first_units",
+        "avoid_last_units",
+        "prefer_late_units",
+        "prefer_class_teacher_misses",
+        "weighted_score",
+        "worst_per_class_spread",
+        "worst_per_class_interior_gaps",
+    }
+    assert expected_fields == set(qr.keys()), (
+        f"quality_report fields drift from solver-core: "
+        f"missing={expected_fields - set(qr.keys())}, "
+        f"extra={set(qr.keys()) - expected_fields}"
+    )
+    assert qr["weighted_score"] == body["soft_score"], (
+        "weighted_score == soft_score parity invariant (pinned in "
+        "solver-core/tests/solution_quality_report_json.rs)"
+    )

@@ -92,6 +92,7 @@ pub fn solve_with_config_stats(
             v
         },
         soft_score: 0,
+        quality_report: crate::quality::QualityReport::default(),
     };
 
     let mut state = GreedyState::new();
@@ -358,9 +359,18 @@ pub fn solve_with_config_stats(
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted
     // cost on the final placements, including prefer_home_room and
     // class_day_balance, so consumers compare every backend on the same
-    // number.
-    solution.soft_score =
-        crate::score::score_solution(problem, &solution.placements, &config.weights);
+    // number. Item 58: derive soft_score from a single quality_report walk
+    // so the per-axis breakdown and the scalar agree by construction
+    // (avoids the double walk of computing score_solution and quality_report
+    // independently).
+    let qr = crate::quality::quality_report(
+        problem,
+        &solution.placements,
+        &solution.violations,
+        &config.weights,
+    );
+    solution.soft_score = qr.weighted_score;
+    solution.quality_report = qr;
     debug_assert_eq!(
         solution.soft_score,
         crate::score::score_solution(problem, &solution.placements, &config.weights),

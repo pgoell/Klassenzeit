@@ -61,11 +61,30 @@ fn py_score_solution_json(
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// Compute the `QualityReport` for the given `Placement[]` + `Violation[]`
+/// against a `Problem` using production-active weights. Returns the
+/// breakdown as a JSON object string. Used by the CP-SAT path in
+/// `klassenzeit_solver.cpsat` to populate `Solution.quality_report`
+/// post-solve, mirroring how `score_solution_json` populates `soft_score`
+/// today (ADR 0030 cross-backend scorer parity).
+#[pyfunction]
+#[pyo3(name = "quality_report_json", signature = (problem_json, placements_json, violations_json))]
+fn py_quality_report_json(
+    py: Python<'_>,
+    problem_json: &str,
+    placements_json: &str,
+    violations_json: &str,
+) -> PyResult<String> {
+    py.detach(|| solver_core::quality_report_json(problem_json, placements_json, violations_json))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 /// Python module exposing solver-core functions.
 #[pymodule]
 fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_solve_json, m)?)?;
     m.add_function(wrap_pyfunction!(py_solve_json_with_config, m)?)?;
     m.add_function(wrap_pyfunction!(py_score_solution_json, m)?)?;
+    m.add_function(wrap_pyfunction!(py_quality_report_json, m)?)?;
     Ok(())
 }
