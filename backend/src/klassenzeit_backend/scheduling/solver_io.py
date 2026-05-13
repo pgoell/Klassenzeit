@@ -74,10 +74,12 @@ def _count_violations_by_kind(violations: list[dict]) -> dict[str, int]:
 def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> dict:
     """Keep only placements and violations whose lesson belongs to this class.
 
-    The school-wide ``soft_score`` is passed through unchanged so the route
-    response carries the solver's overall quality signal even though the
-    placement list is class-scoped. PR-9c will decide whether to re-score on
-    the filtered subset.
+    The school-wide ``soft_score`` and ``quality_report`` are passed through
+    unchanged so the per-class route response carries the solver's overall
+    quality signal even though the placement list is class-scoped. PR-9c
+    originally noted re-scoring as a follow-up; the same applies to
+    re-computing ``quality_report`` against the filtered subset. For now,
+    both fields reflect the whole-school solve.
     """
     placements = [p for p in solution["placements"] if UUID(p["lesson_id"]) in class_lesson_ids]
     violations = [v for v in solution["violations"] if UUID(v["lesson_id"]) in class_lesson_ids]
@@ -85,6 +87,7 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
         "placements": placements,
         "violations": violations,
         "soft_score": solution.get("soft_score", 0),
+        "quality_report": solution["quality_report"],
     }
 
 

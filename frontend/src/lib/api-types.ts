@@ -664,7 +664,7 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         request: The FastAPI request, used to read ``solve_deadline_ms`` from
+         *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
          *             ``app.state.settings``.
          *         _admin: Injected admin user (enforces authentication).
          *         db: Injected async database session.
@@ -705,7 +705,7 @@ export interface paths {
          *     the spec contract: "Pin state in the database is unchanged").
          *
          *     Args:
-         *         request: The FastAPI request, used to read ``solve_deadline_ms``.
+         *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
          *         _admin: Injected admin user (enforces authentication).
          *         db: Injected async database session.
          *         respect_pins: When true, pinned rows are threaded as solver input
@@ -1849,6 +1849,40 @@ export interface components {
             subject_ids: string[];
         };
         /**
+         * QualityReportResponse
+         * @description Per-axis cost-vector breakdown of the solver's soft score.
+         */
+        QualityReportResponse: {
+            /** Hard Violations */
+            hard_violations: number;
+            /** Unplaced Hours */
+            unplaced_hours: number;
+            /** Class Gap Hours */
+            class_gap_hours: number;
+            /** Teacher Gap Hours */
+            teacher_gap_hours: number;
+            /** Class Day Balance Cost */
+            class_day_balance_cost: number;
+            /** Home Room Misses */
+            home_room_misses: number;
+            /** Prefer Early Units */
+            prefer_early_units: number;
+            /** Avoid First Units */
+            avoid_first_units: number;
+            /** Avoid Last Units */
+            avoid_last_units: number;
+            /** Prefer Late Units */
+            prefer_late_units: number;
+            /** Prefer Class Teacher Misses */
+            prefer_class_teacher_misses: number;
+            /** Weighted Score */
+            weighted_score: number;
+            /** Worst Per Class Spread */
+            worst_per_class_spread: number;
+            /** Worst Per Class Interior Gaps */
+            worst_per_class_interior_gaps: number;
+        };
+        /**
          * ResetPasswordRequest
          * @description Request body for admin password reset.
          */
@@ -1964,6 +1998,7 @@ export interface components {
              * @default 0
              */
             soft_score: number;
+            quality_report: components["schemas"]["QualityReportResponse"];
         };
         /**
          * SchoolClassCreate
@@ -2612,6 +2647,7 @@ export interface components {
             total_placements: number;
             /** Total Violations */
             total_violations: number;
+            quality_report: components["schemas"]["QualityReportResponse"];
         };
         /**
          * AvailabilityReplaceRequest

@@ -50,6 +50,24 @@ type CreateStundentafelFn = Callable[..., Awaitable[Stundentafel]]
 type CreateSchoolClassFn = Callable[..., Awaitable[SchoolClass]]
 
 
+_EMPTY_QUALITY_REPORT: dict[str, int] = {
+    "hard_violations": 0,
+    "unplaced_hours": 0,
+    "class_gap_hours": 0,
+    "teacher_gap_hours": 0,
+    "class_day_balance_cost": 0,
+    "home_room_misses": 0,
+    "prefer_early_units": 0,
+    "avoid_first_units": 0,
+    "avoid_last_units": 0,
+    "prefer_late_units": 0,
+    "prefer_class_teacher_misses": 0,
+    "weighted_score": 0,
+    "worst_per_class_spread": 0,
+    "worst_per_class_interior_gaps": 0,
+}
+
+
 def test_filter_solution_for_class_keeps_only_class_lessons() -> None:
     class_lesson = uuid4()
     other_lesson = uuid4()
@@ -67,6 +85,7 @@ def test_filter_solution_for_class_keeps_only_class_lessons() -> None:
             },
         ],
         "violations": [],
+        "quality_report": _EMPTY_QUALITY_REPORT,
     }
     filtered = filter_solution_for_class(solution, {class_lesson})
     assert len(filtered["placements"]) == 1
@@ -90,6 +109,7 @@ def test_filter_solution_for_class_drops_violations_for_other_classes() -> None:
                 "hour_index": 0,
             },
         ],
+        "quality_report": _EMPTY_QUALITY_REPORT,
     }
     filtered = filter_solution_for_class(solution, {class_lesson})
     assert len(filtered["violations"]) == 1
@@ -97,8 +117,16 @@ def test_filter_solution_for_class_drops_violations_for_other_classes() -> None:
 
 
 def test_filter_solution_for_class_empty_input() -> None:
-    filtered = filter_solution_for_class({"placements": [], "violations": []}, set())
-    assert filtered == {"placements": [], "violations": [], "soft_score": 0}
+    filtered = filter_solution_for_class(
+        {"placements": [], "violations": [], "quality_report": _EMPTY_QUALITY_REPORT},
+        set(),
+    )
+    assert filtered == {
+        "placements": [],
+        "violations": [],
+        "soft_score": 0,
+        "quality_report": _EMPTY_QUALITY_REPORT,
+    }
 
 
 # ─── build_problem_json tests ──────────────────────────────────────────────

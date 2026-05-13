@@ -131,6 +131,7 @@ async def generate_schedule_for_all_classes(
         classes=summaries,
         total_placements=sum(s.placements_count for s in summaries),
         total_violations=sum(s.violations_count for s in summaries),
+        quality_report=solution["quality_report"],
     )
 
 

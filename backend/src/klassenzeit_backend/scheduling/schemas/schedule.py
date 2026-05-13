@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .quality_report import QualityReportResponse
+
 
 class PlacementResponse(BaseModel):
     """One placed lesson-hour: which lesson, in which time block, in which room.
@@ -54,6 +56,7 @@ class ScheduleResponse(BaseModel):
     placements: list[PlacementResponse]
     violations: list[ViolationResponse]
     soft_score: int = Field(default=0, ge=0)
+    quality_report: QualityReportResponse
 
 
 class ScheduleReadResponse(BaseModel):
@@ -86,3 +89,4 @@ class WholeSchoolScheduleResponse(BaseModel):
     classes: list[ClassScheduleSummary]
     total_placements: int
     total_violations: int
+    quality_report: QualityReportResponse
