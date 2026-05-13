@@ -1,6 +1,7 @@
 """Tests for TimeBlock.kind (lesson | break)."""
 
 import datetime as dt
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -9,12 +10,20 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.room import Room
+from klassenzeit_backend.db.models.school_class import SchoolClass
+from klassenzeit_backend.db.models.stundentafel import Stundentafel
+from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.models.week_scheme import (
     TimeBlock,
     TimeBlockKind,
     WeekScheme,
 )
+from klassenzeit_backend.scheduling import solver_io
 from klassenzeit_backend.scheduling.schemas.week_scheme import (
     TimeBlockCreate,
     TimeBlockResponse,
@@ -237,3 +246,86 @@ async def test_patch_time_block_preserves_kind_when_omitted(
     body = r.json()
     assert body["kind"] == "break"
     assert body["start_time"] == "09:35:00"
+
+
+@pytest.mark.asyncio
+async def test_build_problem_json_excludes_break_time_blocks(
+    db_session: AsyncSession,
+) -> None:
+    """build_problem_json must drop kind=break rows from the solver payload.
+
+    Fixture lays out 8 TimeBlocks on day 0 in the order L,L,B,L,L,B,L,L
+    (positions 1..8). The solver payload must surface only the 6 LESSON rows
+    and must exclude positions 3 and 6.
+    """
+    subject = Subject(name=f"Subj-{uuid.uuid4().hex[:8]}", short_name="S1", color="chart-1")
+    db_session.add(subject)
+    scheme = WeekScheme(name=f"ws-mixed-{uuid.uuid4().hex[:8]}", description=None)
+    db_session.add(scheme)
+    await db_session.flush()
+
+    kinds_by_position = {
+        1: TimeBlockKind.LESSON,
+        2: TimeBlockKind.LESSON,
+        3: TimeBlockKind.BREAK,
+        4: TimeBlockKind.LESSON,
+        5: TimeBlockKind.LESSON,
+        6: TimeBlockKind.BREAK,
+        7: TimeBlockKind.LESSON,
+        8: TimeBlockKind.LESSON,
+    }
+    for pos, kind in kinds_by_position.items():
+        start = dt.time(8 + pos - 1, 0)
+        end = dt.time(8 + pos - 1, 45)
+        db_session.add(
+            TimeBlock(
+                week_scheme_id=scheme.id,
+                day_of_week=0,
+                position=pos,
+                start_time=start,
+                end_time=end,
+                kind=kind,
+            )
+        )
+
+    room = Room(name=f"Room-{uuid.uuid4().hex[:8]}", short_name="R1", capacity=None)
+    db_session.add(room)
+    teacher = Teacher(
+        first_name="T",
+        last_name=f"Teach-{uuid.uuid4().hex[:8]}",
+        short_code=f"TC-{uuid.uuid4().hex[:6]}",
+        max_hours_per_week=24,
+        reserve_hours_per_week=0,
+    )
+    db_session.add(teacher)
+    tafel = Stundentafel(name=f"Tafel-{uuid.uuid4().hex[:8]}", grade_level=5)
+    db_session.add(tafel)
+    await db_session.flush()
+    cls = SchoolClass(
+        name=f"Class-{uuid.uuid4().hex[:6]}",
+        grade_level=5,
+        stundentafel_id=tafel.id,
+        week_scheme_id=scheme.id,
+        home_room_id=None,
+    )
+    db_session.add(cls)
+    await db_session.flush()
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    await db_session.flush()
+
+    problem_json, _, _ = await solver_io.build_problem_json(db_session, cls.id)
+    payload = json.loads(problem_json)
+    payload_positions = {(tb["day_of_week"], tb["position"]) for tb in payload["time_blocks"]}
+    # 8 rows inserted, 6 LESSON + 2 BREAK; expect only the 6 LESSON rows.
+    assert len(payload["time_blocks"]) == 6, payload["time_blocks"]
+    assert (0, 3) not in payload_positions  # break position must be absent
+    assert (0, 6) not in payload_positions
