@@ -11,7 +11,7 @@
 ## Architecture at a glance
 
 - `backend/` — FastAPI + SQLAlchemy async, served under `klassenzeit_backend`. Runtime state lives on `app.state`, set in `lifespan`.
-- `frontend/` — Vite 7 + React 19 SPA with TanStack Router/Query, shadcn/ui, react-i18next. Proxies API to `:8000` in dev.
+- `frontend/` — Vite 8 + React 19 SPA with TanStack Router/Query, shadcn/ui, react-i18next. Proxies API to `:8000` in dev.
 - `solver/` — Rust workspace: `solver-core` (pure), `solver-py` (PyO3 via maturin), `solver-bench` (bake-off binary).
 - `deploy/` — staging compose for the Hetzner VPS. Runbook: `deploy/README.md`. Decisions: `docs/adr/0009-deployment-topology.md`.
 - Dev loop via `mise` tasks; Postgres via `podman compose` from root `compose.yaml` (local dev only, distinct from `deploy/compose.yaml`).

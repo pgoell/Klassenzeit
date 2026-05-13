@@ -12,6 +12,7 @@ Applies to the `solver/` Cargo workspace. On top of `.claude/CLAUDE.md`.
 ## solver-core rules
 
 - **`#![deny(missing_docs)]` at crate root;** every `pub` item needs a `///` rustdoc. `clippy::doc_lazy_continuation` flags `+` at the start of a continuation (use `and` / `plus` or indent two spaces). Errors use `thiserror`, one enum per boundary; no `anyhow`. Deterministic under test: no `SystemTime::now()`, no `thread_rng()`; randomisation seeded via a public-API parameter.
+- **`define_id!` macro derives `Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize`.** Adding a `BTreeMap<<IdType>, _>` field (or anywhere `Ord` is needed on a solver-core ID newtype) goes through the macro derive list, not per-site annotations. `PartialOrd, Ord` are the load-bearing additions for `BTreeMap` keys; all seven ID types share the derive set.
 - **Tests.** Inline `#[cfg(test)] mod tests` for unit, `solver-core/tests/*.rs` for integration. Shared fixtures: `solver-core/tests/common/mod.rs`.
 - **Property-test generator widenings need a 5x128 local sweep before commit:** `for s in 1..=5; do PROPTEST_CASES=128 PROPTEST_SEED=$s cargo nextest run -p solver-core --test <file>; done`. For divisibility constraints, construct values from a formula in the closure rather than `prop_assume!`-filtering.
 - **Bench targets cannot host libtest tests.** Put helper + tests in `benches/<name>.rs` and `#[path]`-include from both the bench and a one-line `tests/bench_<name>.rs` (template: `benches/percentile.rs` + `tests/bench_percentile.rs`).

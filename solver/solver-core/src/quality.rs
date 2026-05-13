@@ -14,13 +14,11 @@
 //! windows / day-quality (no schema yet), pin disruption cost (waits
 //! for soft pins).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::OnceLock;
 
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::score::{
-    class_day_balance_cost, gap_count, home_room_penalty, subject_preference_score,
-};
+use crate::score::{gap_count, home_room_penalty, subject_preference_score};
 use crate::types::{ConstraintWeights, Lesson, Placement, Problem, Subject, TimeBlock, Violation};
 
 /// Backend-neutral cost-vector breakdown of one solver result. Every
@@ -47,18 +45,37 @@ pub struct QualityReport {
     /// `weights.class_gap`-weighted contribution is folded into
     /// `weighted_score`.
     pub class_gap_hours: u32,
+    /// Per-class attribution of `class_gap_hours`: each entry `(class_id, n)`
+    /// records that `class_id` contributed `n` gap-hours. Entries with value
+    /// `0` are omitted. Invariant pinned by the proptest harness:
+    /// `values().sum::<u32>() == class_gap_hours`.
+    pub class_gap_hours_by_class: BTreeMap<SchoolClassId, u32>,
     /// Sum across `(teacher, day_of_week)` partitions of `gap_count`.
     /// Unweighted.
     pub teacher_gap_hours: u32,
+    /// Per-teacher attribution of `teacher_gap_hours`. Entries with value `0`
+    /// are omitted. Invariant:
+    /// `values().sum::<u32>() == teacher_gap_hours`.
+    pub teacher_gap_hours_by_teacher: BTreeMap<TeacherId, u32>,
     /// L1 daily-load imbalance metric, identical to the value
     /// `score::class_day_balance_cost` computes on the same partition.
     /// Unweighted.
     pub class_day_balance_cost: u32,
+    /// Per-class attribution of `class_day_balance_cost`: each entry is
+    /// `score::class_day_balance_cost_for_class(class.id, ...)`. Entries with
+    /// value `0` are omitted. Invariant:
+    /// `values().sum::<u32>() == class_day_balance_cost`.
+    pub class_day_balance_cost_by_class: BTreeMap<SchoolClassId, u32>,
     /// Number of `(placement, member-class)` pairs whose class has a
     /// non-null `home_room_id` that does not match the placement's
     /// `room_id`. Multi-class lessons accumulate per non-matching
     /// member.
     pub home_room_misses: u32,
+    /// Per-class attribution of `home_room_misses` (each non-matching
+    /// `(placement, member-class)` pair counts under that member class).
+    /// Entries with value `0` are omitted. Invariant:
+    /// `values().sum::<u32>() == home_room_misses`.
+    pub home_room_misses_by_class: BTreeMap<SchoolClassId, u32>,
     /// Sum over placements of
     /// `subject.prefer_early_period * tb.position`. Unweighted; the
     /// `weights.prefer_early_period`-weighted contribution is folded
@@ -96,7 +113,10 @@ pub struct QualityReport {
 
 /// Build a [`QualityReport`] for a solver result. Pure: depends only on
 /// the inputs; allocates per-call lookup `HashMap`s analogous to those
-/// in `score::score_solution`. Cold-path (post-solve / bench
+/// in `score::score_solution`, plus four per-axis attribution
+/// `BTreeMap`s (`class_gap_hours_by_class`, `teacher_gap_hours_by_teacher`,
+/// `class_day_balance_cost_by_class`, `home_room_misses_by_class`) keyed
+/// by the relevant solver-core ID newtype. Cold-path (post-solve / bench
 /// aggregation); never call from inside the LAHC inner loop.
 pub fn quality_report(
     problem: &Problem,
@@ -166,24 +186,41 @@ pub fn quality_report(
         v.sort_unstable();
         v.dedup();
     }
-    let class_day_balance_cost_value =
-        class_day_balance_cost(&by_class_day, &problem.school_classes, days);
+    let mut class_day_balance_cost_by_class: BTreeMap<SchoolClassId, u32> = BTreeMap::new();
+    for class in &problem.school_classes {
+        let per_class =
+            crate::score::class_day_balance_cost_for_class(class.id, days, &by_class_day);
+        if per_class > 0 {
+            class_day_balance_cost_by_class.insert(class.id, per_class);
+        }
+    }
+    let class_day_balance_cost_value: u32 = class_day_balance_cost_by_class.values().copied().sum();
 
-    let class_gap_hours: u32 = by_class_day.into_values().map(|v| gap_count(&v)).sum();
-    let teacher_gap_hours: u32 = by_teacher_day
-        .into_values()
-        .map(|mut v| {
-            v.sort_unstable();
-            v.dedup();
-            gap_count(&v)
-        })
-        .sum();
+    let mut class_gap_hours_by_class: BTreeMap<SchoolClassId, u32> = BTreeMap::new();
+    for ((class_id, _day), positions) in by_class_day.iter() {
+        let n = gap_count(positions);
+        if n > 0 {
+            *class_gap_hours_by_class.entry(*class_id).or_insert(0) += n;
+        }
+    }
+    let class_gap_hours: u32 = class_gap_hours_by_class.values().copied().sum();
+
+    let mut teacher_gap_hours_by_teacher: BTreeMap<TeacherId, u32> = BTreeMap::new();
+    for ((teacher_id, _day), positions) in by_teacher_day.iter_mut() {
+        positions.sort_unstable();
+        positions.dedup();
+        let n = gap_count(positions);
+        if n > 0 {
+            *teacher_gap_hours_by_teacher.entry(*teacher_id).or_insert(0) += n;
+        }
+    }
+    let teacher_gap_hours: u32 = teacher_gap_hours_by_teacher.values().copied().sum();
 
     let mut prefer_early_units: u32 = 0;
     let mut avoid_first_units: u32 = 0;
     let mut avoid_last_units: u32 = 0;
     let mut prefer_late_units: u32 = 0;
-    let mut home_room_misses: u32 = 0;
+    let mut home_room_misses_by_class: BTreeMap<SchoolClassId, u32> = BTreeMap::new();
 
     let unit_weights = ConstraintWeights {
         prefer_early_period: 1,
@@ -224,16 +261,21 @@ pub fn quality_report(
                 .saturating_mul(u32::from(max_pos.saturating_sub(tb.position))),
         );
 
-        // Home-room misses: count per non-matching member class. This
-        // mirrors `home_room_penalty` with weight==1 and gives us the
-        // raw count.
-        home_room_misses = home_room_misses.saturating_add(home_room_penalty(
-            lesson,
-            &home_room_lookup,
-            p.room_id,
-            &unit_weights,
-        ));
+        // Home-room misses: count per non-matching member class. Per-class
+        // attribution is accumulated; the legacy scalar is the sum.
+        for class_id in &lesson.school_class_ids {
+            let one = crate::score::home_room_penalty_one_class(
+                *class_id,
+                &home_room_lookup,
+                p.room_id,
+                &unit_weights,
+            );
+            if one > 0 {
+                *home_room_misses_by_class.entry(*class_id).or_insert(0) += one;
+            }
+        }
     }
+    let home_room_misses: u32 = home_room_misses_by_class.values().copied().sum();
 
     // Re-derive subject_preference contribution under the caller's
     // weights so weighted_score matches score_solution exactly.
@@ -334,9 +376,13 @@ pub fn quality_report(
         hard_violations: u32::try_from(violations.len()).unwrap_or(u32::MAX),
         unplaced_hours: expected_hours.saturating_sub(placed),
         class_gap_hours,
+        class_gap_hours_by_class,
         teacher_gap_hours,
+        teacher_gap_hours_by_teacher,
         class_day_balance_cost: class_day_balance_cost_value,
+        class_day_balance_cost_by_class,
         home_room_misses,
+        home_room_misses_by_class,
         prefer_early_units,
         avoid_first_units,
         avoid_last_units,
@@ -682,6 +728,134 @@ mod tests {
         ];
         let report = quality_report(&problem, &placements, &[], &ConstraintWeights::default());
         assert_eq!(report.home_room_misses, 2);
+    }
+
+    #[test]
+    fn quality_report_class_gap_hours_by_class_records_per_class_subtotals() {
+        // Two classes A and B; A places at day-0 positions {0, 3} (gap=2) and
+        // B places at day-1 positions {0, 3} (gap=2). Both classes appear in
+        // the map with value 2; sum invariant = 4.
+        let problem = quality_synthetic_two_class_five_day_problem(4);
+        let placements = vec![
+            quality_synthetic_place_class_a(0, 0),
+            quality_synthetic_place_class_a(0, 3),
+            quality_synthetic_place_class_b(1, 0),
+            quality_synthetic_place_class_b(1, 3),
+        ];
+        let report = quality_report(&problem, &placements, &[], &ConstraintWeights::default());
+        let sum: u32 = report.class_gap_hours_by_class.values().sum();
+        assert_eq!(sum, report.class_gap_hours);
+        assert_eq!(report.class_gap_hours_by_class.len(), 2);
+        assert!(report.class_gap_hours_by_class.values().all(|&v| v > 0));
+        assert_eq!(
+            *report
+                .class_gap_hours_by_class
+                .get(&SchoolClassId(quality_uuid(150)))
+                .expect("class A entry"),
+            2
+        );
+        assert_eq!(
+            *report
+                .class_gap_hours_by_class
+                .get(&SchoolClassId(quality_uuid(151)))
+                .expect("class B entry"),
+            2
+        );
+    }
+
+    #[test]
+    fn quality_report_teacher_gap_hours_by_teacher_records_per_teacher_subtotals() {
+        // Class A teacher (teacher_a) places at day-0 positions {0, 3} ->
+        // teacher gap=2. Class B teacher (teacher_b) places at day-1 positions
+        // {0, 3} -> teacher gap=2. Both teachers appear in the map.
+        let problem = quality_synthetic_two_class_five_day_problem(4);
+        let placements = vec![
+            quality_synthetic_place_class_a(0, 0),
+            quality_synthetic_place_class_a(0, 3),
+            quality_synthetic_place_class_b(1, 0),
+            quality_synthetic_place_class_b(1, 3),
+        ];
+        let report = quality_report(&problem, &placements, &[], &ConstraintWeights::default());
+        let sum: u32 = report.teacher_gap_hours_by_teacher.values().sum();
+        assert_eq!(sum, report.teacher_gap_hours);
+        assert_eq!(report.teacher_gap_hours_by_teacher.len(), 2);
+        assert!(report.teacher_gap_hours_by_teacher.values().all(|&v| v > 0));
+        assert_eq!(
+            *report
+                .teacher_gap_hours_by_teacher
+                .get(&TeacherId(quality_uuid(120)))
+                .expect("teacher A entry"),
+            2
+        );
+        assert_eq!(
+            *report
+                .teacher_gap_hours_by_teacher
+                .get(&TeacherId(quality_uuid(121)))
+                .expect("teacher B entry"),
+            2
+        );
+    }
+
+    #[test]
+    fn quality_report_home_room_misses_by_class_records_per_class_subtotals() {
+        // Two classes each with a distinct home_room_id; both place in a
+        // shared room that matches neither home room. Both classes contribute
+        // misses.
+        let mut problem = quality_synthetic_two_class_five_day_problem(4);
+        let home_a = RoomId(quality_uuid(180));
+        let home_b = RoomId(quality_uuid(181));
+        problem.rooms.push(Room { id: home_a });
+        problem.rooms.push(Room { id: home_b });
+        problem.school_classes[0].home_room_id = Some(home_a);
+        problem.school_classes[1].home_room_id = Some(home_b);
+        // Shared room id from the synthetic fixture is 130. Both placements
+        // land in 130 -> two misses for class A, one miss for class B.
+        let placements = vec![
+            quality_synthetic_place_class_a(0, 0),
+            quality_synthetic_place_class_a(0, 1),
+            quality_synthetic_place_class_b(0, 0),
+        ];
+        let report = quality_report(&problem, &placements, &[], &ConstraintWeights::default());
+        let sum: u32 = report.home_room_misses_by_class.values().sum();
+        assert_eq!(sum, report.home_room_misses);
+        assert_eq!(report.home_room_misses_by_class.len(), 2);
+        assert!(report.home_room_misses_by_class.values().all(|&v| v > 0));
+        assert_eq!(
+            *report
+                .home_room_misses_by_class
+                .get(&SchoolClassId(quality_uuid(150)))
+                .expect("class A entry"),
+            2
+        );
+        assert_eq!(
+            *report
+                .home_room_misses_by_class
+                .get(&SchoolClassId(quality_uuid(151)))
+                .expect("class B entry"),
+            1
+        );
+    }
+
+    #[test]
+    fn quality_report_class_day_balance_cost_by_class_records_per_class_subtotals() {
+        // Class A: 4 placements on Monday positions 0..3 -> lopsided per-day
+        // counts [4,0,0,0,0], balance cost > 0. Class B: 1 placement on every
+        // weekday -> balanced [1,1,1,1,1], cost == 0 (skipped from the map).
+        let (problem, placements) = quality_synthetic_two_class_unbalanced();
+        let report = quality_report(&problem, &placements, &[], &ConstraintWeights::default());
+        let sum: u32 = report.class_day_balance_cost_by_class.values().sum();
+        assert_eq!(sum, report.class_day_balance_cost);
+        assert!(report
+            .class_day_balance_cost_by_class
+            .values()
+            .all(|&v| v > 0));
+        assert_eq!(report.class_day_balance_cost_by_class.len(), 1);
+        assert!(report
+            .class_day_balance_cost_by_class
+            .contains_key(&SchoolClassId(quality_uuid(150))));
+        assert!(!report
+            .class_day_balance_cost_by_class
+            .contains_key(&SchoolClassId(quality_uuid(151))));
     }
 
     #[test]

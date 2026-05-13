@@ -38,4 +38,44 @@ fn solution_quality_report_survives_json_roundtrip_and_matches_soft_score() {
         report_via_adapter, solution.quality_report,
         "freestanding quality_report_json must equal the attached Solution.quality_report"
     );
+
+    // Per-class / per-teacher attribution maps survive JSON roundtrip with
+    // UUID-string keys and the sum-equals-legacy invariant.
+    let report = &solution.quality_report;
+    assert_eq!(
+        report
+            .class_gap_hours_by_class
+            .values()
+            .copied()
+            .sum::<u32>(),
+        report.class_gap_hours,
+        "class_gap_hours_by_class sum invariant post-roundtrip"
+    );
+    assert_eq!(
+        report
+            .teacher_gap_hours_by_teacher
+            .values()
+            .copied()
+            .sum::<u32>(),
+        report.teacher_gap_hours,
+        "teacher_gap_hours_by_teacher sum invariant post-roundtrip"
+    );
+    assert_eq!(
+        report
+            .home_room_misses_by_class
+            .values()
+            .copied()
+            .sum::<u32>(),
+        report.home_room_misses,
+        "home_room_misses_by_class sum invariant post-roundtrip"
+    );
+    assert_eq!(
+        report
+            .class_day_balance_cost_by_class
+            .values()
+            .copied()
+            .sum::<u32>(),
+        report.class_day_balance_cost,
+        "class_day_balance_cost_by_class sum invariant post-roundtrip"
+    );
 }

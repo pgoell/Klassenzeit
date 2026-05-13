@@ -8,7 +8,7 @@ The 2026-05-12 shipping of items 11 + 79 + 80 closed the multi-school flake-loop
 
 ## Next up
 
-- `[P1]` Per-class / per-teacher attribution on QualityReport (item 59).
+- `[P1]` Per-class / per-teacher attribution surfacing on the schedule UI (item 59; data axis shipped via item 2).
 - `[P2]` Production-refresh ratification of ADR 0037 (item 81; opportunistic, ~10-12h host window).
 - `[P2]` Non-Timefold third-backend spike (item 56; triggered when Rust LAHC + CP-SAT both plateau).
 - `[Paused]` Schwimmunterricht modelling, resumes after the active sprint closes.
@@ -21,8 +21,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 1. **Production-refresh ratification of ADR 0037.** Today's unpinned multi-school cells in `BENCH_RESULTS.md` are smoke-validated at 5s × 1 seed; the production 60s × 20-seed cell shape on unpinned is the missing data point. Re-run `mise run bench:bakeoff -- --teacher-pins on` followed by `-- --teacher-pins off --append` (~10-12h). If `lahc_rr_kempe` regains a soft-score edge at production scale, file ADR 0038-revision; if `lahc_rr` holds, ADR 0037 is ratified. Trigger: opportunistic on a quiet host window. Anchor: item 81.
 
-2. **Per-class / per-teacher attribution on `QualityReport`.** Today `class_gap_hours` is a sum across all classes; the admin demoing a schedule cannot answer "which class is the worst-spread offender on dreizügig". Add `class_gap_hours_by_class: HashMap<SchoolClassId, u32>` plus matching `teacher_gap_hours_by_teacher`, `home_room_misses_by_class`, `class_day_balance_cost_by_class`. Property test: `sum(map.values()) == legacy_field` per axis. Allocation cost is post-solve only (cold path); the LAHC hot loop is unaffected. Anchor: item 59.
-
 ### P1 (real Grundschule pain still un-modelled)
 
 3. **Pausen / Aufsichtspflichten + Vertretungsreserve.** Teachers in a Hessen Grundschule owe supervision-duty minutes during Hofpausen on a rota, and substitution reserve reduces teaching capacity below `max_hours_per_week`. The schema has no break metadata on `TimeBlock` (breaks are implicit gaps) and no `reserve_hours_per_week` on `Teacher`. Two sub-changes: (a) `TimeBlock.kind` enum or sibling `Break` table so supervision can be scheduled, (b) `Teacher.reserve_hours_per_week` subtracted from `max_hours_per_week` in the solver's capacity check. Trigger: a customer school tracks supervision.
@@ -34,8 +32,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 6. **Quality-issue endpoint + UI surface.** `quality_checks.QualityIssue[]` is returned by `POST /api/classes/{id}/schedule` but not persisted, and `GET /api/classes/{id}/schedule` returns placements only. The schedule view shows violations as a count but no actionable next-step ("3 issues" with no breakdown). Add `GET /api/schedule/quality-issues` (reuses `quality_checks.py`) and a sidebar in the schedule grid that lists the issues with a click-to-highlight gesture on the offending cell. Trigger: any demo where the admin asks "okay, but WHY is this incomplete?".
 
 ### P2 (longer-arc; reopen on trigger)
-
-7. **Non-Timefold third-backend spike.** Trigger: a future `BENCH_RESULTS.md` refresh shows Rust LAHC variants and CP-SAT both plateau on the same quality axis. Candidate priority (per `docs/research/2026-05-08-third-solver-backend-candidates/`): (1) Pumpkin (Rust LCG-CP), (2) PySAT + RC2 MaxSAT, (3) good_lp + HiGHS MIP. Choco excluded (Java); GLPK excluded (GPL). A "no third-backend" ADR is a permissible outcome since no published benchmark documents a measurable win over CP-SAT on school timetabling. Anchor: item 56.
 
 8. **Schwimmunterricht buffers.** One Doppelstunde Schwimmen per Klasse 3 needs `Room.is_external: bool` + per-Lesson `pre_buffer_minutes`, `post_buffer_minutes` (Hessen Wegezeit ~10-15 min each way). Solver enforces buffer per-class and per-teacher (rooms unaffected). New `ViolationKind::TravelBufferConflict`. Bench: extend dreizügige fixture with the Klasse 3 Schwimmen lesson. Trigger: active sprint promotes this paused program back to active.
 
