@@ -359,7 +359,12 @@
       "respectPinsAction": "Mit meinen Pins neu rechnen",
       "respectPinsSuccessToast": "Plan neu gerechnet; angepinnte Stunden wurden beibehalten.",
       "fromScratchAction": "Komplett neu generieren",
-      "fromScratchSuccessToast": "Plan komplett neu generiert."
+      "fromScratchSuccessToast": "Plan komplett neu generiert.",
+      "stop": "Stoppen",
+      "stopping": "Stoppt..."
+    },
+    "progress": {
+      "placedCount": "{{placed}} / {{total}} Stunden platziert"
     },
     "actions": {
       "pin": "Stunde anpinnen",

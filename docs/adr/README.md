@@ -62,3 +62,4 @@ sections, and add the new entry to the index below.
 | 0036 | [Move teacher assignment to solver decision variable](0036-solver-driven-teacher-assignment.md) | Accepted |
 | 0037 | [Solver production-default flip to lahc_rr](0037-solver-production-default-flip-to-lahc-rr.md) | Accepted |
 | 0038 | [Per-backend solver deadline configuration](0038-per-backend-solver-deadline.md) | Accepted |
+| 0039 | [Live solve progress beacon, polling, soft-cancel best-so-far](0039-live-solve-progress-beacon.md) | Accepted |

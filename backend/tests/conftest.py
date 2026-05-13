@@ -192,6 +192,7 @@ async def client(
         max_attempts=settings.login_max_attempts,
         lockout_minutes=settings.login_lockout_minutes,
     )
+    app.state.solver_progress = {}
     app.dependency_overrides[get_session] = override_get_session
     try:
         async with AsyncClient(

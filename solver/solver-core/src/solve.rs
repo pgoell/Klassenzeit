@@ -77,6 +77,35 @@ pub fn solve_with_config_stats(
     problem: &Problem,
     config: &SolveConfig,
 ) -> Result<(Solution, SolveStats), Error> {
+    solve_with_config_stats_inner(problem, config, None)
+}
+
+/// Like [`solve_with_config_stats`] but with a [`crate::ProgressBeacon`]
+/// attached for live progress reporting and cooperative cancel. The beacon
+/// is written every LAHC iteration; setting `beacon.request_cancel()`
+/// causes the loop to exit at the next iteration boundary and the returned
+/// `Solution.was_cancelled` is `true`. The deadline-only path (no cancel
+/// signalled) is byte-equal to the no-beacon path, guaranteed by the seed-
+/// sweep determinism test in `solver-core/tests/progress.rs`.
+pub fn solve_with_progress(
+    problem: &Problem,
+    config: &SolveConfig,
+    beacon: &std::sync::Arc<crate::ProgressBeacon>,
+) -> Result<(Solution, SolveStats), Error> {
+    solve_with_config_stats_inner(problem, config, Some(beacon))
+}
+
+/// Inner implementation shared by [`solve_with_config_stats`] (no beacon)
+/// and [`solve_with_progress`] (with beacon). Threads the optional
+/// `progress` into the LAHC entry; the deadline-only path is byte-equal
+/// regardless of whether a beacon is attached (the beacon block consumes
+/// no RNG draws). On a cancelled run sets `Solution.was_cancelled = true`
+/// before returning.
+fn solve_with_config_stats_inner(
+    problem: &Problem,
+    config: &SolveConfig,
+    progress: Option<&std::sync::Arc<crate::ProgressBeacon>>,
+) -> Result<(Solution, SolveStats), Error> {
     let solve_start = Instant::now();
     let mut stats = SolveStats::default();
     validate_structural(problem)?;
@@ -93,6 +122,7 @@ pub fn solve_with_config_stats(
         },
         soft_score: 0,
         quality_report: crate::quality::QualityReport::default(),
+        was_cancelled: false,
     };
 
     let mut state = GreedyState::new();
@@ -305,7 +335,7 @@ pub fn solve_with_config_stats(
     state.canonical_score =
         crate::score::score_solution(problem, &solution.placements, &config.weights);
 
-    crate::lahc::run(
+    let was_cancelled = crate::lahc::run(
         problem,
         &idx,
         config,
@@ -315,7 +345,9 @@ pub fn solve_with_config_stats(
         &class_max_lessons_per_day,
         &mut stats,
         solve_start,
+        progress,
     );
+    solution.was_cancelled = was_cancelled;
 
     // Item 78: LAHC's R&R rescue move can clear FFD-time under-placement
     // violations (NoFreeTimeBlock / TeacherOverCapacity / NoSuitableRoom)

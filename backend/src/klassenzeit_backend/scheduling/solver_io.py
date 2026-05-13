@@ -43,11 +43,16 @@ from klassenzeit_solver import (
 from klassenzeit_solver import (
     solve_json_with_config as _solve_json_with_config,
 )
+from klassenzeit_solver import (
+    solve_json_with_progress as _solve_json_with_progress,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from klassenzeit_solver import ProgressHandle
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +85,10 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
     originally noted re-scoring as a follow-up; the same applies to
     re-computing ``quality_report`` against the filtered subset. For now,
     both fields reflect the whole-school solve.
+
+    ``was_cancelled`` is passed through verbatim: cancellation is a
+    whole-solve event, not a per-class one, so the field reflects the
+    originating POST regardless of which class is being filtered.
     """
     placements = [p for p in solution["placements"] if UUID(p["lesson_id"]) in class_lesson_ids]
     violations = [v for v in solution["violations"] if UUID(v["lesson_id"]) in class_lesson_ids]
@@ -88,6 +97,7 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
         "violations": violations,
         "soft_score": solution.get("soft_score", 0),
         "quality_report": solution["quality_report"],
+        "was_cancelled": bool(solution.get("was_cancelled", False)),
     }
 
 
@@ -443,6 +453,7 @@ async def run_solve(
     *,
     deadline_ms: int | None,
     solver_backend: Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"] = "lahc",
+    progress_handle: ProgressHandle | None = None,
 ) -> dict:
     """Run the solver off the event loop, emit structured log events, return the Solution dict.
 
@@ -455,6 +466,14 @@ async def run_solve(
     pre-Sprint-4 behaviour; ``lahc_rr`` and ``lahc_rr_kempe`` thread the
     corresponding period kwargs into ``solve_json_with_config``; ``cpsat``
     dispatches to the CP-SAT seed (ADR 0030).
+
+    ``progress_handle`` is the PyO3 ``ProgressHandle`` whose underlying
+    ``ProgressBeacon`` the LAHC loop writes to each iteration. When set, the
+    LAHC backends dispatch to ``solve_json_with_progress`` so the beacon is
+    threaded into the inner loop and ``cancel()`` is honored. The CP-SAT
+    backend is not yet wired to the beacon; we log a warning and fall through
+    to the existing CP-SAT path (the progress endpoint returns zero counters
+    in that case but the solve still works).
     """
     scope_str = str(scope_id) if scope_id is not None else None
     logger.info(
@@ -465,25 +484,57 @@ async def run_solve(
     try:
         match solver_backend:
             case "lahc":
-                solution_json = await asyncio.to_thread(
-                    _solve_json_with_config, problem_json, deadline_ms
-                )
+                if progress_handle is not None:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_progress,
+                        problem_json,
+                        deadline_ms,
+                        progress_handle,
+                    )
+                else:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_config, problem_json, deadline_ms
+                    )
             case "lahc_rr":
-                solution_json = await asyncio.to_thread(
-                    _solve_json_with_config,
-                    problem_json,
-                    deadline_ms,
-                    lahc_rr_period=25,
-                )
+                if progress_handle is not None:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_progress,
+                        problem_json,
+                        deadline_ms,
+                        progress_handle,
+                        25,
+                    )
+                else:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_config,
+                        problem_json,
+                        deadline_ms,
+                        lahc_rr_period=25,
+                    )
             case "lahc_rr_kempe":
-                solution_json = await asyncio.to_thread(
-                    _solve_json_with_config,
-                    problem_json,
-                    deadline_ms,
-                    lahc_rr_period=25,
-                    lahc_kempe_period=23,
-                )
+                if progress_handle is not None:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_progress,
+                        problem_json,
+                        deadline_ms,
+                        progress_handle,
+                        25,
+                        23,
+                    )
+                else:
+                    solution_json = await asyncio.to_thread(
+                        _solve_json_with_config,
+                        problem_json,
+                        deadline_ms,
+                        lahc_rr_period=25,
+                        lahc_kempe_period=23,
+                    )
             case "cpsat":
+                if progress_handle is not None:
+                    logger.warning(
+                        "solver.solve.progress_unsupported",
+                        extra={"school_class_id": scope_str, "backend": solver_backend},
+                    )
                 solution_json = await asyncio.to_thread(
                     _solve_cpsat_json, problem_json, deadline_ms
                 )

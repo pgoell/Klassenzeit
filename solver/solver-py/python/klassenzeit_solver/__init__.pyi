@@ -1,3 +1,47 @@
+from typing import TypedDict
+
+class ProgressSnapshotDict(TypedDict):
+    """Snapshot of a `ProgressHandle`'s underlying atomic counters."""
+
+    iter: int
+    placement_count: int
+    best_score: int
+    is_feasible: bool
+    cancel_requested: bool
+
+class ProgressHandle:
+    """PyO3 wrapper around `solver_core::ProgressBeacon`.
+
+    Pass an instance to `solve_json_with_progress` to receive live progress
+    via `snapshot()` and trigger a soft-cancel via `cancel()`. The handle
+    holds an `Arc<ProgressBeacon>` so both Python and the solver thread
+    observe the same atomics.
+    """
+
+    def __init__(self) -> None: ...
+    def snapshot(self) -> ProgressSnapshotDict:
+        """Return a dict with the five beacon fields."""
+
+    def cancel(self) -> None:
+        """Request cancellation of the running solve. Idempotent."""
+
+def solve_json_with_progress(
+    problem_json: str,
+    deadline_ms: int | None,
+    progress: ProgressHandle,
+    lahc_rr_period: int | None = ...,
+    lahc_kempe_period: int | None = ...,
+) -> str:
+    """Solve a Problem encoded as JSON with a live ProgressHandle.
+
+    Like `solve_json_with_config` but writes per-iteration progress into
+    `progress` and checks `progress.cancel()` at every LAHC iteration. The
+    returned Solution JSON carries `was_cancelled: true` when the loop
+    exited because of a cancel request.
+
+    Raises ``ValueError`` on malformed JSON or solver-side input errors.
+    """
+
 def solve_cpsat_json(
     problem_json: str,
     deadline_ms: int | None,

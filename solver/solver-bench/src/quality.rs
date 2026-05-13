@@ -466,6 +466,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         assert_eq!(worst_class_day_spread(&problem, &solution), 0);
     }
@@ -541,6 +542,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         assert_eq!(total_interior_gaps(&problem, &solution), 1);
     }
@@ -649,6 +651,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         let ratio = worst_home_room_ratio(&problem, &solution, &home_rooms);
         assert_eq!(ratio, Some(1.0));
@@ -662,6 +665,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         assert_eq!(
             worst_home_room_ratio(&problem, &solution, &HashMap::new()),
@@ -677,6 +681,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         assert_eq!(late_period_ratio(&problem, &solution), None);
     }
@@ -753,6 +758,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         let ratio = late_period_ratio(&problem, &solution).expect("late ratio");
         assert!((ratio - 2.0 / 3.0).abs() < 1e-9, "got {ratio}");
@@ -824,6 +830,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         }
     }
 
@@ -898,6 +905,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         (problem, solution)
     }
@@ -986,6 +994,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         (problem, solution)
     }
@@ -1042,6 +1051,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         (problem, solution)
     }
@@ -1138,6 +1148,7 @@ mod tests {
             violations: vec![],
             soft_score: 0,
             quality_report: QualityReport::default(),
+            was_cancelled: false,
         };
         (problem, solution)
     }

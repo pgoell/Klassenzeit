@@ -8,6 +8,7 @@ export type SchedulePostResponse = components["schemas"]["ScheduleResponse"];
 export type ScheduleGetResponse = components["schemas"]["ScheduleReadResponse"];
 export type WholeSchoolScheduleResponse = components["schemas"]["WholeSchoolScheduleResponse"];
 export type SwapPlacementsResponse = components["schemas"]["SwapPlacementsResponse"];
+export type ProgressSnapshot = components["schemas"]["ProgressSnapshot"];
 
 export function scheduleQueryKey(classId: string) {
   return ["schedule", classId] as const;
@@ -174,6 +175,41 @@ export function useSwapPlacements() {
       // Broad invalidation: a swap touches two placements that may live in
       // different class, teacher, or room views.
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
+    },
+  });
+}
+
+export function scheduleProgressQueryKey(classId: string) {
+  return ["schedule", "progress", classId] as const;
+}
+
+export function useScheduleProgress(classId: string, enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: scheduleProgressQueryKey(classId),
+    queryFn: async (): Promise<ProgressSnapshot | null> => {
+      try {
+        const { data } = await client.GET("/api/classes/{class_id}/schedule/progress", {
+          params: { path: { class_id: classId } },
+        });
+        if (!data) return null;
+        return data;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
+    refetchInterval: 500,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useCancelSchedule(classId: string) {
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await client.POST("/api/classes/{class_id}/schedule/cancel", {
+        params: { path: { class_id: classId } },
+      });
     },
   });
 }

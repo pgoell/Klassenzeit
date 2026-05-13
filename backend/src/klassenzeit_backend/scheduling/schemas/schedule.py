@@ -51,12 +51,37 @@ class ViolationResponse(BaseModel):
 
 
 class ScheduleResponse(BaseModel):
-    """Per-class filtered solver output for `POST /api/classes/{id}/schedule`."""
+    """Per-class filtered solver output for `POST /api/classes/{id}/schedule`.
+
+    ``was_cancelled`` is ``True`` when the originating POST was interrupted
+    via ``POST /schedule/cancel`` mid-solve; the placements list then carries
+    the best-so-far solution at the moment of the cancel.
+    """
 
     placements: list[PlacementResponse]
     violations: list[ViolationResponse]
     soft_score: int = Field(default=0, ge=0)
     quality_report: QualityReportResponse
+    was_cancelled: bool = False
+
+
+class ProgressSnapshot(BaseModel):
+    """Live progress snapshot for an in-flight solve.
+
+    Emitted by ``GET /api/classes/{id}/schedule/progress`` while the LAHC
+    loop runs. Merges atomics from the Rust ``ProgressBeacon`` with
+    request-side fields (``total_lessons``, ``elapsed_ms``, ``deadline_ms``)
+    derived from the in-flight registration entry.
+    """
+
+    iter: int
+    placement_count: int
+    total_lessons: int
+    best_score: int
+    is_feasible: bool
+    cancel_requested: bool
+    elapsed_ms: int
+    deadline_ms: int
 
 
 class ScheduleReadResponse(BaseModel):

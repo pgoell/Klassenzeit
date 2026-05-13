@@ -479,6 +479,15 @@ pub struct Solution {
     /// `class_day_balance`, the four time-of-day axes, etc.) without
     /// rebuilding the solver locally. Item 58.
     pub quality_report: crate::quality::QualityReport,
+    /// `true` when the solve exited early because an external observer set
+    /// `ProgressBeacon::request_cancel`. The returned placements are the
+    /// best-so-far running incumbent at the moment of cancel, which may be
+    /// partial (`placements.len() < expected_hours`) or feasible-but-not-
+    /// soft-optimal. Wire format is additive: callers omitting the field
+    /// deserialise to `false`, so existing JSON consumers (CP-SAT bench,
+    /// legacy solver-py callers) are not perturbed.
+    #[serde(default)]
+    pub was_cancelled: bool,
 }
 
 /// A single successful placement of one hour of one lesson.
@@ -782,6 +791,7 @@ mod tests {
             }],
             soft_score: 0,
             quality_report: crate::quality::QualityReport::default(),
+            was_cancelled: false,
         };
         let json = serde_json::to_string(&solution).unwrap();
         let parsed: Solution = serde_json::from_str(&json).unwrap();

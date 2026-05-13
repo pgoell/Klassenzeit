@@ -12,6 +12,7 @@ import type { Room } from "@/features/rooms/hooks";
 import type { SchoolClass } from "@/features/school-classes/hooks";
 import type { Teacher } from "@/features/teachers/hooks";
 import { ApiError } from "@/lib/api-client";
+import { GenerateInProgress } from "./generate-in-progress";
 import { useGenerateAllSchedules } from "./hooks";
 
 type ClassToolbarProps = {
@@ -110,13 +111,17 @@ export function ScheduleToolbar(props: ScheduleToolbarProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           {props.view === "class" ? (
-            <Button
-              onClick={props.onGenerate}
-              variant="secondary"
-              disabled={props.pending || !props.classId}
-            >
-              {props.pending ? t("common.saving") : t("schedule.generate.action")}
-            </Button>
+            props.pending && props.classId ? (
+              <GenerateInProgress classId={props.classId} />
+            ) : (
+              <Button
+                onClick={props.onGenerate}
+                variant="secondary"
+                disabled={props.pending || !props.classId}
+              >
+                {props.pending ? t("common.saving") : t("schedule.generate.action")}
+              </Button>
+            )
           ) : null}
           <Button
             variant="default"

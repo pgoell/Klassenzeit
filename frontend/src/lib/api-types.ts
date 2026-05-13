@@ -759,6 +759,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classes/{class_id}/schedule/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Schedule Progress
+         * @description Return the live progress snapshot for an in-flight solve.
+         *
+         *     Reads the ``ProgressHandle`` registered by the schedule POST in
+         *     ``app.state.solver_progress`` and merges its atomics with the
+         *     request-side ``elapsed_ms`` / ``deadline_ms`` / ``total_lessons``
+         *     fields. Returns 404 when no solve is in flight for this class.
+         */
+        get: operations["get_schedule_progress_api_classes__class_id__schedule_progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classes/{class_id}/schedule/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Schedule
+         * @description Soft-cancel an in-flight solve.
+         *
+         *     Flips the ``ProgressBeacon``'s ``cancel_requested`` flag; the LAHC inner
+         *     loop exits at the next iteration boundary and the originating POST
+         *     returns with ``was_cancelled=true`` and the best-so-far placements.
+         *     Returns 404 when no solve is in flight for this class.
+         */
+        post: operations["cancel_schedule_api_classes__class_id__schedule_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rooms/{room_id}/schedule": {
         parameters: {
             query?: never;
@@ -1826,6 +1876,33 @@ export interface components {
             pinned: boolean;
         };
         /**
+         * ProgressSnapshot
+         * @description Live progress snapshot for an in-flight solve.
+         *
+         *     Emitted by ``GET /api/classes/{id}/schedule/progress`` while the LAHC
+         *     loop runs. Merges atomics from the Rust ``ProgressBeacon`` with
+         *     request-side fields (``total_lessons``, ``elapsed_ms``, ``deadline_ms``)
+         *     derived from the in-flight registration entry.
+         */
+        ProgressSnapshot: {
+            /** Iter */
+            iter: number;
+            /** Placement Count */
+            placement_count: number;
+            /** Total Lessons */
+            total_lessons: number;
+            /** Best Score */
+            best_score: number;
+            /** Is Feasible */
+            is_feasible: boolean;
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /** Elapsed Ms */
+            elapsed_ms: number;
+            /** Deadline Ms */
+            deadline_ms: number;
+        };
+        /**
          * QualificationResponse
          * @description Subject in a teacher's qualification list.
          */
@@ -1987,6 +2064,10 @@ export interface components {
         /**
          * ScheduleResponse
          * @description Per-class filtered solver output for `POST /api/classes/{id}/schedule`.
+         *
+         *     ``was_cancelled`` is ``True`` when the originating POST was interrupted
+         *     via ``POST /schedule/cancel`` mid-solve; the placements list then carries
+         *     the best-so-far solution at the moment of the cancel.
          */
         ScheduleResponse: {
             /** Placements */
@@ -1999,6 +2080,11 @@ export interface components {
              */
             soft_score: number;
             quality_report: components["schemas"]["QualityReportResponse"];
+            /**
+             * Was Cancelled
+             * @default false
+             */
+            was_cancelled: boolean;
         };
         /**
          * SchoolClassCreate
@@ -3765,6 +3851,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ScheduleReadResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_schedule_progress_api_classes__class_id__schedule_progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                class_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgressSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_schedule_api_classes__class_id__schedule_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                class_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

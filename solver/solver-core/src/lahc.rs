@@ -56,6 +56,17 @@ fn lesson_teacher_in_state(state: &crate::solve::GreedyState, lesson: &Lesson) -
 /// timing probes (`time_to_first_feasible_ms`, `time_to_optimal_ms`) into
 /// `stats` against `solve_start` so the wall-clock origin is shared with
 /// `solve_with_config_stats`'s entry instead of LAHC's own start.
+///
+/// `progress` is the optional [`crate::ProgressBeacon`] driven by the
+/// public `solve_with_progress` entry. When `Some`, every iteration writes
+/// the current `(iter, placement_count, best_score, feasible)` tuple to
+/// the beacon and checks `cancel_requested`; setting the flag causes the
+/// loop to break at the next iteration boundary. The beacon block consumes
+/// no RNG draws so the deterministic `(None, Some(beacon))` byte-equality
+/// contract holds across the seed sweep.
+///
+/// Returns `was_cancelled = true` iff the loop exited because
+/// `progress.cancel_requested()` was observed.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper threading stats + clock origin
 pub(crate) fn run(
     problem: &Problem,
@@ -67,13 +78,15 @@ pub(crate) fn run(
     class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
     stats: &mut SolveStats,
     solve_start: Instant,
-) {
+    progress: Option<&std::sync::Arc<crate::ProgressBeacon>>,
+) -> bool {
     let Some(deadline) = config.deadline else {
-        return;
+        return false;
     };
     if placements.is_empty() {
-        return;
+        return false;
     }
+    let mut was_cancelled = false;
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
@@ -309,17 +322,35 @@ pub(crate) fn run(
             crate::score::score_solution(problem, placements, &config.weights),
             "LAHC must keep state.canonical_score == score_solution(...) at every iteration tail",
         );
+        // Progress beacon write + cancel check. This block consumes no RNG
+        // draws so the `(None, Some(beacon))` byte-equality determinism
+        // contract holds across the seed sweep (see CLAUDE.md "LAHC RNG
+        // draw count is invariant across loop branches"). Reads
+        // `running_best_count` / `running_best` (the lexicographic
+        // incumbent) so external observers see the same `(placements,
+        // canonical)` pair the loop will eventually return.
+        if let Some(beacon) = progress {
+            let placement_count_u64 = running_best_count as u64;
+            let best_score_u64 = running_best as u64;
+            let feasible_now = running_best_count >= placements_expected;
+            beacon.record(iter, placement_count_u64, best_score_u64, feasible_now);
+            if beacon.cancel_requested() {
+                was_cancelled = true;
+                break;
+            }
+        }
         if state.canonical_score == 0 && placements.len() == placements_expected {
             break;
         }
     }
     // Item 52: restore the running-best canonical placements at every loop
-    // exit (deadline, max_iter, early-exit). After this assignment,
+    // exit (deadline, max_iter, early-exit, or cancel). After this assignment,
     // `state.search_score_slice` and `state.canonical_score` may not match
     // `placements`; that is fine because `solve_with_config_stats` reads
     // neither field after `lahc::run` returns and recomputes
     // `solution.soft_score = score_solution(problem, &solution.placements, weights)`.
     *placements = best_placements;
+    was_cancelled
 }
 
 /// Attempt one Change move: move `placements[placement_idx]` to time-block
@@ -3770,6 +3801,7 @@ mod tests {
             &HashMap::new(),
             &mut SolveStats::default(),
             Instant::now(),
+            None,
         );
 
         assert_eq!(placements.len(), 1);
@@ -3909,6 +3941,7 @@ mod tests {
             &HashMap::new(),
             &mut SolveStats::default(),
             Instant::now(),
+            None,
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
@@ -4090,6 +4123,7 @@ mod tests {
             &HashMap::new(),
             &mut SolveStats::default(),
             Instant::now(),
+            None,
         );
 
         let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
