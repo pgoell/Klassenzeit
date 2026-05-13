@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
 import i18n from "@/i18n/init";
-import { timeBlocksBySchemeId } from "../../../tests/msw-handlers";
+import { server, timeBlocksBySchemeId } from "../../../tests/msw-handlers";
 import { TimeBlocksGrid } from "./time-blocks-grid";
 
 const schemeId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
@@ -85,6 +86,95 @@ describe("TimeBlocksGrid", () => {
     const dialog = await screen.findByRole("dialog", { name: /add time block/i });
     expect(within(dialog).getByLabelText(/start/i)).toHaveValue("10:15");
     expect(within(dialog).getByLabelText(/end/i)).toHaveValue("11:00");
+  });
+
+  it("renders a kind selector with lesson and break options in create mode", async () => {
+    const user = userEvent.setup();
+    wrapTimeBlocksGrid();
+    const emptyButton = await screen.findByRole("button", {
+      name: /add time block on tuesday at period 3/i,
+    });
+    await user.click(emptyButton);
+    const dialog = await screen.findByRole("dialog", { name: /add time block/i });
+    const kindTrigger = within(dialog).getByRole("combobox", { name: /kind/i });
+    // Default value pre-selected as Lesson.
+    expect(kindTrigger).toHaveTextContent(/lesson/i);
+    await user.click(kindTrigger);
+    expect(await screen.findByRole("option", { name: /^lesson$/i })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /^break$/i })).toBeInTheDocument();
+  });
+
+  it("submits create with kind=break when the user picks Break", async () => {
+    const user = userEvent.setup();
+    let captured: Record<string, unknown> | null = null;
+    server.use(
+      http.post(
+        `http://localhost:3000/api/week-schemes/${schemeId}/time-blocks`,
+        async ({ request }) => {
+          captured = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            {
+              id: "tb-new",
+              day_of_week: captured.day_of_week,
+              position: captured.position,
+              start_time: captured.start_time,
+              end_time: captured.end_time,
+              kind: captured.kind,
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+    wrapTimeBlocksGrid();
+    const emptyButton = await screen.findByRole("button", {
+      name: /add time block on monday at period 1/i,
+    });
+    await user.click(emptyButton);
+    const dialog = await screen.findByRole("dialog", { name: /add time block/i });
+    const kindTrigger = within(dialog).getByRole("combobox", { name: /kind/i });
+    await user.click(kindTrigger);
+    await user.click(await screen.findByRole("option", { name: /^break$/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured).toMatchObject({ kind: "break" });
+  });
+
+  it("submits PATCH with kind=break when an existing lesson is toggled to Pause", async () => {
+    timeBlocksBySchemeId[schemeId] = [
+      { id: "tb-1", day_of_week: 0, position: 1, start_time: "08:00:00", end_time: "08:45:00" },
+    ];
+    const user = userEvent.setup();
+    let captured: Record<string, unknown> | null = null;
+    server.use(
+      http.patch(
+        `http://localhost:3000/api/week-schemes/${schemeId}/time-blocks/tb-1`,
+        async ({ request }) => {
+          captured = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json({
+            id: "tb-1",
+            day_of_week: 0,
+            position: 1,
+            start_time: "08:00:00",
+            end_time: "08:45:00",
+            kind: captured.kind ?? "lesson",
+          });
+        },
+      ),
+    );
+    wrapTimeBlocksGrid();
+    const filledButton = await screen.findByRole("button", {
+      name: /edit time block on monday at period 1/i,
+    });
+    await user.click(filledButton);
+    const dialog = await screen.findByRole("dialog", { name: /edit time block/i });
+    const kindTrigger = within(dialog).getByRole("combobox", { name: /kind/i });
+    expect(kindTrigger).toHaveTextContent(/lesson/i);
+    await user.click(kindTrigger);
+    await user.click(await screen.findByRole("option", { name: /^break$/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured).toMatchObject({ kind: "break" });
   });
 
   it("opens the delete confirm from the edit dialog footer Delete button", async () => {
