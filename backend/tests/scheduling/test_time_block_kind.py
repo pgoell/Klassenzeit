@@ -2,11 +2,14 @@
 
 import datetime as dt
 import uuid
+from collections.abc import Awaitable, Callable
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.models.week_scheme import (
     TimeBlock,
     TimeBlockKind,
@@ -17,6 +20,9 @@ from klassenzeit_backend.scheduling.schemas.week_scheme import (
     TimeBlockResponse,
     TimeBlockUpdate,
 )
+
+type CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
+type LoginFn = Callable[[str, str], Awaitable[None]]
 
 
 @pytest.mark.asyncio
@@ -120,3 +126,114 @@ def test_time_block_response_serializes_kind_as_lowercase_value() -> None:
     )
     dumped = body.model_dump(mode="json")
     assert dumped["kind"] == "lesson"
+
+
+@pytest.mark.asyncio
+async def test_post_time_block_defaults_kind_to_lesson(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /time-blocks without kind in the body returns kind=lesson."""
+    await create_test_user(email="admin@tbk1.com", role="admin")
+    await login_as("admin@tbk1.com", "testpassword123")
+    r = await client.post("/api/week-schemes", json={"name": f"ws-{uuid.uuid4().hex[:8]}"})
+    assert r.status_code == 201, r.text
+    ws_id = r.json()["id"]
+    payload = {
+        "day_of_week": 0,
+        "position": 1,
+        "start_time": "08:00:00",
+        "end_time": "08:45:00",
+    }
+    r = await client.post(f"/api/week-schemes/{ws_id}/time-blocks", json=payload)
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "lesson"
+
+
+@pytest.mark.asyncio
+async def test_post_time_block_persists_break_kind(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /time-blocks with kind=break round-trips the wire value."""
+    await create_test_user(email="admin@tbk2.com", role="admin")
+    await login_as("admin@tbk2.com", "testpassword123")
+    r = await client.post("/api/week-schemes", json={"name": f"ws-{uuid.uuid4().hex[:8]}"})
+    assert r.status_code == 201, r.text
+    ws_id = r.json()["id"]
+    payload = {
+        "day_of_week": 0,
+        "position": 1,
+        "start_time": "09:30:00",
+        "end_time": "09:50:00",
+        "kind": "break",
+    }
+    r = await client.post(f"/api/week-schemes/{ws_id}/time-blocks", json=payload)
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "break"
+
+
+@pytest.mark.asyncio
+async def test_patch_time_block_updates_kind_only(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /time-blocks/{id} with kind=break flips kind without touching other fields."""
+    await create_test_user(email="admin@tbk3.com", role="admin")
+    await login_as("admin@tbk3.com", "testpassword123")
+    r = await client.post("/api/week-schemes", json={"name": f"ws-{uuid.uuid4().hex[:8]}"})
+    assert r.status_code == 201, r.text
+    ws_id = r.json()["id"]
+    r = await client.post(
+        f"/api/week-schemes/{ws_id}/time-blocks",
+        json={
+            "day_of_week": 0,
+            "position": 1,
+            "start_time": "08:00:00",
+            "end_time": "08:45:00",
+        },
+    )
+    assert r.status_code == 201
+    tb_id = r.json()["id"]
+    r = await client.patch(f"/api/week-schemes/{ws_id}/time-blocks/{tb_id}", json={"kind": "break"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "break"
+    assert body["start_time"] == "08:00:00"  # other fields untouched
+
+
+@pytest.mark.asyncio
+async def test_patch_time_block_preserves_kind_when_omitted(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /time-blocks/{id} that omits kind leaves the existing kind in place."""
+    await create_test_user(email="admin@tbk4.com", role="admin")
+    await login_as("admin@tbk4.com", "testpassword123")
+    r = await client.post("/api/week-schemes", json={"name": f"ws-{uuid.uuid4().hex[:8]}"})
+    assert r.status_code == 201
+    ws_id = r.json()["id"]
+    r = await client.post(
+        f"/api/week-schemes/{ws_id}/time-blocks",
+        json={
+            "day_of_week": 0,
+            "position": 1,
+            "start_time": "09:30:00",
+            "end_time": "09:50:00",
+            "kind": "break",
+        },
+    )
+    assert r.status_code == 201
+    tb_id = r.json()["id"]
+    r = await client.patch(
+        f"/api/week-schemes/{ws_id}/time-blocks/{tb_id}",
+        json={"start_time": "09:35:00"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "break"
+    assert body["start_time"] == "09:35:00"

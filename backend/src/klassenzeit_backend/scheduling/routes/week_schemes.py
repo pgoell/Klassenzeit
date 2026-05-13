@@ -276,6 +276,7 @@ async def create_time_block_route(
         position=body.position,
         start_time=body.start_time,
         end_time=body.end_time,
+        kind=body.kind,
     )
     db.add(block)
     try:
@@ -329,6 +330,8 @@ async def update_time_block_route(
         block.start_time = body.start_time
     if body.end_time is not None:
         block.end_time = body.end_time
+    if "kind" in body.model_fields_set and body.kind is not None:
+        block.kind = body.kind
     try:
         await db.commit()
     except IntegrityError as exc:
