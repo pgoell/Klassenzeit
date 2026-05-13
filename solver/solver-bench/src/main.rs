@@ -1034,6 +1034,7 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
                 placements,
                 violations: vec![],
                 soft_score: parsed.soft_score,
+                quality_report: solver_core::QualityReport::default(),
             };
             quality_reports.push(quality::evaluate_quality_predicates(problem, &solution));
             component_reports.push(solver_core::quality_report(

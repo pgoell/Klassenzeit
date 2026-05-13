@@ -29,7 +29,8 @@ use crate::types::{ConstraintWeights, Lesson, Placement, Problem, Subject, TimeB
 ///
 /// Construct via [`quality_report`]. `Default::default()` returns a
 /// zero-everywhere report (useful for tests and synthesised fixtures).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QualityReport {
     /// Number of `Violation` entries on the solution. Today every
     /// violation is one missed hour; `PinnedConflict` (one per malformed

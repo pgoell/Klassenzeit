@@ -10,6 +10,24 @@ def score_solution_json(problem_json: str, placements_json: str) -> int:
     Raises ``ValueError`` on malformed JSON in either argument.
     """
 
+def quality_report_json(
+    problem_json: str,
+    placements_json: str,
+    violations_json: str,
+) -> str:
+    """Compute the QualityReport for the given Placement[] + Violation[].
+
+    Returns the per-axis cost-vector breakdown as a JSON object string,
+    using production-active weights. The contract
+    ``quality_report.weighted_score == score_solution_json(problem, placements)``
+    holds; the CP-SAT path (``klassenzeit_solver.cpsat``) uses both functions
+    to populate ``Solution.soft_score`` and ``Solution.quality_report``
+    post-solve so all bake-off backends surface the same wire-format breakdown
+    (ADR 0030).
+
+    Raises ``ValueError`` on malformed JSON in any argument.
+    """
+
 def solve_json(problem_json: str) -> str:
     """Solve a Problem encoded as JSON, returning a Solution as JSON.
 

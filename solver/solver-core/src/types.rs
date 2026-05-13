@@ -469,6 +469,16 @@ pub struct Solution {
     /// contributes zero (e.g. zero weights, or a fully optimal plan
     /// against the active weights).
     pub soft_score: u32,
+    /// Per-axis cost-vector breakdown of `soft_score`. Computed post-solve
+    /// by `quality::quality_report(...)` against the same weights the
+    /// scorer used. The invariant `quality_report.weighted_score == soft_score`
+    /// holds and is pinned by
+    /// `solver-core/tests/solution_quality_report_json.rs::solution_quality_report_survives_json_roundtrip_and_matches_soft_score`.
+    /// Surfaced on the FastAPI schedule responses so an admin can read off
+    /// the per-axis decomposition (`home_room`, `class_gap`,
+    /// `class_day_balance`, the four time-of-day axes, etc.) without
+    /// rebuilding the solver locally. Item 58.
+    pub quality_report: crate::quality::QualityReport,
 }
 
 /// A single successful placement of one hour of one lesson.
@@ -771,6 +781,7 @@ mod tests {
                 reason: None,
             }],
             soft_score: 0,
+            quality_report: crate::quality::QualityReport::default(),
         };
         let json = serde_json::to_string(&solution).unwrap();
         let parsed: Solution = serde_json::from_str(&json).unwrap();

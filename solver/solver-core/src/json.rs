@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::error::Error;
 use crate::score::score_solution;
 use crate::solve::solve_with_config;
-use crate::types::{Placement, Problem, SolveConfig};
+use crate::types::{Placement, Problem, SolveConfig, Violation};
 
 /// Solve a timetable problem supplied as a JSON string and return the resulting
 /// `Solution` serialised as JSON. Uses the production-default 200 ms LAHC
@@ -70,6 +70,32 @@ pub fn score_solution_json(problem_json: &str, placements_json: &str) -> Result<
         &placements,
         &crate::PRODUCTION_ACTIVE_WEIGHTS,
     ))
+}
+
+/// Compute the `QualityReport` for the given `Placement[]` + `Violation[]`
+/// against a `Problem`, using the production-active `ConstraintWeights`.
+/// Returns the breakdown as a JSON object string. Used by the CP-SAT path in
+/// `klassenzeit_solver.cpsat` to populate `Solution.quality_report` post-solve,
+/// so all bake-off backends surface the same per-axis decomposition on the
+/// wire format (ADR 0030, symmetric to `score_solution_json`).
+pub fn quality_report_json(
+    problem_json: &str,
+    placements_json: &str,
+    violations_json: &str,
+) -> Result<String, Error> {
+    let problem: Problem = serde_json::from_str(problem_json)
+        .map_err(|e| Error::Input(format!("json (problem): {e}")))?;
+    let placements: Vec<Placement> = serde_json::from_str(placements_json)
+        .map_err(|e| Error::Input(format!("json (placements): {e}")))?;
+    let violations: Vec<Violation> = serde_json::from_str(violations_json)
+        .map_err(|e| Error::Input(format!("json (violations): {e}")))?;
+    let report = crate::quality::quality_report(
+        &problem,
+        &placements,
+        &violations,
+        &crate::PRODUCTION_ACTIVE_WEIGHTS,
+    );
+    serde_json::to_string(&report).map_err(|e| Error::Input(format!("serialize: {e}")))
 }
 
 /// Tagged JSON envelope that step 2's `solver-py` wrapper emits to Python so the

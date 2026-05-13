@@ -19,7 +19,7 @@ from typing import Any
 
 from ortools.sat.python import cp_model
 
-from klassenzeit_solver._rust import score_solution_json
+from klassenzeit_solver._rust import quality_report_json, score_solution_json
 
 # ``AnchorKey = (lesson_id, day_of_week, start_position, room_id)``.
 AnchorKey = tuple[str, int, int, str]
@@ -85,7 +85,11 @@ def solve_cpsat_json(
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         placements = _extract_placements(solver, anchor_vars, meta)
-        soft_score = score_solution_json(problem_json, json.dumps(placements))
+        placements_json = json.dumps(placements)
+        soft_score = score_solution_json(problem_json, placements_json)
+        quality_report = json.loads(
+            quality_report_json(problem_json, placements_json, json.dumps([]))
+        )
         ttf = callback.first_ms
         tto = solver.WallTime() * 1000.0 if status == cp_model.OPTIMAL else None
         return json.dumps(
@@ -93,6 +97,7 @@ def solve_cpsat_json(
                 "placements": placements,
                 "violations": [],
                 "soft_score": int(soft_score),
+                "quality_report": quality_report,
                 "model_objective_value": int(solver.objective_value),
                 "peak_rss_kb": peak_rss_kb,
                 "time_to_first_feasible_ms": ttf,
@@ -113,11 +118,13 @@ def solve_cpsat_json(
                         "reason": reason,
                     }
                 )
+        quality_report = json.loads(quality_report_json(problem_json, "[]", json.dumps(violations)))
         return json.dumps(
             {
                 "placements": [],
                 "violations": violations,
                 "soft_score": 0,
+                "quality_report": quality_report,
                 "model_objective_value": None,
                 "peak_rss_kb": peak_rss_kb,
                 "time_to_first_feasible_ms": None,
