@@ -26,6 +26,9 @@ export interface ScheduleCell {
   timeBlockId?: string;
   roomId?: string;
   pinned?: boolean;
+  // Discriminator from `TimeBlockResponse.kind`. When "break", the cell
+  // renders a non-bookable variant (no drag, drop, or click affordances).
+  kind: "lesson" | "break";
 }
 
 interface ScheduleGridProps {
@@ -160,6 +163,18 @@ export function ScheduleGrid({
           </div>
           {daysPresent.map((day) => {
             const cell = byKey.get(`${day}:${position}`);
+            const isBreak = cell?.kind === "break";
+            if (isBreak) {
+              return (
+                <div
+                  key={`${day}:${position}`}
+                  className={cn("kz-ws-cell", "bg-muted text-muted-foreground")}
+                  data-variant="break"
+                >
+                  <span className="text-xs">{t("weekSchemes.timeBlocks.kind.break")}</span>
+                </div>
+              );
+            }
             const togglable = cell?.lessonId && cell.timeBlockId && cell.pinned !== undefined;
             const cellClassName = cn(
               "kz-ws-cell",

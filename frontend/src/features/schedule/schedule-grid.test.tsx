@@ -29,6 +29,7 @@ function samplePinnedCell(overrides: Partial<ScheduleCell> = {}): ScheduleCell {
     lessonId: "00000000-0000-0000-0000-00000000b001",
     timeBlockId: "00000000-0000-0000-0000-00000000c001",
     pinned: true,
+    kind: "lesson",
     ...overrides,
   };
 }
@@ -43,6 +44,7 @@ describe("ScheduleGrid", () => {
         subjectName: "Mathematics",
         teacherName: "Mueller",
         roomName: "Room 101",
+        kind: "lesson",
       },
       {
         key: "1-2",
@@ -51,6 +53,7 @@ describe("ScheduleGrid", () => {
         subjectName: "German",
         teacherName: "Schmidt",
         roomName: "Room 102",
+        kind: "lesson",
       },
     ];
     const Wrapper = wrapScheduleGrid();
@@ -131,6 +134,7 @@ describe("ScheduleGrid", () => {
               position: 1,
               subjectName: "Mathematics",
               roomName: "Room 101",
+              kind: "lesson",
             },
           ]}
           daysPresent={[0]}
@@ -139,5 +143,65 @@ describe("ScheduleGrid", () => {
       </Wrapper>,
     );
     expect(screen.queryByRole("button", { name: /pin/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("ScheduleGrid break cells", () => {
+  it("renders the localized Break label for kind=break cells", () => {
+    const Wrapper = wrapScheduleGrid();
+    render(
+      <Wrapper>
+        <ScheduleGrid
+          cells={[
+            {
+              key: "0:2",
+              day: 0,
+              position: 2,
+              kind: "break",
+              subjectName: "",
+              roomName: "",
+            },
+          ]}
+          daysPresent={[0]}
+          positions={[1, 2]}
+        />
+      </Wrapper>,
+    );
+    expect(screen.getByText("Break")).toBeInTheDocument();
+  });
+
+  it("excludes kind=break cells from drop-target registration", () => {
+    const Wrapper = wrapScheduleGrid();
+    const lessonBlockId = "00000000-0000-0000-0000-00000000c001";
+    const breakBlockId = "00000000-0000-0000-0000-00000000c002";
+    const timeBlocksByDayPosition = new Map<string, string>([
+      ["0:1", lessonBlockId],
+      ["0:2", breakBlockId],
+    ]);
+    render(
+      <Wrapper>
+        <ScheduleGrid
+          cells={[
+            {
+              key: "0:2",
+              day: 0,
+              position: 2,
+              kind: "break",
+              subjectName: "",
+              roomName: "",
+            },
+          ]}
+          daysPresent={[0]}
+          positions={[1, 2]}
+          dragEnabled
+          timeBlocksByDayPosition={timeBlocksByDayPosition}
+        />
+      </Wrapper>,
+    );
+    // The lesson slot at (0,1) registers an empty drop target; the break
+    // slot at (0,2) must NOT register one.
+    expect(screen.queryByTestId(`empty-slot-${lessonBlockId}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`empty-slot-${breakBlockId}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`placement-slot-${breakBlockId}`)).not.toBeInTheDocument();
   });
 });

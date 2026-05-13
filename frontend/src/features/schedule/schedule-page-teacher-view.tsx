@@ -49,7 +49,7 @@ export function SchedulePageTeacherView() {
   const blockById = new Map((weekScheme.data?.time_blocks ?? []).map((b) => [b.id, b]));
 
   const placements = schedule.data?.placements ?? [];
-  const cells: ScheduleCell[] = placements
+  const placementCells: ScheduleCell[] = placements
     .map((p): ScheduleCell | undefined => {
       const lesson = lessonById.get(p.lesson_id);
       const block = blockById.get(p.time_block_id);
@@ -67,9 +67,22 @@ export function SchedulePageTeacherView() {
         timeBlockId: p.time_block_id,
         roomId: p.room_id,
         pinned: p.pinned,
+        kind: block.kind,
       };
     })
     .filter((c): c is ScheduleCell => c !== undefined);
+  const breakCells: ScheduleCell[] = (weekScheme.data?.time_blocks ?? [])
+    .filter((b) => b.kind === "break")
+    .map((b) => ({
+      key: `break:${b.day_of_week}:${b.position}`,
+      day: b.day_of_week,
+      position: b.position,
+      subjectName: "",
+      roomName: "",
+      timeBlockId: b.id,
+      kind: b.kind,
+    }));
+  const cells: ScheduleCell[] = [...placementCells, ...breakCells];
 
   const daysPresent = Array.from(new Set(cells.map((c) => c.day))).sort((a, b) => a - b);
   const positions = Array.from(new Set(cells.map((c) => c.position))).sort((a, b) => a - b);
