@@ -126,6 +126,7 @@ def test_filter_solution_for_class_empty_input() -> None:
         "violations": [],
         "soft_score": 0,
         "quality_report": _EMPTY_QUALITY_REPORT,
+        "was_cancelled": False,
     }
 
 

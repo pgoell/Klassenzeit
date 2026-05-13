@@ -1,17 +1,21 @@
 """POST /api/classes/{class_id}/schedule and POST /api/schedule/all."""
 
+import json
 import logging
+import time
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling import solver_io
+from klassenzeit_backend.scheduling.progress import register_progress
 from klassenzeit_backend.scheduling.schemas.schedule import (
+    ProgressSnapshot,
     ScheduleReadResponse,
     ScheduleResponse,
     WholeSchoolScheduleResponse,
@@ -54,13 +58,29 @@ async def generate_schedule_for_class(
     settings = request.app.state.settings
     deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
     solver_backend = settings.solver_backend
-    solution = await solver_io.run_solve(
-        problem_json,
-        scope_id=class_id,
-        input_counts=input_counts,
-        deadline_ms=deadline_ms,
-        solver_backend=solver_backend,
+    # Sum of hours_per_week for this class's lessons. The progress endpoint
+    # surfaces this as the placement target; it's the denominator behind the
+    # "K / N lessons placed" frontend badge.
+    problem = json.loads(problem_json)
+    total_lessons = sum(
+        lesson["hours_per_week"]
+        for lesson in problem["lessons"]
+        if str(class_id) in lesson["school_class_ids"]
     )
+    with register_progress(
+        request.app.state.solver_progress,
+        class_id=class_id,
+        deadline_ms=deadline_ms or 0,
+        total_lessons=total_lessons,
+    ) as entry:
+        solution = await solver_io.run_solve(
+            problem_json,
+            scope_id=class_id,
+            input_counts=input_counts,
+            deadline_ms=deadline_ms,
+            solver_backend=solver_backend,
+            progress_handle=entry.handle,
+        )
     filtered = solver_io.filter_solution_for_class(solution, class_lesson_ids)
     logger.info(
         "solver.solve.filtered",
@@ -181,6 +201,62 @@ async def read_schedule_for_teacher_route(
     """
     placements = await solver_io.read_schedule_for_teacher(db, teacher_id)
     return ScheduleReadResponse(placements=placements)
+
+
+@router.get("/classes/{class_id}/schedule/progress", response_model=ProgressSnapshot)
+async def get_schedule_progress(
+    class_id: uuid.UUID,
+    request: Request,
+    _admin: Annotated[User, Depends(require_admin)],
+) -> ProgressSnapshot:
+    """Return the live progress snapshot for an in-flight solve.
+
+    Reads the ``ProgressHandle`` registered by the schedule POST in
+    ``app.state.solver_progress`` and merges its atomics with the
+    request-side ``elapsed_ms`` / ``deadline_ms`` / ``total_lessons``
+    fields. Returns 404 when no solve is in flight for this class.
+    """
+    entry = request.app.state.solver_progress.get(class_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No solve in flight for this class",
+        )
+    snap = entry.handle.snapshot()
+    elapsed_ms = int((time.monotonic() - entry.started_at) * 1000)
+    return ProgressSnapshot(
+        iter=snap["iter"],
+        placement_count=snap["placement_count"],
+        total_lessons=entry.total_lessons,
+        best_score=snap["best_score"],
+        is_feasible=snap["is_feasible"],
+        cancel_requested=snap["cancel_requested"],
+        elapsed_ms=elapsed_ms,
+        deadline_ms=entry.deadline_ms,
+    )
+
+
+@router.post("/classes/{class_id}/schedule/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_schedule(
+    class_id: uuid.UUID,
+    request: Request,
+    _admin: Annotated[User, Depends(require_admin)],
+) -> Response:
+    """Soft-cancel an in-flight solve.
+
+    Flips the ``ProgressBeacon``'s ``cancel_requested`` flag; the LAHC inner
+    loop exits at the next iteration boundary and the originating POST
+    returns with ``was_cancelled=true`` and the best-so-far placements.
+    Returns 404 when no solve is in flight for this class.
+    """
+    entry = request.app.state.solver_progress.get(class_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No solve in flight for this class",
+        )
+    entry.handle.cancel()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/rooms/{room_id}/schedule")

@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_attempts=settings.login_max_attempts,
         lockout_minutes=settings.login_lockout_minutes,
     )
+    app.state.solver_progress = {}
     try:
         yield
     finally:
