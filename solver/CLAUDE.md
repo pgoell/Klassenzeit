@@ -96,4 +96,4 @@ Crate directory as scope: `feat(solver-core): ...`, `feat(solver-py): ...`, `fea
 
 ## Pointers
 
-ADR 0001 (monorepo), 0002 (solver split), 0029 / 0030 / 0034 (bench shape, CP-SAT backend, supervisor + cell-child), 0031 / 0032 / 0037 / 0038 (production-default chain). Branch `archive/v2` (not merged) holds a prior scheduler iteration with LAHC, construction + optimisation phases, and a richer violation taxonomy.
+ADR 0001 (monorepo), 0002 (solver split), 0029 / 0030 / 0034 (bench shape, CP-SAT backend, supervisor + cell-child), 0031 / 0032 / 0037 / 0038 (production-default chain), 0033 (daily caps + LAHC objective floor), 0039 (live-progress beacon + cooperative cancel). Branch `archive/v2` (not merged) holds a prior scheduler iteration with LAHC, construction + optimisation phases, and a richer violation taxonomy.
