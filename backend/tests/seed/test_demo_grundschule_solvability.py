@@ -39,7 +39,7 @@ async def test_seeded_grundschule_solves_without_pinned_teachers(
     # default is KZ_SOLVE_DEADLINE_MS=0 (greedy-only); this opts back in
     # so the test exercises the production solver path on the
     # solver-driven teacher pick.
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 

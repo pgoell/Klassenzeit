@@ -133,7 +133,7 @@ async def test_grundschule_schedule_meets_quality_bar(
     login_as: LoginFn,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(app.state.settings, "solve_deadline_ms", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 
