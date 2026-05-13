@@ -222,6 +222,7 @@ function TimeBlockFormDialog({
       position: values.position,
       start_time: `${values.start_time}:00`,
       end_time: `${values.end_time}:00`,
+      kind: "lesson" as const,
     };
     try {
       if (mode.mode === "edit") {
