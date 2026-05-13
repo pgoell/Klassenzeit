@@ -10,10 +10,9 @@ would silently resolve to the wrong file (or to nothing) depending on
 which tool loaded Settings first.
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import Field, PostgresDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,19 +28,21 @@ SolverBackend = Literal["lahc", "lahc_rr", "lahc_rr_kempe", "cpsat"]
 ``solve_deadline_ms_by_backend``'s key type so the two fields stay in
 lockstep when a new backend lands."""
 
-_PER_BACKEND_DEADLINE_DEFAULTS: dict[SolverBackend, int] = {
-    "lahc": 5000,
-    "lahc_rr": 5000,
-    "lahc_rr_kempe": 5000,
-    "cpsat": 120000,
-}
 
-_PER_BACKEND_DEADLINE_ENV_VARS: dict[SolverBackend, str] = {
-    "lahc": "KZ_SOLVE_DEADLINE_MS_LAHC",
-    "lahc_rr": "KZ_SOLVE_DEADLINE_MS_LAHC_RR",
-    "lahc_rr_kempe": "KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE",
-    "cpsat": "KZ_SOLVE_DEADLINE_MS_CPSAT",
-}
+def _empty_per_backend_deadlines() -> dict[SolverBackend, int]:
+    """Field(default_factory=...) seed for ``solve_deadline_ms_by_backend``.
+
+    Pydantic-settings instantiates the dict before the assemble validator
+    runs; the values here are placeholders that the ``mode="after"`` step
+    overwrites from the four bound scalar fields. Typed return narrows
+    the keys to ``SolverBackend`` for ``ty``.
+    """
+    return {
+        "lahc": 0,
+        "lahc_rr": 0,
+        "lahc_rr_kempe": 0,
+        "cpsat": 0,
+    }
 
 
 class Settings(BaseSettings):
@@ -73,57 +74,40 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Solver
-    solve_deadline_ms_by_backend: dict[SolverBackend, int] = Field(
-        default_factory=lambda: dict(_PER_BACKEND_DEADLINE_DEFAULTS),
-    )
     solver_backend: SolverBackend = "lahc_rr"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _resolve_per_backend_deadlines(cls, values: object) -> object:
-        """Read per-backend deadline env vars and inject into the dict.
-
-        Each ``KZ_SOLVE_DEADLINE_MS_<BACKEND>`` env var, if set, overrides
-        the matching entry in the resolved dict. Unset entries inherit the
-        ``_PER_BACKEND_DEADLINE_DEFAULTS`` value. Invalid (non-int) env
-        values surface as ``ValidationError`` naming the offending env var.
-        """
-        if not isinstance(values, dict):
-            return values
-        typed_values = cast("dict[str, object]", values)
-        resolved: dict[SolverBackend, int] = dict(_PER_BACKEND_DEADLINE_DEFAULTS)
-        # Honor any explicit dict passed in directly (test plumbing path).
-        existing = typed_values.get("solve_deadline_ms_by_backend")
-        if isinstance(existing, dict):
-            typed_existing = cast("dict[object, object]", existing)
-            for k, v in typed_existing.items():
-                if k in resolved and isinstance(v, int):
-                    resolved[cast("SolverBackend", k)] = v
-        for backend_key, env_name in _PER_BACKEND_DEADLINE_ENV_VARS.items():
-            raw = os.environ.get(env_name)
-            if raw is None:
-                continue
-            try:
-                resolved[backend_key] = int(raw)
-            except ValueError as exc:
-                raise ValueError(f"{env_name} must be an integer (got {raw!r})") from exc
-        typed_values["solve_deadline_ms_by_backend"] = resolved
-        return typed_values
+    # Per-backend deadline scalars. Bound to KZ_SOLVE_DEADLINE_MS_<BACKEND>
+    # env vars via pydantic-settings' standard field-binding (which reads
+    # env_file). Public consumers go through solve_deadline_ms_by_backend
+    # below; the scalars exist so pydantic-settings actually loads them.
+    solve_deadline_ms_lahc: int = 5000
+    solve_deadline_ms_lahc_rr: int = 5000
+    solve_deadline_ms_lahc_rr_kempe: int = 5000
+    solve_deadline_ms_cpsat: int = 120000
+    solve_deadline_ms_by_backend: dict[SolverBackend, int] = Field(
+        default_factory=_empty_per_backend_deadlines,
+    )
 
     @model_validator(mode="after")
-    def _check_per_backend_deadlines_complete(self) -> "Settings":
-        """Every solver backend must have an entry in the dict.
+    def _assemble_per_backend_deadlines(self) -> "Settings":
+        """Populate ``solve_deadline_ms_by_backend`` from the four scalars.
 
-        A missing key indicates ``_PER_BACKEND_DEADLINE_DEFAULTS`` was not
-        updated when the ``SolverBackend`` Literal grew a new variant.
-        Surface as ``ValidationError`` at startup rather than ``KeyError``
-        deep in a route handler.
+        The four ``solve_deadline_ms_<backend>`` scalars are bound to
+        ``KZ_SOLVE_DEADLINE_MS_<BACKEND>`` env vars by pydantic-settings'
+        standard field-binding (which honors ``env_file``). Assembling
+        the dict from those scalars here keeps the route-handler lookup
+        ``settings.solve_deadline_ms_by_backend[settings.solver_backend]``
+        in place while letting operators set per-backend env vars
+        individually. Tests override via
+        ``monkeypatch.setitem(settings.solve_deadline_ms_by_backend, ...)``
+        as documented in ``backend/CLAUDE.md``; the validator only runs
+        at ``__init__``, so dict mutations after that persist.
         """
-        expected: set[SolverBackend] = set(_PER_BACKEND_DEADLINE_ENV_VARS.keys())
-        present: set[SolverBackend] = set(self.solve_deadline_ms_by_backend.keys())
-        missing = expected - present
-        if missing:
-            raise ValueError(f"solve_deadline_ms_by_backend missing keys: {sorted(missing)}")
+        self.solve_deadline_ms_by_backend = {
+            "lahc": self.solve_deadline_ms_lahc,
+            "lahc_rr": self.solve_deadline_ms_lahc_rr,
+            "lahc_rr_kempe": self.solve_deadline_ms_lahc_rr_kempe,
+            "cpsat": self.solve_deadline_ms_cpsat,
+        }
         return self
 
 

@@ -267,7 +267,7 @@ def test_solve_deadline_ms_cpsat_env_overrides_only_cpsat(
 
 
 def test_solve_deadline_ms_invalid_env_value_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-integer env value surfaces as ValidationError naming the env var."""
+    """A non-integer env value surfaces as ValidationError naming the field."""
     monkeypatch.setenv(
         "KZ_DATABASE_URL",
         "postgresql+psycopg://u:p@localhost:5432/kz",
@@ -277,4 +277,4 @@ def test_solve_deadline_ms_invalid_env_value_raises(monkeypatch: pytest.MonkeyPa
     with pytest.raises(ValidationError) as exc_info:
         Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
 
-    assert "KZ_SOLVE_DEADLINE_MS_LAHC" in str(exc_info.value)
+    assert "solve_deadline_ms_lahc" in str(exc_info.value)
