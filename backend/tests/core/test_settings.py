@@ -163,21 +163,118 @@ def test_solver_backend_default_is_production_choice(monkeypatch: pytest.MonkeyP
     assert settings.solver_backend == "lahc_rr"
 
 
-def test_solve_deadline_ms_default_is_5000(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Production default is 5s; .env.test overrides to 0 for greedy-only tests.
+def test_solve_deadline_ms_by_backend_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production defaults: LAHC variants 5000 ms each, CP-SAT 120000 ms.
 
-    Raised from 200 ms to 5000 ms once the LAHC outer loop gained an
-    objective-floor early-exit predicate: easy problems still finish in
-    well under 100 ms, hard problems get the additional budget to escape
-    local optima. Update this assertion AND the matching ADR in lockstep
-    when a future bake-off refresh changes the verdict.
+    See ADR 0038. Update this assertion AND the ADR in lockstep when a
+    future bake-off refresh changes the verdict.
     """
     monkeypatch.setenv(
         "KZ_DATABASE_URL",
         "postgresql+psycopg://u:p@localhost:5432/kz",
     )
-    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_CPSAT", raising=False)
 
     settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
 
-    assert settings.solve_deadline_ms == 5000
+    assert settings.solve_deadline_ms_by_backend == {
+        "lahc": 5000,
+        "lahc_rr": 5000,
+        "lahc_rr_kempe": 5000,
+        "cpsat": 120000,
+    }
+
+
+def test_solve_deadline_ms_lahc_env_overrides_only_lahc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.setenv("KZ_SOLVE_DEADLINE_MS_LAHC", "3000")
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_CPSAT", raising=False)
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solve_deadline_ms_by_backend == {
+        "lahc": 3000,
+        "lahc_rr": 5000,
+        "lahc_rr_kempe": 5000,
+        "cpsat": 120000,
+    }
+
+
+def test_solve_deadline_ms_lahc_rr_env_overrides_only_lahc_rr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC", raising=False)
+    monkeypatch.setenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR", "7500")
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_CPSAT", raising=False)
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solve_deadline_ms_by_backend["lahc_rr"] == 7500
+    assert settings.solve_deadline_ms_by_backend["lahc"] == 5000
+    assert settings.solve_deadline_ms_by_backend["lahc_rr_kempe"] == 5000
+    assert settings.solve_deadline_ms_by_backend["cpsat"] == 120000
+
+
+def test_solve_deadline_ms_lahc_rr_kempe_env_overrides_only_kempe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR", raising=False)
+    monkeypatch.setenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE", "8000")
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_CPSAT", raising=False)
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solve_deadline_ms_by_backend["lahc_rr_kempe"] == 8000
+    assert settings.solve_deadline_ms_by_backend["cpsat"] == 120000
+
+
+def test_solve_deadline_ms_cpsat_env_overrides_only_cpsat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR", raising=False)
+    monkeypatch.delenv("KZ_SOLVE_DEADLINE_MS_LAHC_RR_KEMPE", raising=False)
+    monkeypatch.setenv("KZ_SOLVE_DEADLINE_MS_CPSAT", "180000")
+
+    settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert settings.solve_deadline_ms_by_backend["cpsat"] == 180000
+    assert settings.solve_deadline_ms_by_backend["lahc"] == 5000
+    assert settings.solve_deadline_ms_by_backend["lahc_rr"] == 5000
+    assert settings.solve_deadline_ms_by_backend["lahc_rr_kempe"] == 5000
+
+
+def test_solve_deadline_ms_invalid_env_value_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-integer env value surfaces as ValidationError naming the env var."""
+    monkeypatch.setenv(
+        "KZ_DATABASE_URL",
+        "postgresql+psycopg://u:p@localhost:5432/kz",
+    )
+    monkeypatch.setenv("KZ_SOLVE_DEADLINE_MS_LAHC", "not_an_int")
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
+
+    assert "KZ_SOLVE_DEADLINE_MS_LAHC" in str(exc_info.value)
