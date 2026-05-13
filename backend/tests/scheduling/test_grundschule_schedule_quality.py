@@ -8,8 +8,9 @@ gaps, day length) returns no issues for the persisted schedule.
 This guards against future solver / weight / seed changes producing
 visually bad schedules without a hard-violation gate to catch them.
 The test opts into the production 5000 ms LAHC pass (the rest of the
-backend test suite stays greedy-only via ``KZ_SOLVE_DEADLINE_MS=0``)
-because the soft costs the new constraints rely on are LAHC-driven;
+backend test suite stays greedy-only via the per-backend zero entries
+in ``backend/.env.test``, per ADR 0038) because the soft costs the
+new constraints rely on are LAHC-driven;
 greedy alone produces a lopsided baseline that cannot pass the bar.
 """
 
