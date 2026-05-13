@@ -359,7 +359,12 @@
       "respectPinsAction": "Re-solve respecting my pins",
       "respectPinsSuccessToast": "Schedule re-solved; your pins were preserved.",
       "fromScratchAction": "Generate all from scratch",
-      "fromScratchSuccessToast": "Schedule regenerated from scratch."
+      "fromScratchSuccessToast": "Schedule regenerated from scratch.",
+      "stop": "Stop",
+      "stopping": "Stopping..."
+    },
+    "progress": {
+      "placedCount": "{{placed}} / {{total}} lessons placed"
     },
     "actions": {
       "pin": "Pin this lesson",

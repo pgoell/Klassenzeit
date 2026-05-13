@@ -7,7 +7,46 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
 import i18n from "@/i18n/init";
 import { scheduleByClassId, server, violationsByClassId } from "../../../tests/msw-handlers";
+import * as hooks from "./hooks";
 import { ScheduleToolbar } from "./schedule-toolbar";
+
+// Stub the two new in-progress hooks at module scope so the GenerateInProgress
+// sub-component renders deterministically without hitting MSW for its 500ms
+// poll. The other exports from ./hooks (e.g. useGenerateAllSchedules) are
+// preserved via importOriginal.
+vi.mock("./hooks", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./hooks")>();
+  return {
+    ...original,
+    useScheduleProgress: vi.fn(),
+    useCancelSchedule: vi.fn(),
+  };
+});
+
+const stubSnapshot = {
+  iter: 100,
+  placement_count: 12,
+  total_lessons: 30,
+  best_score: 50,
+  is_feasible: false,
+  cancel_requested: false,
+  elapsed_ms: 500,
+  deadline_ms: 5000,
+};
+
+function setHookStubs(
+  snapshot: typeof stubSnapshot | null = stubSnapshot,
+  cancelOverrides?: { mutate?: ReturnType<typeof vi.fn>; isPending?: boolean },
+) {
+  vi.mocked(hooks.useScheduleProgress).mockReturnValue({
+    data: snapshot,
+    isLoading: false,
+  } as unknown as ReturnType<typeof hooks.useScheduleProgress>);
+  vi.mocked(hooks.useCancelSchedule).mockReturnValue({
+    mutate: cancelOverrides?.mutate ?? vi.fn(),
+    isPending: cancelOverrides?.isPending ?? false,
+  } as unknown as ReturnType<typeof hooks.useCancelSchedule>);
+}
 
 beforeAll(async () => {
   await i18n.changeLanguage("en");
@@ -94,7 +133,8 @@ describe("ScheduleToolbar", () => {
     expect(screen.getByRole("button", { name: /^cancel$/i })).toBeInTheDocument();
   });
 
-  it("disables the Generate button while pending and shows the saving label", () => {
+  it("renders the in-progress sub-component when generating", () => {
+    setHookStubs();
     render(
       wrapToolbar(
         <ScheduleToolbar
@@ -110,8 +150,9 @@ describe("ScheduleToolbar", () => {
         />,
       ),
     );
-    const button = screen.getByRole("button", { name: /saving/i });
-    expect(button).toBeDisabled();
+    expect(screen.getByText(/12 \/ 30/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^stop$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /saving/i })).not.toBeInTheDocument();
   });
 
   it("'Re-solve respecting my pins' posts respect_pins=true and toasts the pins-preserved copy", async () => {
