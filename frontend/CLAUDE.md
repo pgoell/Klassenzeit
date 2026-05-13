@@ -27,7 +27,7 @@ Stack: Vite + React 19, TanStack Router + Query, shadcn/ui, React Hook Form + Zo
 
 - **No `useEffect` for derived state** (compute during render; sync via `key` or derive inline; enforced by `scripts/check_use_effect_sync.py`). No `useState` for data you can recompute. No defensive `useMemo` / `useCallback`. No `forwardRef` in new components (React 19 treats `ref` as a plain prop). No array index as `key` (define `const SLOTS = [...]` and key by the string). `useEffect` mount gate is acceptable only for third-party sync (e.g. `next-themes`).
 - **Draft-from-fetch editors use outer/inner.** Outer fetches and returns `null` while loading; inner takes the entity as a prop and seeds local draft via `useState(() => seedFrom(entity))`. Pattern: `features/rooms/room-availability-grid.tsx`.
-- **Verify a shadcn primitive exists in `frontend/src/components/ui/` before importing it.** New ones require `pnpm -C frontend add @radix-ui/react-<name>` plus pasting the canonical shadcn body.
+- **Verify a shadcn primitive exists in `frontend/src/components/ui/` before importing it.** New ones require `mise exec -- pnpm -C frontend add @radix-ui/react-<name>` plus pasting the canonical shadcn body.
 - **`enabled: id !== null` hooks need `id || null` coercion when the id source is a form field.** RHF + Radix Select emit `""` for unset state, not `null`. Coerce at the call site.
 
 ## Server state and routing
