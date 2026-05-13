@@ -273,6 +273,7 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
         last_name: str | None = None,
         short_code: str | None = None,
         max_hours_per_week: int = 24,
+        reserve_hours_per_week: int = 0,
     ) -> Teacher:
         """Create and flush a Teacher with auto-generated unique defaults.
 
@@ -281,6 +282,8 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
             last_name: Family name; auto-generated if omitted.
             short_code: Unique abbreviation; auto-generated if omitted.
             max_hours_per_week: Maximum teaching hours per week.
+            reserve_hours_per_week: Vertretungsreserve subtracted from
+                ``max_hours_per_week`` by the solver's effective-capacity rule.
 
         Returns:
             The newly created Teacher ORM instance.
@@ -291,6 +294,7 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
             last_name=last_name if last_name is not None else f"Teacher{n}",
             short_code=short_code if short_code is not None else f"TC{n}",
             max_hours_per_week=max_hours_per_week,
+            reserve_hours_per_week=reserve_hours_per_week,
         )
         db_session.add(teacher)
         await db_session.flush()

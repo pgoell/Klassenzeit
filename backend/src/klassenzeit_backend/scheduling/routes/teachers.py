@@ -95,6 +95,7 @@ async def _build_teacher_detail(db: AsyncSession, teacher: Teacher) -> TeacherDe
         last_name=teacher.last_name,
         short_code=teacher.short_code,
         max_hours_per_week=teacher.max_hours_per_week,
+        reserve_hours_per_week=teacher.reserve_hours_per_week,
         is_active=teacher.is_active,
         qualifications=qualifications,
         availability=availability,
@@ -127,6 +128,7 @@ async def create_teacher_route(
         last_name=body.last_name,
         short_code=body.short_code,
         max_hours_per_week=body.max_hours_per_week,
+        reserve_hours_per_week=body.reserve_hours_per_week,
     )
     db.add(teacher)
     try:
@@ -143,6 +145,7 @@ async def create_teacher_route(
         last_name=teacher.last_name,
         short_code=teacher.short_code,
         max_hours_per_week=teacher.max_hours_per_week,
+        reserve_hours_per_week=teacher.reserve_hours_per_week,
         is_active=teacher.is_active,
         subject_ids=[],
         created_at=teacher.created_at,
@@ -190,6 +193,7 @@ async def list_teachers(
             last_name=t.last_name,
             short_code=t.short_code,
             max_hours_per_week=t.max_hours_per_week,
+            reserve_hours_per_week=t.reserve_hours_per_week,
             is_active=t.is_active,
             subject_ids=subject_ids_by_teacher[t.id],
             created_at=t.created_at,
@@ -253,6 +257,8 @@ async def update_teacher_route(
         teacher.short_code = body.short_code
     if body.max_hours_per_week is not None:
         teacher.max_hours_per_week = body.max_hours_per_week
+    if body.reserve_hours_per_week is not None:
+        teacher.reserve_hours_per_week = body.reserve_hours_per_week
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -271,6 +277,7 @@ async def update_teacher_route(
         last_name=teacher.last_name,
         short_code=teacher.short_code,
         max_hours_per_week=teacher.max_hours_per_week,
+        reserve_hours_per_week=teacher.reserve_hours_per_week,
         is_active=teacher.is_active,
         subject_ids=subject_ids,
         created_at=teacher.created_at,

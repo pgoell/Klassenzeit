@@ -506,6 +506,117 @@ async def test_teacher_requires_admin(client: AsyncClient) -> None:
     assert response.status_code == 401
 
 
+async def test_create_teacher_with_reserve_hours(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /teachers with reserve_hours_per_week round-trips via list + detail responses."""
+    await create_test_user(email="admin@teacher-reserve1.com", role="admin")
+    await login_as("admin@teacher-reserve1.com", "testpassword123")
+    response = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Nora",
+            "last_name": "Reserve",
+            "short_code": "NRE",
+            "max_hours_per_week": 28,
+            "reserve_hours_per_week": 4,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["reserve_hours_per_week"] == 4
+
+    teacher_id = body["id"]
+    detail = await client.get(f"/api/teachers/{teacher_id}")
+    assert detail.status_code == 200
+    assert detail.json()["reserve_hours_per_week"] == 4
+
+
+async def test_create_teacher_default_reserve_is_zero(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST /teachers without reserve_hours_per_week falls back to 0."""
+    await create_test_user(email="admin@teacher-reserve2.com", role="admin")
+    await login_as("admin@teacher-reserve2.com", "testpassword123")
+    response = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Olga",
+            "last_name": "Default",
+            "short_code": "ODE",
+            "max_hours_per_week": 28,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["reserve_hours_per_week"] == 0
+
+
+async def test_patch_teacher_reserve_hours(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH /teachers/{id} updates reserve_hours_per_week."""
+    await create_test_user(email="admin@teacher-reserve3.com", role="admin")
+    await login_as("admin@teacher-reserve3.com", "testpassword123")
+    create_resp = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Paul",
+            "last_name": "Patch",
+            "short_code": "PPA",
+            "max_hours_per_week": 28,
+            "reserve_hours_per_week": 0,
+        },
+    )
+    assert create_resp.status_code == 201
+    teacher_id = create_resp.json()["id"]
+
+    patch_resp = await client.patch(
+        f"/api/teachers/{teacher_id}",
+        json={"reserve_hours_per_week": 2},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["reserve_hours_per_week"] == 2
+
+    reload = await client.get(f"/api/teachers/{teacher_id}")
+    assert reload.status_code == 200
+    assert reload.json()["reserve_hours_per_week"] == 2
+
+
+async def test_patch_teacher_without_reserve_field_leaves_unchanged(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """PATCH without reserve_hours_per_week preserves the prior value."""
+    await create_test_user(email="admin@teacher-reserve4.com", role="admin")
+    await login_as("admin@teacher-reserve4.com", "testpassword123")
+    create_resp = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Quinn",
+            "last_name": "Keep",
+            "short_code": "QKE",
+            "max_hours_per_week": 28,
+            "reserve_hours_per_week": 3,
+        },
+    )
+    teacher_id = create_resp.json()["id"]
+
+    patch_resp = await client.patch(
+        f"/api/teachers/{teacher_id}",
+        json={"max_hours_per_week": 26},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["reserve_hours_per_week"] == 3
+    assert patch_resp.json()["max_hours_per_week"] == 26
+
+
 async def test_list_teachers_includes_subject_ids(
     client: AsyncClient,
     create_test_user: CreateUserFn,
