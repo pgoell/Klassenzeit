@@ -143,11 +143,14 @@ def test_settings_log_level_overrides(monkeypatch) -> None:
 
 
 def test_solver_backend_default_is_production_choice(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin the production-default solver backend per ADR 0031.
+    """Pin the production-default solver backend per ADR 0037.
 
-    Flipping this default is intentional: see ADR 0031's Pareto-frontier
-    decision rule. Update this assertion AND the ADR in lockstep when a future
-    bake-off refresh changes the verdict.
+    Flipping this default is intentional: see ADR 0029's decision rule
+    (hard gate, then median soft-score across feasible cells), ADR 0031's
+    initial pick (`lahc_rr_kempe`), ADR 0032's reaffirmation, and ADR 0037's
+    flip to `lahc_rr` against the post-Sprint-Grundschule refresh. Update
+    this assertion AND the ADR in lockstep when a future bake-off refresh
+    changes the verdict.
     """
     monkeypatch.setenv(
         "KZ_DATABASE_URL",
@@ -157,7 +160,7 @@ def test_solver_backend_default_is_production_choice(monkeypatch: pytest.MonkeyP
 
     settings = Settings(_env_file=None)  # ty: ignore[missing-argument, unknown-argument]
 
-    assert settings.solver_backend == "lahc_rr_kempe"
+    assert settings.solver_backend == "lahc_rr"
 
 
 def test_solve_deadline_ms_default_is_5000(monkeypatch: pytest.MonkeyPatch) -> None:
