@@ -198,5 +198,30 @@ proptest! {
         let report = quality_report(&problem, placements, &solution.violations, &weights);
         let expected = score_solution(&problem, placements, &weights);
         prop_assert_eq!(report.weighted_score, expected);
+        prop_assert_eq!(
+            report.class_gap_hours_by_class.values().copied().sum::<u32>(),
+            report.class_gap_hours,
+            "class_gap_hours_by_class sum invariant"
+        );
+        prop_assert_eq!(
+            report.teacher_gap_hours_by_teacher.values().copied().sum::<u32>(),
+            report.teacher_gap_hours,
+            "teacher_gap_hours_by_teacher sum invariant"
+        );
+        prop_assert_eq!(
+            report.home_room_misses_by_class.values().copied().sum::<u32>(),
+            report.home_room_misses,
+            "home_room_misses_by_class sum invariant"
+        );
+        prop_assert_eq!(
+            report.class_day_balance_cost_by_class.values().copied().sum::<u32>(),
+            report.class_day_balance_cost,
+            "class_day_balance_cost_by_class sum invariant"
+        );
+        // Skip-zero invariant: no entry holds value 0.
+        for (_, v) in report.class_gap_hours_by_class.iter() { prop_assert_ne!(*v, 0); }
+        for (_, v) in report.teacher_gap_hours_by_teacher.iter() { prop_assert_ne!(*v, 0); }
+        for (_, v) in report.home_room_misses_by_class.iter() { prop_assert_ne!(*v, 0); }
+        for (_, v) in report.class_day_balance_cost_by_class.iter() { prop_assert_ne!(*v, 0); }
     }
 }

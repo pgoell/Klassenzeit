@@ -8,7 +8,9 @@ use uuid::Uuid;
 macro_rules! define_id {
     ($name:ident, $doc:expr) => {
         #[doc = $doc]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+        )]
         #[serde(transparent)]
         pub struct $name(
             /// Underlying UUID value.
