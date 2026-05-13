@@ -113,7 +113,10 @@ pub struct QualityReport {
 
 /// Build a [`QualityReport`] for a solver result. Pure: depends only on
 /// the inputs; allocates per-call lookup `HashMap`s analogous to those
-/// in `score::score_solution`. Cold-path (post-solve / bench
+/// in `score::score_solution`, plus four per-axis attribution
+/// `BTreeMap`s (`class_gap_hours_by_class`, `teacher_gap_hours_by_teacher`,
+/// `class_day_balance_cost_by_class`, `home_room_misses_by_class`) keyed
+/// by the relevant solver-core ID newtype. Cold-path (post-solve / bench
 /// aggregation); never call from inside the LAHC inner loop.
 pub fn quality_report(
     problem: &Problem,
