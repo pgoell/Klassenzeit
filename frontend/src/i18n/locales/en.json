@@ -318,6 +318,11 @@
       },
       "dialog": {
         "deleteFooter": "Delete"
+      },
+      "kind": {
+        "label": "Kind",
+        "lesson": "Lesson",
+        "break": "Break"
       }
     }
   },
