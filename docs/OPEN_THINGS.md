@@ -23,7 +23,7 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 ### P1 (real Grundschule pain still un-modelled)
 
-3. **Pausen / Aufsichtspflichten + Vertretungsreserve.** Teachers in a Hessen Grundschule owe supervision-duty minutes during Hofpausen on a rota, and substitution reserve reduces teaching capacity below `max_hours_per_week`. The schema has no break metadata on `TimeBlock` (breaks are implicit gaps) and no `reserve_hours_per_week` on `Teacher`. Two sub-changes: (a) `TimeBlock.kind` enum or sibling `Break` table so supervision can be scheduled, (b) `Teacher.reserve_hours_per_week` subtracted from `max_hours_per_week` in the solver's capacity check. Trigger: a customer school tracks supervision.
+3. **Pausen / Aufsichtspflichten.** Teachers in a Hessen Grundschule owe supervision-duty minutes during Hofpausen on a rota. The schema has no break metadata on `TimeBlock` (breaks are implicit gaps), so supervision-duty cannot be scheduled. Add `TimeBlock.kind` enum or sibling `Break` table so supervision can be scheduled, with a per-teacher supervision-rota objective. Trigger: a customer school tracks supervision.
 
 4. **Teilzeit-Tage patterns on Teacher.** Part-time teachers are contracted to specific weekdays (e.g. Dana works Mo, Di, Mi). Today this is representable via 15 `teacher_availabilities` rows per off-day, which is verbose and the seed leaves it empty. Add `Teacher.working_days: set[int]` (or a higher-level "weekly pattern" model); the solver consults it before per-block availability. Trigger: a second real Teilzeit teacher enters demo data and the verbose availability grid starts to feel painful.
 
