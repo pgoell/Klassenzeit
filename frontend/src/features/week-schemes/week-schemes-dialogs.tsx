@@ -28,7 +28,7 @@ import {
   type WeekScheme,
 } from "./hooks";
 import { WeekSchemeFormSchema, type WeekSchemeFormValues } from "./schema";
-import { TimeBlocksTable } from "./time-blocks-table";
+import { TimeBlocksGrid } from "./time-blocks-grid";
 
 interface WeekSchemeFormDialogProps {
   open: boolean;
@@ -82,7 +82,7 @@ export function WeekSchemeFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -124,7 +124,7 @@ export function WeekSchemeFormDialog({
         </Form>
         {scheme ? (
           <div className="border-t pt-4">
-            <TimeBlocksTable schemeId={scheme.id} />
+            <TimeBlocksGrid schemeId={scheme.id} />
           </div>
         ) : null}
       </DialogContent>
