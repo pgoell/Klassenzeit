@@ -7,8 +7,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::error::Error;
+use crate::progress::ProgressBeacon;
 use crate::score::score_solution;
-use crate::solve::solve_with_config;
+use crate::solve::{solve_with_config, solve_with_progress};
 use crate::types::{Placement, Problem, SolveConfig, Violation};
 
 /// Solve a timetable problem supplied as a JSON string and return the resulting
@@ -50,6 +51,33 @@ pub fn solve_json_with_config(
         ..SolveConfig::default()
     };
     let solution = solve_with_config(&problem, &config)?;
+    serde_json::to_string(&solution).map_err(|e| Error::Input(format!("serialize: {e}")))
+}
+
+/// Like [`solve_json_with_config`] but with a [`ProgressBeacon`] for live
+/// progress reporting and cooperative cancel. The beacon is written every
+/// LAHC iteration; setting `beacon.request_cancel()` causes the loop to
+/// exit at the next iteration boundary and the returned `Solution` JSON
+/// carries `"was_cancelled": true`. Weights and config defaults match
+/// [`solve_json_with_config`] so the only knobs exposed are the deadline
+/// and the optional LAHC move-period overrides.
+pub fn solve_json_with_progress(
+    problem_json: &str,
+    deadline_ms: Option<u64>,
+    beacon: &std::sync::Arc<ProgressBeacon>,
+    lahc_rr_period: Option<u32>,
+    lahc_kempe_period: Option<u32>,
+) -> Result<String, Error> {
+    let problem: Problem =
+        serde_json::from_str(problem_json).map_err(|e| Error::Input(format!("json: {e}")))?;
+    let config = SolveConfig {
+        weights: crate::PRODUCTION_ACTIVE_WEIGHTS.clone(),
+        deadline: deadline_ms.map(Duration::from_millis),
+        lahc_rr_period,
+        lahc_kempe_period,
+        ..SolveConfig::default()
+    };
+    let (solution, _stats) = solve_with_progress(&problem, &config, beacon)?;
     serde_json::to_string(&solution).map_err(|e| Error::Input(format!("serialize: {e}")))
 }
 
