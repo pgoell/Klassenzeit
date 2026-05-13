@@ -35,8 +35,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 ### P2 (longer-arc; reopen on trigger)
 
-7. **Non-Timefold third-backend spike.** Trigger: a future `BENCH_RESULTS.md` refresh shows Rust LAHC variants and CP-SAT both plateau on the same quality axis. Candidate priority (per `docs/research/2026-05-08-third-solver-backend-candidates/`): (1) Pumpkin (Rust LCG-CP), (2) PySAT + RC2 MaxSAT, (3) good_lp + HiGHS MIP. Choco excluded (Java); GLPK excluded (GPL). A "no third-backend" ADR is a permissible outcome since no published benchmark documents a measurable win over CP-SAT on school timetabling. Anchor: item 56.
-
 8. **Schwimmunterricht buffers.** One Doppelstunde Schwimmen per Klasse 3 needs `Room.is_external: bool` + per-Lesson `pre_buffer_minutes`, `post_buffer_minutes` (Hessen Wegezeit ~10-15 min each way). Solver enforces buffer per-class and per-teacher (rooms unaffected). New `ViolationKind::TravelBufferConflict`. Bench: extend dreizügige fixture with the Klasse 3 Schwimmen lesson. Trigger: active sprint promotes this paused program back to active.
 
 9. **Block-aware FFD eligibility, LAHC Change move, and Swap move.** Today `ordering::ffd_order` ranks by `free-teacher-blocks * suitable-rooms`, ignoring contiguity (a length-2 lesson with same eligibility as length-1 is MORE constrained). LAHC's Change move skips block placements entirely; LAHC has no Swap move. Folding contiguity into FFD eligibility requires precomputing per-(teacher, day) free-position runs of length `>= n`; the block-aware Change move and Swap move both need a third RNG draw per iteration (determinism RNG-budget invariant shifts). Trigger: a fixture surfaces a real soft-score gap on block-heavy schedules.
