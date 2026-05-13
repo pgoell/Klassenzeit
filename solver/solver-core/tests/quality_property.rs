@@ -57,6 +57,7 @@ prop_compose! {
             .map(|i| Teacher {
                 id: TeacherId(quality_property_id_from(1000 + i as u32)),
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             })
             .collect();
         let teacher_qualifications: Vec<TeacherQualification> = teachers

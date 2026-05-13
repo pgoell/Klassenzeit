@@ -84,6 +84,7 @@ fn forced_hop_problem() -> Problem {
         teachers: vec![Teacher {
             id: teacher,
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: r0 }, Room { id: r1 }],
         subjects: vec![Subject {
@@ -174,6 +175,7 @@ fn same_room_grundschule() -> Problem {
         .map(|i| Teacher {
             id: TeacherId(same_room_uuid(30 + i)),
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         })
         .collect();
 

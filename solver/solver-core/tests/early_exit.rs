@@ -47,6 +47,7 @@ fn lahc_exits_at_objective_floor_well_before_deadline() {
         teachers: vec![Teacher {
             id: teacher_id,
             max_hours_per_week: 30,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room_id }],
         subjects: vec![Subject {

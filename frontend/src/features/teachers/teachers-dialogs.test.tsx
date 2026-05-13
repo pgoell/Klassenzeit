@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -23,6 +24,7 @@ const teacherFixture = {
   last_name: "Müller",
   short_code: "MUE",
   max_hours_per_week: 25,
+  reserve_hours_per_week: 0,
   is_active: true,
   subject_ids: [],
   created_at: "2026-04-17T00:00:00Z",
@@ -156,5 +158,90 @@ describe("TeacherFormDialog Klassenlehrer-of badge", () => {
 
     await screen.findByRole("dialog");
     expect(screen.queryByText(/class teacher of/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("TeacherFormDialog reserve_hours_per_week", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  test("renders reserve_hours_per_week input with default 0 in create mode", async () => {
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+
+    render(
+      wrapTeacherDialog(<TeacherFormDialog open onOpenChange={() => {}} submitLabel="Save" />),
+    );
+    const reserveInput = await screen.findByLabelText(/reserve hours/i);
+    expect(reserveInput).toHaveValue(0);
+  });
+
+  test("submits reserve_hours_per_week with the mutation payload", async () => {
+    stubTeacherSubresources(TEACHER_ID);
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+    let captured: Record<string, unknown> | null = null;
+    server.use(
+      http.patch(`http://localhost:3000/api/teachers/${TEACHER_ID}`, async ({ request }) => {
+        captured = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...teacherFixture, reserve_hours_per_week: 4 });
+      }),
+    );
+
+    render(
+      wrapTeacherDialog(
+        <TeacherFormDialog
+          open
+          onOpenChange={() => {}}
+          submitLabel="Save"
+          teacher={{ ...teacherFixture, reserve_hours_per_week: 0 }}
+        />,
+      ),
+    );
+
+    const user = userEvent.setup();
+    const reserveInput = await screen.findByLabelText(/reserve hours/i);
+    await user.clear(reserveInput);
+    await user.type(reserveInput, "4");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured).toMatchObject({ reserve_hours_per_week: 4 });
+  });
+
+  test("soft warning appears when reserve >= max", async () => {
+    stubTeacherSubresources(TEACHER_ID);
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+
+    render(
+      wrapTeacherDialog(
+        <TeacherFormDialog
+          open
+          onOpenChange={() => {}}
+          submitLabel="Save"
+          teacher={{ ...teacherFixture, max_hours_per_week: 10, reserve_hours_per_week: 10 }}
+        />,
+      ),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/leaves no teaching capacity/i)).toBeInTheDocument();
+    });
+  });
+
+  test("soft warning is absent when reserve < max", async () => {
+    stubTeacherSubresources(TEACHER_ID);
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+
+    render(
+      wrapTeacherDialog(
+        <TeacherFormDialog
+          open
+          onOpenChange={() => {}}
+          submitLabel="Save"
+          teacher={{ ...teacherFixture, max_hours_per_week: 10, reserve_hours_per_week: 9 }}
+        />,
+      ),
+    );
+    await screen.findByLabelText(/reserve hours/i);
+    expect(screen.queryByText(/leaves no teaching capacity/i)).not.toBeInTheDocument();
   });
 });

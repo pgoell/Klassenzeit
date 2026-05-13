@@ -19,6 +19,9 @@ class Teacher(Base):
     last_name: Mapped[str] = mapped_column(String(100))
     short_code: Mapped[str] = mapped_column(String(10), unique=True)
     max_hours_per_week: Mapped[int] = mapped_column(SmallInteger)
+    reserve_hours_per_week: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0"
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

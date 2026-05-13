@@ -108,6 +108,7 @@ prop_compose! {
             .map(|i| Teacher {
                 id: TeacherId(lahc_id_from(1000 + i as u32)),
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             })
             .collect();
         let teacher_qualifications: Vec<TeacherQualification> = teachers
@@ -699,10 +700,12 @@ fn canonical_score_test_problem() -> Problem {
             Teacher {
                 id: teacher_a,
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             },
             Teacher {
                 id: teacher_b,
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             },
         ],
         rooms: vec![Room { id: room0 }, Room { id: room1 }],
@@ -789,6 +792,7 @@ fn build_lahc_pinned_problem() -> Problem {
         teachers: vec![Teacher {
             id: teacher,
             max_hours_per_week: 40,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room }],
         subjects: vec![Subject {

@@ -137,7 +137,7 @@ fn solve_with_config_stats_inner(
     let teacher_max: HashMap<TeacherId, u8> = problem
         .teachers
         .iter()
-        .map(|t| (t.id, t.max_hours_per_week))
+        .map(|t| (t.id, t.effective_max_hours_per_week()))
         .collect();
     let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = problem
         .school_classes
@@ -2006,6 +2006,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: TeacherId(solve_uuid(20)),
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room {
                 id: RoomId(solve_uuid(30)),
@@ -2202,6 +2203,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(21)),
@@ -2280,6 +2282,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(21)),
@@ -2626,6 +2629,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(21)),
@@ -2687,6 +2691,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(21)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(21)),
@@ -2794,6 +2799,7 @@ mod tests {
         p.teachers.push(Teacher {
             id: TeacherId(solve_uuid(22)),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         });
         p.teacher_qualifications.push(TeacherQualification {
             teacher_id: TeacherId(solve_uuid(22)),
@@ -3246,6 +3252,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher_id,
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: r0 }, Room { id: r1 }],
             school_classes: vec![SchoolClass {
@@ -3384,6 +3391,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher_id,
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: r0 }, Room { id: r1 }],
             school_classes: vec![SchoolClass {
@@ -3577,6 +3585,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher_id,
                 max_hours_per_week: 30,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
@@ -3772,10 +3781,12 @@ mod tests {
             Teacher {
                 id: t1,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
             Teacher {
                 id: t2,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
         ];
 
@@ -3925,10 +3936,12 @@ mod tests {
             Teacher {
                 id: t1,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
             Teacher {
                 id: t2,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
         ];
 
@@ -4079,14 +4092,17 @@ mod tests {
             Teacher {
                 id: t0,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
             Teacher {
                 id: t1,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
             Teacher {
                 id: t2,
                 max_hours_per_week: 28,
+                reserve_hours_per_week: 0,
             },
         ];
         let rooms: Vec<Room> = (0..3)

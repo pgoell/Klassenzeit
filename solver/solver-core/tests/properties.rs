@@ -209,6 +209,7 @@ proptest! {
         let teacher = Teacher {
             id: TeacherId(Uuid::from_bytes([20; 16])),
             max_hours_per_week: 10,
+            reserve_hours_per_week: 0,
         };
         let room = Room {
             id: RoomId(Uuid::from_bytes([30; 16])),

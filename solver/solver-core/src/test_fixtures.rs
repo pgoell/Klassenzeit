@@ -44,6 +44,7 @@ pub fn grundschule_fixture() -> Problem {
         .map(|i| Teacher {
             id: TeacherId(fixture_uuid(30 + i)),
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         })
         .collect();
 
@@ -154,6 +155,7 @@ pub fn zweizuegig_fixture() -> Problem {
         .map(|i| Teacher {
             id: TeacherId(fixture_uuid(40 + i)),
             max_hours_per_week: teacher_max_hours[i as usize],
+            reserve_hours_per_week: 0,
         })
         .collect();
 
@@ -369,6 +371,7 @@ pub fn dreizuegig_fixture() -> Problem {
         .map(|i| Teacher {
             id: TeacherId(fixture_uuid(46 + i)),
             max_hours_per_week: teacher_max_hours[i as usize],
+            reserve_hours_per_week: 0,
         })
         .collect();
 
@@ -714,26 +717,32 @@ pub fn ffd_lock_in_grundschule() -> Problem {
         Teacher {
             id: mue,
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         },
         Teacher {
             id: sch,
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         },
         Teacher {
             id: web,
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         },
         Teacher {
             id: fis,
             max_hours_per_week: 28,
+            reserve_hours_per_week: 0,
         },
         Teacher {
             id: bec,
             max_hours_per_week: 18,
+            reserve_hours_per_week: 0,
         },
         Teacher {
             id: hof,
             max_hours_per_week: 21,
+            reserve_hours_per_week: 0,
         },
     ];
 

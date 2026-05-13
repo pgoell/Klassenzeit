@@ -35,6 +35,7 @@ prop_compose! {
         let teachers: Vec<Teacher> = (0..n_teachers).map(|i| Teacher {
             id: TeacherId(id_from(u32::try_from(i).unwrap_or(0) + 2000)),
             max_hours_per_week: 30,
+            reserve_hours_per_week: 0,
         }).collect();
 
         let rooms: Vec<Room> = (0..n_rooms).map(|i| Room {
@@ -144,7 +145,7 @@ proptest! {
         let tb_id = TimeBlockId(Uuid::from_u128(0xFF));
         let problem = Problem {
             time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position }],
-            teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10 }],
+            teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10, reserve_hours_per_week: 0 }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
                 id: subject_id,
@@ -197,7 +198,7 @@ proptest! {
         let tb_id = TimeBlockId(Uuid::from_u128(0xFF));
         let problem = Problem {
             time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position }],
-            teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10 }],
+            teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10, reserve_hours_per_week: 0 }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
                 id: subject_id,
@@ -262,6 +263,7 @@ fn build_class_day_balance_problem() -> Problem {
         teachers: vec![Teacher {
             id: teacher_id,
             max_hours_per_week: 30,
+            reserve_hours_per_week: 0,
         }],
         rooms: vec![Room { id: room_id }],
         subjects: vec![Subject {

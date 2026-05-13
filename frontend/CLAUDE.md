@@ -27,7 +27,7 @@ Stack: Vite + React 19, TanStack Router + Query, shadcn/ui, React Hook Form + Zo
 
 - **No `useEffect` for derived state** (compute during render; sync via `key` or derive inline; enforced by `scripts/check_use_effect_sync.py`). No `useState` for data you can recompute. No defensive `useMemo` / `useCallback`. No `forwardRef` in new components (React 19 treats `ref` as a plain prop). No array index as `key` (define `const SLOTS = [...]` and key by the string). `useEffect` mount gate is acceptable only for third-party sync (e.g. `next-themes`).
 - **Draft-from-fetch editors use outer/inner.** Outer fetches and returns `null` while loading; inner takes the entity as a prop and seeds local draft via `useState(() => seedFrom(entity))`. Pattern: `features/rooms/room-availability-grid.tsx`.
-- **Verify a shadcn primitive exists in `frontend/src/components/ui/` before importing it.** New ones require `pnpm -C frontend add @radix-ui/react-<name>` plus pasting the canonical shadcn body.
+- **Verify a shadcn primitive exists in `frontend/src/components/ui/` before importing it.** New ones require `mise exec -- pnpm -C frontend add @radix-ui/react-<name>` plus pasting the canonical shadcn body.
 - **`enabled: id !== null` hooks need `id || null` coercion when the id source is a form field.** RHF + Radix Select emit `""` for unset state, not `null`. Coerce at the call site.
 
 ## Server state and routing
@@ -57,6 +57,7 @@ Stack: Vite + React 19, TanStack Router + Query, shadcn/ui, React Hook Form + Zo
 - **No date or number formatting with `toString()`.** Use `Intl.*Format` seeded from `i18n.language`.
 - **`t()` keys are typed against `en.json`** via `src/i18n/types.d.ts`; renames break call sites at type-check time. Locale JSON lives at `src/i18n/locales/{en,de}.json`, not `src/locales/`.
 - **No template-literal keys at call sites.** Build `{ key, label }` arrays with literal keys, or extract a helper that returns a template-literal type (see `src/i18n/day-keys.ts`).
+- **Grep `locales/en.json` before assuming a sibling i18n key exists.** Adjacent fields can live in different sub-trees (e.g. `teachers.columns.maxHoursPerWeek` exists but `teachers.fields.maxHoursPerWeek` does not). Adding a new key under an assumed parent silently inflates `en.json` with an unused namespace; verify the namespace your call site reads.
 
 ## Accessibility
 
@@ -78,6 +79,7 @@ Stack: Vite + React 19, TanStack Router + Query, shadcn/ui, React Hook Form + Zo
 - **Sub-resource MSW handlers need mutable per-test state.** Export a mutable `Record<parentId, Array<child>>` from `tests/msw-handlers.ts` and reset in `beforeEach`.
 - **Test utilities live at `frontend/tests/render-helpers.tsx`.** `renderWithProviders` is async; for pure-UI components use a local `QueryClientProvider` wrapper and `render` directly (see `wrapRoomDialog` in `rooms-dialogs.test.tsx`). It mounts at `/` with no `initialEntries`; pages reading TanStack Router search params need `createMemoryHistory({ initialEntries: [...] })` + `createRouter(...)` + `<RouterProvider />` (see `schedule-page.test.tsx`). It returns the `QueryClient`; destructure when a test drives `queryClient.invalidateQueries(...)`.
 - **Component tests querying English labels must pin the locale:** `i18n.changeLanguage("en")` in `beforeAll`. Use `<entity>DetailQueryKey(id)` helpers when invalidating queries.
+- **Form-button selectors in dialog tests need anchored regex.** `getByRole("button", { name: /save/i })` matches the primary submit AND sibling sub-resource editor "Save qualifications" / "Save availability" buttons; use `/^save$/i` to pick the form's primary button only.
 - **`vi.useFakeTimers()` without `toFake` hangs `waitFor`.** Use `{ toFake: ["Date"] }`.
 - **Frontend coverage ratchet** fails CI below `.coverage-baseline-frontend` or the 50% floor; rebaseline with `mise run fe:cov:update-baseline`. MSW handlers are required for every endpoint (`tests/setup.ts` starts `setupServer` with `onUnhandledRequest: "error"`).
 

@@ -45,6 +45,7 @@ pub fn feasible_problem(
         .map(|i| Teacher {
             id: TeacherId(common_uuid(50 + i)),
             max_hours_per_week: 255,
+            reserve_hours_per_week: 0,
         })
         .collect();
 

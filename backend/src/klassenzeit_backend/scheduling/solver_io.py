@@ -363,7 +363,12 @@ async def build_problem_json(
             for tb in time_blocks
         ],
         "teachers": [
-            {"id": str(t.id), "max_hours_per_week": t.max_hours_per_week} for t in teachers
+            {
+                "id": str(t.id),
+                "max_hours_per_week": t.max_hours_per_week,
+                "reserve_hours_per_week": t.reserve_hours_per_week,
+            }
+            for t in teachers
         ],
         "rooms": [{"id": str(r.id)} for r in rooms],
         "subjects": [

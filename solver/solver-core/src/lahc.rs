@@ -146,7 +146,7 @@ pub(crate) fn run(
     let teacher_max: HashMap<TeacherId, u8> = problem
         .teachers
         .iter()
-        .map(|t| (t.id, t.max_hours_per_week))
+        .map(|t| (t.id, t.effective_max_hours_per_week()))
         .collect();
     // Sum of `hours_per_week` across all lessons is the placement-count floor:
     // every lesson-hour materialises as one `Placement`. The LAHC loop can exit
@@ -3726,6 +3726,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher,
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: room }],
             subjects: vec![Subject {
@@ -3854,6 +3855,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher,
                 max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: room }],
             subjects: vec![Subject {
@@ -4001,10 +4003,12 @@ mod tests {
                 Teacher {
                     id: teacher_a,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher_b,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room_a }, Room { id: room_b }],
@@ -4299,10 +4303,12 @@ mod tests {
                 Teacher {
                     id: teacher_a,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher_b,
                     max_hours_per_week: 10,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room_a }, Room { id: room_b }],
@@ -4496,6 +4502,7 @@ mod tests {
             .map(|i| Teacher {
                 id: TeacherId(lahc_uuid(20 + i)),
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             })
             .collect();
         let qualifications: Vec<TeacherQualification> = teachers_v
@@ -4956,14 +4963,17 @@ mod tests {
                 Teacher {
                     id: t0,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: t1,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: t2,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room }],
@@ -5116,6 +5126,7 @@ mod tests {
             .map(|i| Teacher {
                 id: TeacherId(lahc_uuid(20 + i)),
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             })
             .collect();
         let qualifications: Vec<TeacherQualification> = teachers_v
@@ -5292,10 +5303,12 @@ mod tests {
                 Teacher {
                     id: teacher0,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher1,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room }],
@@ -5551,14 +5564,17 @@ mod tests {
                 Teacher {
                     id: teacher0,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher1,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: teacher_lock,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room_a }, Room { id: room_b }],
@@ -5871,6 +5887,7 @@ mod tests {
             teachers: vec![Teacher {
                 id: teacher,
                 max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
             }],
             rooms: vec![Room { id: room }],
             subjects: vec![Subject {
@@ -5997,14 +6014,17 @@ mod tests {
                 Teacher {
                     id: t1,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: t2,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
                 Teacher {
                     id: t3,
                     max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
                 },
             ],
             rooms: vec![Room { id: room }],

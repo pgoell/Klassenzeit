@@ -47,6 +47,7 @@ export function TeacherFormDialog({
       last_name: teacher?.last_name ?? "",
       short_code: teacher?.short_code ?? "",
       max_hours_per_week: teacher?.max_hours_per_week ?? 1,
+      reserve_hours_per_week: teacher?.reserve_hours_per_week ?? 0,
     },
   });
   const createMutation = useCreateTeacher();
@@ -150,6 +151,30 @@ export function TeacherFormDialog({
                     />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="reserve_hours_per_week"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("teachers.fields.reserveHoursPerWeek")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={field.value}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                  {form.watch("max_hours_per_week") > 0 &&
+                    form.watch("reserve_hours_per_week") >= form.watch("max_hours_per_week") && (
+                      <p className="text-sm text-amber-600">
+                        {t("teachers.fields.reserveExceedsMaxWarning")}
+                      </p>
+                    )}
                 </FormItem>
               )}
             />

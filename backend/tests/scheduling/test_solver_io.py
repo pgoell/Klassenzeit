@@ -257,6 +257,45 @@ async def test_build_problem_json_returns_populated_shape(
     }
 
 
+async def test_build_problem_json_emits_teacher_reserve_hours_per_week(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """Each teacher dict on the Problem payload carries reserve_hours_per_week."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    await create_time_block(week_scheme_id=scheme.id, position=1)
+    await create_room()
+    teacher = await create_teacher(reserve_hours_per_week=3)
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem = json.loads(problem_json)
+
+    teacher_dicts = problem["teachers"]
+    assert len(teacher_dicts) == 1, teacher_dicts
+    assert teacher_dicts[0]["reserve_hours_per_week"] == 3
+    assert teacher_dicts[0]["max_hours_per_week"] == teacher.max_hours_per_week
+
+
 async def test_build_problem_json_raises_404_for_unknown_class(
     db_session: AsyncSession,
 ) -> None:

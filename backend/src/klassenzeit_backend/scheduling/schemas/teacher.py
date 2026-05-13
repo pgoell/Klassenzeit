@@ -14,6 +14,7 @@ class TeacherCreate(BaseModel):
     last_name: str
     short_code: str
     max_hours_per_week: int = Field(ge=1)
+    reserve_hours_per_week: int = Field(default=0, ge=0)
 
 
 class TeacherUpdate(BaseModel):
@@ -23,6 +24,7 @@ class TeacherUpdate(BaseModel):
     last_name: str | None = None
     short_code: str | None = None
     max_hours_per_week: int | None = Field(default=None, ge=1)
+    reserve_hours_per_week: int | None = Field(default=None, ge=0)
 
 
 class QualificationResponse(BaseModel):
@@ -50,6 +52,7 @@ class TeacherListResponse(BaseModel):
     last_name: str
     short_code: str
     max_hours_per_week: int
+    reserve_hours_per_week: int
     is_active: bool
     subject_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
@@ -64,6 +67,7 @@ class TeacherDetailResponse(BaseModel):
     last_name: str
     short_code: str
     max_hours_per_week: int
+    reserve_hours_per_week: int
     is_active: bool
     qualifications: list[QualificationResponse]
     availability: list[TeacherAvailabilityEntry]

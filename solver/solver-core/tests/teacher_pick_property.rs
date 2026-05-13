@@ -28,6 +28,7 @@ fn pinned_problem_with_n_candidates(num_candidates: u8, pin_idx: u8) -> Problem 
         .map(|tid| Teacher {
             id: *tid,
             max_hours_per_week: 40,
+            reserve_hours_per_week: 0,
         })
         .collect();
     let pin = candidates[pin_idx as usize];
