@@ -28,7 +28,7 @@ from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.user import User
-from klassenzeit_backend.db.models.week_scheme import TimeBlock
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.main import app
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
@@ -54,6 +54,13 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
     A lesson can serve multiple classes via lesson_school_classes; each
     membership produces its own Placement so per-class predicates see
     every class the lesson lands in.
+
+    ``Placement.position`` is the **lesson ordinal** within the day (1 =
+    first lesson slot, 2 = second, ...), not the raw ``TimeBlock.position``.
+    Break rows occupy ordinal positions in the seed (Hofpause at raw
+    positions 3 and 6); the quality predicates here measure lesson-sequence
+    properties (interior gaps, day length), so projecting onto lesson
+    ordinals is what the bar means.
     """
     rows = (
         await db.execute(
@@ -71,6 +78,7 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
             .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
         )
     ).all()
+    lesson_ordinal_by_day_pos = await _build_lesson_ordinal_map(db)
     return [
         Placement(
             class_id=row.school_class_id,
@@ -79,10 +87,34 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
             room_id=row.room_id,
             lesson_id=row.lesson_id,
             time_block_id=row.time_block_id,
-            position=row.position,
+            position=lesson_ordinal_by_day_pos[(row.day_of_week, row.position)],
         )
         for row in rows
     ]
+
+
+async def _build_lesson_ordinal_map(db: AsyncSession) -> dict[tuple[int, int], int]:
+    """Map ``(day_of_week, raw position)`` to the 1-based lesson ordinal.
+
+    Iterates LESSON-kind TimeBlocks ordered by ``(day_of_week, position)``
+    and assigns an ordinal per day. Break rows are absent from the map;
+    the solver never places lessons on break slots (see
+    ``solver_io.build_problem_json`` filter), so any Placement lookup is
+    guaranteed to hit a lesson row.
+    """
+    rows = (
+        await db.execute(
+            select(TimeBlock.day_of_week, TimeBlock.position)
+            .where(TimeBlock.kind == TimeBlockKind.LESSON)
+            .order_by(TimeBlock.day_of_week, TimeBlock.position)
+        )
+    ).all()
+    ordinals: dict[tuple[int, int], int] = {}
+    per_day_counter: dict[int, int] = {}
+    for row in rows:
+        per_day_counter[row.day_of_week] = per_day_counter.get(row.day_of_week, 0) + 1
+        ordinals[(row.day_of_week, row.position)] = per_day_counter[row.day_of_week]
+    return ordinals
 
 
 async def _load_class_teacher_lookup_grundschule(

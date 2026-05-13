@@ -2566,7 +2566,15 @@ export interface components {
              * Format: time
              */
             end_time: string;
+            /** @default lesson */
+            kind: components["schemas"]["TimeBlockKind"];
         };
+        /**
+         * TimeBlockKind
+         * @description Kind of a time block: bookable lesson slot vs non-bookable break.
+         * @enum {string}
+         */
+        TimeBlockKind: "lesson" | "break";
         /**
          * TimeBlockResponse
          * @description Response body for a time block.
@@ -2591,6 +2599,7 @@ export interface components {
              * Format: time
              */
             end_time: string;
+            kind: components["schemas"]["TimeBlockKind"];
         };
         /**
          * TimeBlockUpdate
@@ -2605,6 +2614,7 @@ export interface components {
             start_time?: string | null;
             /** End Time */
             end_time?: string | null;
+            kind?: components["schemas"]["TimeBlockKind"] | null;
         };
         /**
          * UserListItem

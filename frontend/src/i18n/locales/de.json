@@ -318,6 +318,11 @@
       },
       "dialog": {
         "deleteFooter": "Löschen"
+      },
+      "kind": {
+        "label": "Art",
+        "lesson": "Stunde",
+        "break": "Pause"
       }
     }
   },

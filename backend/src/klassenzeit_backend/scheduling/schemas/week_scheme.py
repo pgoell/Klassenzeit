@@ -5,6 +5,8 @@ from datetime import datetime, time
 
 from pydantic import BaseModel, Field
 
+from klassenzeit_backend.db.models.week_scheme import TimeBlockKind
+
 
 class TimeBlockCreate(BaseModel):
     """Request body for creating a time block."""
@@ -13,6 +15,7 @@ class TimeBlockCreate(BaseModel):
     position: int = Field(ge=1)
     start_time: time
     end_time: time
+    kind: TimeBlockKind = TimeBlockKind.LESSON
 
 
 class TimeBlockUpdate(BaseModel):
@@ -22,6 +25,7 @@ class TimeBlockUpdate(BaseModel):
     position: int | None = Field(default=None, ge=1)
     start_time: time | None = None
     end_time: time | None = None
+    kind: TimeBlockKind | None = None
 
 
 class TimeBlockResponse(BaseModel):
@@ -32,6 +36,7 @@ class TimeBlockResponse(BaseModel):
     position: int
     start_time: time
     end_time: time
+    kind: TimeBlockKind
 
 
 class WeekSchemeCreate(BaseModel):

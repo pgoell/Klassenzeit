@@ -31,7 +31,7 @@ from klassenzeit_backend.db.models.teacher import (
     TeacherAvailability,
     TeacherQualification,
 )
-from klassenzeit_backend.db.models.week_scheme import TimeBlock
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.scheduling.schemas.schedule import (
     ClassScheduleSummary,
     PlacementResponse,
@@ -209,7 +209,10 @@ async def build_problem_json(
     time_blocks = (
         (
             await db.execute(
-                select(TimeBlock).where(TimeBlock.week_scheme_id == requested_class.week_scheme_id)
+                select(TimeBlock).where(
+                    TimeBlock.week_scheme_id == requested_class.week_scheme_id,
+                    TimeBlock.kind == TimeBlockKind.LESSON,
+                )
             )
         )
         .scalars()

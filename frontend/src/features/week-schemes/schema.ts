@@ -12,5 +12,6 @@ export const TimeBlockFormSchema = z.object({
   position: z.number().int().min(1),
   start_time: z.string().regex(/^[0-2][0-9]:[0-5][0-9]$/, "invalid_time"),
   end_time: z.string().regex(/^[0-2][0-9]:[0-5][0-9]$/, "invalid_time"),
+  kind: z.enum(["lesson", "break"]),
 });
 export type TimeBlockFormValues = z.infer<typeof TimeBlockFormSchema>;

@@ -212,6 +212,7 @@ function TimeBlockFormDialog({
       position: isEdit ? mode.block.position : mode.position,
       start_time: isEdit ? mode.block.start_time.slice(0, 5) : (mode.defaultStart ?? "08:00"),
       end_time: isEdit ? mode.block.end_time.slice(0, 5) : (mode.defaultEnd ?? "08:45"),
+      kind: isEdit ? (mode.block.kind ?? "lesson") : "lesson",
     },
   });
   const submitting = createMutation.isPending || updateMutation.isPending;
@@ -222,6 +223,7 @@ function TimeBlockFormDialog({
       position: values.position,
       start_time: `${values.start_time}:00`,
       end_time: `${values.end_time}:00`,
+      kind: values.kind,
     };
     try {
       if (mode.mode === "edit") {
@@ -323,6 +325,34 @@ function TimeBlockFormDialog({
                   <FormControl>
                     <Input type="time" {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="kind"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("weekSchemes.timeBlocks.kind.label")}</FormLabel>
+                  <Select
+                    value={field.value}
+                    onValueChange={(value) => field.onChange(value as "lesson" | "break")}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="lesson">
+                        {t("weekSchemes.timeBlocks.kind.lesson")}
+                      </SelectItem>
+                      <SelectItem value="break">
+                        {t("weekSchemes.timeBlocks.kind.break")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

@@ -107,7 +107,7 @@ export function SchedulePageClassView() {
   );
   const expectedHours = classLessons.reduce((sum, l) => sum + l.hours_per_week, 0);
 
-  const cells: ScheduleCell[] = placements
+  const placementCells: ScheduleCell[] = placements
     .map((p): ScheduleCell | undefined => {
       const lesson = lessonById.get(p.lesson_id);
       const block = timeBlockById.get(p.time_block_id);
@@ -124,9 +124,23 @@ export function SchedulePageClassView() {
         timeBlockId: p.time_block_id,
         roomId: p.room_id,
         pinned: p.pinned,
+        kind: block.kind,
       };
     })
     .filter((c): c is ScheduleCell => c !== undefined);
+  // Break time blocks render as non-bookable cells regardless of placement.
+  const breakCells: ScheduleCell[] = (weekScheme.data?.time_blocks ?? [])
+    .filter((b) => b.kind === "break")
+    .map((b) => ({
+      key: `break:${b.day_of_week}:${b.position}`,
+      day: b.day_of_week,
+      position: b.position,
+      subjectName: "",
+      roomName: "",
+      timeBlockId: b.id,
+      kind: b.kind,
+    }));
+  const cells: ScheduleCell[] = [...placementCells, ...breakCells];
 
   const daysPresent = Array.from(
     new Set((weekScheme.data?.time_blocks ?? []).map((b) => b.day_of_week)),
