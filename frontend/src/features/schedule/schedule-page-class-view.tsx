@@ -1,6 +1,6 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Calendar } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
@@ -11,11 +11,18 @@ import { useSchoolClasses } from "@/features/school-classes/hooks";
 import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemeDetail } from "@/features/week-schemes/hooks";
 import { ApiError } from "@/lib/api-client";
+import type { components } from "@/lib/api-types";
 import { ClassHeaderBand } from "./class-header-band";
 import { useClassSchedule, useGenerateClassSchedule, type Violation } from "./hooks";
+import { QualityIssueSidebar } from "./quality-issue-sidebar";
 import { type ScheduleCell, ScheduleGrid } from "./schedule-grid";
 import { ScheduleStatus } from "./schedule-status";
 import { ScheduleToolbar } from "./schedule-toolbar";
+
+type QualityIssue = components["schemas"]["QualityIssueResponse"];
+type CellCoord = components["schemas"]["CellCoord"];
+
+const HIGHLIGHT_FADE_MS = 2500;
 
 const SKEL_DAYS = ["d1", "d2", "d3", "d4", "d5"] as const;
 const SKEL_POSITIONS = ["p1", "p2", "p3", "p4", "p5", "p6"] as const;
@@ -37,10 +44,15 @@ export function SchedulePageClassView() {
 
   const [confirming, setConfirming] = useState(false);
   const [postViolations, setPostViolations] = useState<Violation[] | undefined>();
+  const [postQualityIssues, setPostQualityIssues] = useState<QualityIssue[] | undefined>();
+  const [highlightedCells, setHighlightedCells] = useState<CellCoord[] | null>(null);
+  const fadeTimerRef = useRef<number | null>(null);
 
   function onClassChange(id: string) {
     setConfirming(false);
     setPostViolations(undefined);
+    setPostQualityIssues(undefined);
+    setHighlightedCells(null);
     void navigate({ to: "/schedule", search: { class: id } });
   }
 
@@ -54,6 +66,7 @@ export function SchedulePageClassView() {
     try {
       const result = await generate.mutateAsync(classId);
       setPostViolations(result.violations);
+      setPostQualityIssues(result.quality_issues);
       setConfirming(false);
       toast.success(t("schedule.generate.successToast", { count: result.placements.length }));
     } catch (err) {
@@ -61,6 +74,32 @@ export function SchedulePageClassView() {
       toast.error(msg || t("schedule.generate.errorToast"));
     }
   };
+
+  const handleIssueClick = (issue: QualityIssue) => {
+    const cells = issue.cells ?? [];
+    if (cells.length === 0) return;
+    if (fadeTimerRef.current !== null) {
+      window.clearTimeout(fadeTimerRef.current);
+    }
+    setHighlightedCells(cells);
+    fadeTimerRef.current = window.setTimeout(() => {
+      setHighlightedCells(null);
+      fadeTimerRef.current = null;
+    }, HIGHLIGHT_FADE_MS);
+  };
+
+  // Scroll the first highlighted cell into view whenever the highlight set
+  // changes. The setter is invoked from user clicks so this effect drives a
+  // DOM side-effect, not derived state.
+  useEffect(() => {
+    if (!highlightedCells || highlightedCells.length === 0) return;
+    const first = highlightedCells[0];
+    if (!first) return;
+    const el = document.querySelector(
+      `[data-cell-day="${first.day_of_week}"][data-cell-pos="${first.position}"]`,
+    );
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedCells]);
 
   if (!classId) {
     return (
@@ -101,6 +140,9 @@ export function SchedulePageClassView() {
   const roomById = new Map((rooms.data ?? []).map((r) => [r.id, r]));
   const teacherById = new Map((teachers.data ?? []).map((t) => [t.id, t]));
   const timeBlockById = new Map((weekScheme.data?.time_blocks ?? []).map((b) => [b.id, b]));
+  const subjectNameById = new Map((lessons.data ?? []).map((l) => [l.subject.id, l.subject.name]));
+  // Prefer the freshly-solved POST issues; fall back to the GET readback.
+  const qualityIssues = postQualityIssues ?? schedule.data?.quality_issues ?? [];
 
   const classLessons = (lessons.data ?? []).filter((l) =>
     l.school_classes.some((c) => c.id === classId),
@@ -200,13 +242,21 @@ export function SchedulePageClassView() {
             violations={postViolations}
             lessonById={lessonById}
           />
-          <ScheduleGrid
-            cells={cells}
-            daysPresent={daysPresent}
-            positions={positions}
-            dragEnabled
-            timeBlocksByDayPosition={timeBlocksByDayPosition}
-          />
+          <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
+            <ScheduleGrid
+              cells={cells}
+              daysPresent={daysPresent}
+              positions={positions}
+              dragEnabled
+              timeBlocksByDayPosition={timeBlocksByDayPosition}
+              highlightedCells={highlightedCells ?? undefined}
+            />
+            <QualityIssueSidebar
+              issues={qualityIssues}
+              onIssueClick={handleIssueClick}
+              subjectMap={subjectNameById}
+            />
+          </div>
         </>
       )}
     </>

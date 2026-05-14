@@ -427,6 +427,36 @@
       "classSubjectTeacherSplit": "{{subject}} (hour {{hour}}): different teachers were assigned to this class for the same subject.",
       "supervisionGap": "Supervision: no eligible supervisor available for a Hofpause slot."
     },
+    "qualityIssues": {
+      "title": "Quality issues",
+      "empty": "No quality issues found.",
+      "kind": {
+        "room_hop": {
+          "title": "Room hop",
+          "description": "{{subject}} on {{day}} switches rooms."
+        },
+        "imbalance": {
+          "title": "Imbalanced day load",
+          "description": "Daily lesson spread of {{spread}} exceeds the threshold of {{max_spread}}."
+        },
+        "home_room_miss": {
+          "title": "Home-room miss",
+          "description": "Only {{hits}} of {{total}} non-exempt lessons happen in the home room (min ratio {{min_ratio}})."
+        },
+        "day_too_long": {
+          "title": "Day too long",
+          "description": "{{day}} has a lesson at ordinal position {{worst_position}} (max {{max_position}})."
+        },
+        "interior_gap": {
+          "title": "Interior gaps",
+          "description": "{{total_gaps}} interior gap(s) exceed the threshold of {{max_gaps_per_class}}."
+        },
+        "class_teacher_subject_share": {
+          "title": "Class teacher share",
+          "description": "{{subject}} is taught by other teachers in addition to the Klassenlehrer."
+        }
+      }
+    },
     "cellDeletedLesson": "(deleted lesson)"
   },
   "schoolClasses": {

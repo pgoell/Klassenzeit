@@ -61,6 +61,9 @@ interface ScheduleGridProps {
   // read-only without ceremony.
   dragEnabled?: boolean;
   timeBlocksByDayPosition?: Map<string, string>;
+  // Cells to render with a temporary amber ring (quality-issue highlight).
+  // Matched by raw (day, position); pass an empty / undefined list to clear.
+  highlightedCells?: ReadonlyArray<{ day_of_week: number; position: number }>;
 }
 
 interface DraggablePlacementCardProps {
@@ -109,9 +112,21 @@ interface DroppableSlotProps {
   children: React.ReactNode;
   className?: string;
   variant?: "period" | undefined;
+  day: number;
+  position: number;
+  highlighted?: boolean;
 }
 
-function DroppableSlot({ timeBlockId, roomId, children, className, variant }: DroppableSlotProps) {
+function DroppableSlot({
+  timeBlockId,
+  roomId,
+  children,
+  className,
+  variant,
+  day,
+  position,
+  highlighted,
+}: DroppableSlotProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: roomId ? `${timeBlockId}::${roomId}` : `${timeBlockId}::__empty__`,
     data: { time_block_id: timeBlockId, room_id: roomId },
@@ -123,6 +138,9 @@ function DroppableSlot({ timeBlockId, roomId, children, className, variant }: Dr
         variant === "period" ? `placement-slot-${timeBlockId}` : `empty-slot-${timeBlockId}`
       }
       data-time-block-id={timeBlockId}
+      data-cell-day={day}
+      data-cell-pos={position}
+      data-highlight={highlighted ? "true" : undefined}
       className={cn(className, isOver && "ring-2 ring-primary")}
       {...(variant ? { "data-variant": variant } : {})}
     >
@@ -137,6 +155,7 @@ export function ScheduleGrid({
   positions,
   dragEnabled = false,
   timeBlocksByDayPosition,
+  highlightedCells,
 }: ScheduleGridProps) {
   const { t } = useTranslation();
   const pinMutation = usePinPlacement();
@@ -182,13 +201,21 @@ export function ScheduleGrid({
           </div>
           {daysPresent.map((day) => {
             const cell = byKey.get(`${day}:${position}`);
+            const isHighlighted =
+              highlightedCells?.some((h) => h.day_of_week === day && h.position === position) ??
+              false;
+            const highlightClass =
+              isHighlighted && "ring-2 ring-amber-500 ring-offset-2 transition-shadow";
             const isBreak = cell?.kind === "break";
             if (isBreak) {
               return (
                 <div
                   key={`${day}:${position}`}
-                  className={cn("kz-ws-cell", "bg-muted text-muted-foreground")}
+                  className={cn("kz-ws-cell", "bg-muted text-muted-foreground", highlightClass)}
                   data-variant="break"
+                  data-cell-day={day}
+                  data-cell-pos={position}
+                  data-highlight={isHighlighted ? "true" : undefined}
                 >
                   <span className="text-xs">{t("weekSchemes.timeBlocks.kind.break")}</span>
                   {cell?.isSupervised && (
@@ -206,6 +233,7 @@ export function ScheduleGrid({
               isPinnedHard && "kz-ws-cell--pinned-hard",
               isPinnedSoft && "kz-ws-cell--pinned-soft",
               cell && "group",
+              highlightClass,
             );
             const slotTimeBlockId =
               cell?.timeBlockId ?? timeBlocksByDayPosition?.get(`${day}:${position}`);
@@ -272,6 +300,9 @@ export function ScheduleGrid({
                   roomId={cell?.roomId}
                   className={cellClassName}
                   variant={cell ? "period" : undefined}
+                  day={day}
+                  position={position}
+                  highlighted={isHighlighted}
                 >
                   {inner}
                 </DroppableSlot>
@@ -281,6 +312,9 @@ export function ScheduleGrid({
               <div
                 key={`${day}:${position}`}
                 className={cellClassName}
+                data-cell-day={day}
+                data-cell-pos={position}
+                data-highlight={isHighlighted ? "true" : undefined}
                 {...(cell ? { "data-variant": "period" } : {})}
               >
                 {inner}
