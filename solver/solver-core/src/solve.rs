@@ -124,6 +124,7 @@ fn solve_with_config_stats_inner(
         soft_score: 0,
         quality_report: crate::quality::QualityReport::default(),
         was_cancelled: false,
+        supervision_assignments: vec![],
     };
 
     let mut state = GreedyState::new();
@@ -387,6 +388,14 @@ fn solve_with_config_stats_inner(
     validate_daily_caps(problem, &solution.placements)?;
     validate_placement_teacher_in_candidates(problem, &solution.placements)?;
     validate_class_subject_teacher_uniformity(problem, &solution.placements)?;
+
+    // Hofpause supervision finalisation (item 3). Run after placements are
+    // frozen but before quality_report so SupervisionGap violations land in
+    // the final violations vec and contribute to the cost-vector breakdown.
+    let (supervision_assignments, mut supervision_violations, _supervision_spread) =
+        crate::supervision::compute_supervision_full(problem, &solution.placements);
+    solution.violations.append(&mut supervision_violations);
+    solution.supervision_assignments = supervision_assignments;
 
     // state.search_score_slice is the LAHC running slice (class_gap +
     // teacher_gap + subject_pref). Solution.soft_score is the full weighted

@@ -468,6 +468,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(worst_class_day_spread(&problem, &solution), 0);
     }
@@ -545,6 +546,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(total_interior_gaps(&problem, &solution), 1);
     }
@@ -657,6 +659,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let ratio = worst_home_room_ratio(&problem, &solution, &home_rooms);
         assert_eq!(ratio, Some(1.0));
@@ -671,6 +674,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(
             worst_home_room_ratio(&problem, &solution, &HashMap::new()),
@@ -687,6 +691,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(late_period_ratio(&problem, &solution), None);
     }
@@ -765,6 +770,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let ratio = late_period_ratio(&problem, &solution).expect("late ratio");
         assert!((ratio - 2.0 / 3.0).abs() < 1e-9, "got {ratio}");
@@ -838,6 +844,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         }
     }
 
@@ -915,6 +922,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -1006,6 +1014,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -1064,6 +1073,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -1163,6 +1173,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }

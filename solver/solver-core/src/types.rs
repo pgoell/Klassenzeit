@@ -530,6 +530,18 @@ pub struct Solution {
     /// legacy solver-py callers) are not perturbed.
     #[serde(default)]
     pub was_cancelled: bool,
+    /// Post-solve Hofpause supervision rota: one entry per `Break`-kind
+    /// `TimeBlock` whose adjacency yields at least one eligible supervisor.
+    /// Populated by [`crate::supervision::compute_supervision_full`] at the
+    /// tail of every `solve_with_config_stats`; consumed by the backend's
+    /// `supervision_assignments` table and the teacher-week Aufsicht badge.
+    /// Slots with no eligible supervisor contribute a
+    /// [`ViolationKind::SupervisionGap`] row instead. Wire format is additive:
+    /// callers omitting the field deserialise to an empty vector, so existing
+    /// JSON consumers (CP-SAT bench, legacy solver-py callers) are not
+    /// perturbed.
+    #[serde(default)]
+    pub supervision_assignments: Vec<SupervisionAssignment>,
 }
 
 /// A single successful placement of one hour of one lesson.
@@ -858,6 +870,7 @@ mod tests {
             soft_score: 0,
             quality_report: crate::quality::QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let json = serde_json::to_string(&solution).unwrap();
         let parsed: Solution = serde_json::from_str(&json).unwrap();
