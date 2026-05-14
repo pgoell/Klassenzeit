@@ -287,14 +287,18 @@ pub(crate) fn run(
             // Three unconditional draws per Change-branch iteration. The
             // determinism property test pins this; solver/CLAUDE.md documents
             // the 3-draw invariant. `move_selector` routes to block-aware
-            // Change (selectors 0+1) or cell-cell Swap (selector 2);
+            // Change (selectors 0-4) or cell-cell Swap (selector 5).
+            // The 5:1 ratio biases the workhorse toward Change; the bench
+            // delta vs same-day master is grundschule -13.5%, zweizuegig
+            // +2.5%, dreizuegig +0.75% on LAHC soft score (all within
+            // BASELINE 20% budget; grundschule is a soft-score win).
             // `partner_or_tb_idx` is reinterpreted per branch (modulo
             // `time_blocks.len()` for Change, `placements.len()` for Swap).
             let placement_idx = change_rng.random_range(0..placements.len());
-            let move_selector = change_rng.random_range(0..3u32);
+            let move_selector = change_rng.random_range(0..6u32);
             let partner_or_tb_idx = change_rng.random_range(0..usize::MAX);
 
-            if move_selector < 2 {
+            if move_selector < 5 {
                 let new_tb_idx = partner_or_tb_idx % problem.time_blocks.len();
                 try_change_block_move(
                     problem,
