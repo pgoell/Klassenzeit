@@ -542,6 +542,22 @@ pub struct Placement {
     pub teacher_id: TeacherId,
 }
 
+/// A single supervisor assignment for a `Break` time block.
+///
+/// Produced by [`crate::supervision::compute_supervision_full`] after a solve:
+/// pairs a Hofpause [`TimeBlock`] with the teacher chosen to staff it
+/// (Aufsicht). Surfaced on [`Solution`] and consumed by the backend's
+/// `supervision_assignments` table plus the teacher-week UI badge. Wire shape
+/// mirrors [`Placement`]: a flat record of newtype-wrapped UUIDs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SupervisionAssignment {
+    /// The Hofpause time block this assignment covers.
+    pub time_block_id: TimeBlockId,
+    /// The teacher chosen to supervise.
+    pub teacher_id: TeacherId,
+}
+
 /// A single hard-constraint violation recorded by the solver.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -596,6 +612,13 @@ pub enum ViolationKind {
     /// placement time via a lock map (item 66) so the search cannot reach
     /// a split-teacher state under normal operation.
     ClassSubjectTeacherSplit,
+    /// No teacher was eligible to supervise a Hofpause (`TimeBlock` whose
+    /// `kind == Break`). Eligibility requires the teacher to be free at the
+    /// break slot AND to have at least one placement at the immediately
+    /// preceding or following position on the same day. Emitted by
+    /// `supervision::compute_supervision_full`; the accompanying
+    /// `Violation.reason` carries `"day=<d> position=<p> candidates=0"`.
+    SupervisionGap,
 }
 
 #[cfg(test)]
