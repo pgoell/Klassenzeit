@@ -111,9 +111,15 @@ class ScheduleReadResponse(BaseModel):
     Deliberately omits ``violations``: they are per-solve diagnostics and are
     not persisted, so returning an empty list here would misrepresent the
     absence of storage.
+
+    ``supervision_assignments`` carries the persisted Hofpause rota scoped to
+    the resource: per-teacher GETs filter to that teacher's rows, while the
+    per-class and per-room GETs leave it empty (supervision is a teacher-level
+    duty, not a class- or room-level one).
     """
 
     placements: list[PlacementResponse]
+    supervision_assignments: list[SupervisionAssignmentResponse] = Field(default_factory=list)
 
 
 class ClassScheduleSummary(BaseModel):

@@ -324,7 +324,7 @@ async def test_schedule_get_returns_empty_list_for_never_solved_class(
     )
     resp = await client.get(f"/api/classes/{cls.id}/schedule")
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"placements": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": []}
 
 
 async def test_schedule_post_then_get_returns_same_placements(
@@ -445,7 +445,7 @@ async def test_schedule_post_for_class_a_does_not_persist_for_class_b(
 
     get_b = await client.get(f"/api/classes/{cls_b.id}/schedule")
     assert get_b.status_code == 200
-    assert get_b.json() == {"placements": []}
+    assert get_b.json() == {"placements": [], "supervision_assignments": []}
 
 
 async def test_read_teacher_schedule_returns_404_for_unknown_teacher(
@@ -470,7 +470,7 @@ async def test_read_teacher_schedule_returns_empty_for_unscheduled_teacher(
     teacher = await create_teacher()
     resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": []}
 
 
 async def test_read_teacher_schedule_returns_placements_after_solve(
@@ -536,7 +536,7 @@ async def test_read_room_schedule_returns_empty_for_unscheduled_room(
     room = await create_room()
     resp = await client.get(f"/api/rooms/{room.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": []}
 
 
 async def test_read_room_schedule_returns_placements_after_solve(

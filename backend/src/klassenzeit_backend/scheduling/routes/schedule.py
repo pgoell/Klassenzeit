@@ -202,14 +202,23 @@ async def read_schedule_for_teacher_route(
         db: Injected async database session.
 
     Returns:
-        ``ScheduleReadResponse`` with the teacher's persisted placements. Empty
-        ``placements`` means the teacher exists but has no scheduled lessons yet.
+        ``ScheduleReadResponse`` with the teacher's persisted placements and the
+        subset of supervision_assignments rows attributed to this teacher.
+        Empty ``placements`` means the teacher exists but has no scheduled
+        lessons yet; empty ``supervision_assignments`` means the teacher has
+        no break-supervision attributions in the current rota.
 
     Raises:
         HTTPException: 404 if the teacher doesn't exist.
     """
     placements = await solver_io.read_schedule_for_teacher(db, teacher_id)
-    return ScheduleReadResponse(placements=placements)
+    supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
+        db, teacher_id
+    )
+    return ScheduleReadResponse(
+        placements=placements,
+        supervision_assignments=supervision_assignments,
+    )
 
 
 @router.get("/classes/{class_id}/schedule/progress", response_model=ProgressSnapshot)

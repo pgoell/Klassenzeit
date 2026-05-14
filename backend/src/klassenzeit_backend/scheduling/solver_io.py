@@ -36,6 +36,7 @@ from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.scheduling.schemas.schedule import (
     ClassScheduleSummary,
     PlacementResponse,
+    SupervisionAssignmentResponse,
     ViolationResponse,
 )
 from klassenzeit_solver import (
@@ -987,6 +988,40 @@ async def read_schedule_for_teacher(
             time_block_id=row.time_block_id,
             room_id=row.room_id,
             pinned=row.pinned,
+        )
+        for row in rows
+    ]
+
+
+async def read_supervision_assignments_for_teacher(
+    db: AsyncSession,
+    teacher_id: UUID,
+) -> list[SupervisionAssignmentResponse]:
+    """Return persisted Hofpause supervision rows assigned to this teacher.
+
+    Args:
+        db: The ambient async session.
+        teacher_id: UUID of the teacher to read.
+
+    Returns:
+        A list of :class:`SupervisionAssignmentResponse` values; empty if the
+        teacher has no supervision attributions yet. Does not raise on a
+        missing teacher; the sibling :func:`read_schedule_for_teacher` call
+        in the GET handler already enforces the 404.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(SupervisionAssignment).where(SupervisionAssignment.teacher_id == teacher_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        SupervisionAssignmentResponse(
+            time_block_id=row.time_block_id,
+            teacher_id=row.teacher_id,
         )
         for row in rows
     ]
