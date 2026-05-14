@@ -6,6 +6,7 @@ export const TeacherFormSchema = z.object({
   short_code: z.string().trim().min(1, "Short code is required").max(10),
   max_hours_per_week: z.number().int().min(1),
   reserve_hours_per_week: z.number().int().min(0),
+  working_days: z.array(z.number().int().min(0).max(4)).nullable(),
 });
 
 export type TeacherFormValues = z.infer<typeof TeacherFormSchema>;

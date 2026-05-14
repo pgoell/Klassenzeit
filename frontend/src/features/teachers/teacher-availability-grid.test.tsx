@@ -1,8 +1,14 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { beforeAll, describe, expect, it } from "vitest";
 import i18n from "@/i18n/init";
-import { teacherAvailabilityByTeacherId, timeBlocksBySchemeId } from "../../../tests/msw-handlers";
+import {
+  initialTeachers,
+  server,
+  teacherAvailabilityByTeacherId,
+  timeBlocksBySchemeId,
+} from "../../../tests/msw-handlers";
 import { renderWithProviders } from "../../../tests/render-helpers";
 import { teacherDetailQueryKey } from "./hooks";
 import { TeacherAvailabilityGrid } from "./teacher-availability-grid";
@@ -56,6 +62,45 @@ describe("TeacherAvailabilityGrid", () => {
       { time_block_id: "tb-mon-1", status: "preferred" },
       { time_block_id: "tb-mon-2", status: "unavailable" },
     ]);
+  });
+
+  it("greys columns whose day is not in working_days", async () => {
+    timeBlocksBySchemeId[schemeId] = [
+      {
+        id: "tb-mon-1",
+        day_of_week: 0,
+        position: 1,
+        start_time: "08:00:00",
+        end_time: "08:45:00",
+      },
+      {
+        id: "tb-wed-1",
+        day_of_week: 2,
+        position: 1,
+        start_time: "08:00:00",
+        end_time: "08:45:00",
+      },
+    ];
+    teacherAvailabilityByTeacherId[teacherId] = [];
+    const base = initialTeachers[0];
+    if (!base) throw new Error("missing initial teacher fixture");
+    server.use(
+      http.get(`http://localhost:3000/api/teachers/${teacherId}`, () =>
+        HttpResponse.json({
+          ...base,
+          id: teacherId,
+          qualifications: [],
+          availability: [],
+          working_days: [0, 1],
+        }),
+      ),
+    );
+
+    renderWithProviders(<TeacherAvailabilityGrid teacherId={teacherId} />);
+    const monHeader = await screen.findByRole("columnheader", { name: "Mon" });
+    const wedHeader = await screen.findByRole("columnheader", { name: "Wed" });
+    expect(monHeader).not.toHaveAttribute("data-off-day", "true");
+    expect(wedHeader).toHaveAttribute("data-off-day", "true");
   });
 
   it("preserves preferred markers when the detail query refetches in the background", async () => {
