@@ -21,10 +21,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 1. **Production-refresh ratification of ADR 0037.** Today's unpinned multi-school cells in `BENCH_RESULTS.md` are smoke-validated at 5s × 1 seed; the production 60s × 20-seed cell shape on unpinned is the missing data point. Re-run `mise run bench:bakeoff -- --teacher-pins on` followed by `-- --teacher-pins off --append` (~10-12h). If `lahc_rr_kempe` regains a soft-score edge at production scale, file ADR 0038-revision; if `lahc_rr` holds, ADR 0037 is ratified. Trigger: opportunistic on a quiet host window. Anchor: item 81.
 
-### P1 (real Grundschule pain still un-modelled)
-
-6. **Quality-issue endpoint + UI surface.** `quality_checks.QualityIssue[]` is returned by `POST /api/classes/{id}/schedule` but not persisted, and `GET /api/classes/{id}/schedule` returns placements only. The schedule view shows violations as a count but no actionable next-step ("3 issues" with no breakdown). Add `GET /api/schedule/quality-issues` (reuses `quality_checks.py`) and a sidebar in the schedule grid that lists the issues with a click-to-highlight gesture on the offending cell. Trigger: any demo where the admin asks "okay, but WHY is this incomplete?".
-
 ### P2 (longer-arc; reopen on trigger)
 
 8. **Schwimmunterricht buffers.** One Doppelstunde Schwimmen per Klasse 3 needs `Room.is_external: bool` + per-Lesson `pre_buffer_minutes`, `post_buffer_minutes` (Hessen Wegezeit ~10-15 min each way). Solver enforces buffer per-class and per-teacher (rooms unaffected). New `ViolationKind::TravelBufferConflict`. Bench: extend dreizügige fixture with the Klasse 3 Schwimmen lesson. Trigger: active sprint promotes this paused program back to active.
