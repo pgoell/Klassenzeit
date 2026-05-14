@@ -11,6 +11,9 @@ from uuid import UUID
 
 import pytest
 
+from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
@@ -22,6 +25,7 @@ from klassenzeit_backend.scheduling.quality_checks import (
     check_home_room_ratio,
     check_interior_gaps,
     check_room_hop,
+    compute_quality_issues,
 )
 
 
@@ -779,3 +783,95 @@ def test_check_interior_gaps_cells_empty() -> None:
     assert len(issues) == 1
     assert issues[0].kind == "interior_gap"
     assert issues[0].cells == ()
+
+
+# ---------------------------------------------------------------------------
+# compute_quality_issues orchestrator
+# ---------------------------------------------------------------------------
+
+
+async def test_compute_quality_issues_returns_empty_when_no_placements(
+    db_session,
+) -> None:
+    """With no scheduled lessons, the orchestrator returns []."""
+    issues = await compute_quality_issues(db_session, uuid.uuid4())
+    assert issues == []
+
+
+async def test_compute_quality_issues_filters_by_class_and_emits_room_hop(
+    db_session,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """The orchestrator surfaces a room_hop for class A only, not the sibling class B."""
+    subject = await create_subject()
+    week_scheme = await create_week_scheme()
+    tb_1 = await create_time_block(
+        week_scheme_id=week_scheme.id,
+        day_of_week=0,
+        position=1,
+    )
+    tb_2 = await create_time_block(
+        week_scheme_id=week_scheme.id,
+        day_of_week=0,
+        position=2,
+        start_time=dt.time(8, 45),
+        end_time=dt.time(9, 30),
+    )
+    room_a = await create_room()
+    room_b = await create_room()
+    teacher = await create_teacher()
+    tafel = await create_stundentafel()
+    cls_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=week_scheme.id)
+    cls_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=week_scheme.id)
+
+    lesson_a1 = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=2,
+        preferred_block_size=1,
+    )
+    lesson_a2 = Lesson(
+        subject_id=subject.id,
+        teacher_id=teacher.id,
+        hours_per_week=2,
+        preferred_block_size=1,
+    )
+    db_session.add_all([lesson_a1, lesson_a2])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            LessonSchoolClass(lesson_id=lesson_a1.id, school_class_id=cls_a.id),
+            LessonSchoolClass(lesson_id=lesson_a2.id, school_class_id=cls_a.id),
+            # Class A: two placements same day same subject, different rooms => room_hop.
+            ScheduledLesson(
+                lesson_id=lesson_a1.id,
+                time_block_id=tb_1.id,
+                room_id=room_a.id,
+                teacher_id=teacher.id,
+                pin_kind=None,
+            ),
+            ScheduledLesson(
+                lesson_id=lesson_a2.id,
+                time_block_id=tb_2.id,
+                room_id=room_b.id,
+                teacher_id=teacher.id,
+                pin_kind=None,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    issues_a = await compute_quality_issues(db_session, cls_a.id)
+    kinds_a = {i.kind for i in issues_a}
+    assert "room_hop" in kinds_a
+    for issue in issues_a:
+        assert issue.school_class_id == cls_a.id
+
+    issues_b = await compute_quality_issues(db_session, cls_b.id)
+    assert issues_b == []

@@ -40,6 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school_class import SchoolClass
+from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 
 
@@ -342,3 +344,117 @@ def check_class_teacher_subject_share(
             },
             cells=cells,
         )
+
+
+MAX_DAY_LOAD_SPREAD: int = 2
+MAX_INTERIOR_GAPS_PER_CLASS: int = 2
+MIN_HOME_ROOM_RATIO: float = 0.6
+MAX_DAY_LENGTH_ORDINAL: int = 7
+MIN_KLASSENLEHRER_SHARE: float = 0.5
+HOME_ROOM_EXEMPT_SHORT_NAMES: frozenset[str] = frozenset({"SP", "KU", "MU"})
+_WEEKDAY_INDEX_MAX: int = 4  # Mon=0..Fri=4; weekend placements skipped.
+
+
+def _counts_per_class(placements: list[Placement]) -> dict[UUID, list[int]]:
+    """Build per-class daily-count lists indexed by day 0..4."""
+    counts: dict[UUID, list[int]] = {}
+    for placement in placements:
+        per_day = counts.setdefault(placement.class_id, [0, 0, 0, 0, 0])
+        if 0 <= placement.day <= _WEEKDAY_INDEX_MAX:
+            per_day[placement.day] += 1
+    return counts
+
+
+def _positions_per_class_day(
+    placements: list[Placement],
+) -> dict[tuple[UUID, int], list[int]]:
+    """Group lesson-ordinal positions by `(class_id, day_of_week)`."""
+    positions: dict[tuple[UUID, int], list[int]] = {}
+    for placement in placements:
+        positions.setdefault((placement.class_id, placement.day), []).append(placement.position)
+    return positions
+
+
+async def _load_class_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID | None]:
+    """Return `{school_class_id: class_teacher_id_or_none}` over every SchoolClass row."""
+    rows = (await db.execute(select(SchoolClass.id, SchoolClass.class_teacher_id))).all()
+    return {row.id: row.class_teacher_id for row in rows}
+
+
+async def _load_placement_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID]:
+    """Return `{lesson_id: teacher_id}` over every persisted ScheduledLesson row."""
+    rows = (await db.execute(select(ScheduledLesson.lesson_id, ScheduledLesson.teacher_id))).all()
+    return {row.lesson_id: row.teacher_id for row in rows if row.teacher_id is not None}
+
+
+async def _load_home_room_lookup(db: AsyncSession) -> dict[UUID, UUID]:
+    """Return `{school_class_id: home_room_id}` for classes whose `home_room_id` is set."""
+    rows = (await db.execute(select(SchoolClass.id, SchoolClass.home_room_id))).all()
+    return {row.id: row.home_room_id for row in rows if row.home_room_id is not None}
+
+
+async def _load_exempt_subjects(db: AsyncSession) -> set[UUID]:
+    """Return the set of Subject IDs whose short_name is in HOME_ROOM_EXEMPT_SHORT_NAMES."""
+    rows = (
+        (
+            await db.execute(
+                select(Subject.id).where(Subject.short_name.in_(HOME_ROOM_EXEMPT_SHORT_NAMES))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return set(rows)
+
+
+async def compute_quality_issues(
+    db: AsyncSession,
+    class_id: UUID,
+) -> list[QualityIssue]:
+    """Run all six quality predicates and return issues filtered to `class_id`.
+
+    Loads placements once via `load_placements`, builds shared lookups,
+    invokes each predicate with the module-level thresholds, concatenates
+    results, and filters by `school_class_id`. Returns `[]` when no
+    schedule exists for the database.
+
+    Each cell-emitting predicate already sorts its cells ascending by
+    `(day, time_block_position)`, so the orchestrator does not re-sort.
+    """
+    placements = await load_placements(db)
+    if not placements:
+        return []
+
+    counts_per_class = _counts_per_class(placements)
+    positions_per_class_day = _positions_per_class_day(placements)
+    home_rooms = await _load_home_room_lookup(db)
+    exempt_subjects = await _load_exempt_subjects(db)
+    class_teacher_lookup = await _load_class_teacher_lookup(db)
+    placement_teacher_lookup = await _load_placement_teacher_lookup(db)
+
+    issues: list[QualityIssue] = []
+    issues.extend(check_room_hop(placements))
+    issues.extend(check_class_day_balance(counts_per_class, max_spread=MAX_DAY_LOAD_SPREAD))
+    issues.extend(
+        check_home_room_ratio(
+            placements,
+            home_rooms=home_rooms,
+            min_ratio=MIN_HOME_ROOM_RATIO,
+            exempt_subjects=exempt_subjects,
+        )
+    )
+    issues.extend(
+        check_interior_gaps(
+            positions_per_class_day,
+            max_gaps_per_class=MAX_INTERIOR_GAPS_PER_CLASS,
+        )
+    )
+    issues.extend(check_day_length(placements, max_position=MAX_DAY_LENGTH_ORDINAL))
+    issues.extend(
+        check_class_teacher_subject_share(
+            placements,
+            class_teacher_lookup=class_teacher_lookup,
+            placement_teacher_lookup=placement_teacher_lookup,
+        )
+    )
+    return [issue for issue in issues if issue.school_class_id == class_id]

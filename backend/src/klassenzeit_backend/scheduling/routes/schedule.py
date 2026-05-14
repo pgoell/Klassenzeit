@@ -16,8 +16,14 @@ from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling import solver_io
 from klassenzeit_backend.scheduling.progress import register_progress
+from klassenzeit_backend.scheduling.quality_checks import (
+    QualityIssue,
+    compute_quality_issues,
+)
 from klassenzeit_backend.scheduling.schemas.schedule import (
+    CellCoord,
     ProgressSnapshot,
+    QualityIssueResponse,
     ScheduleReadResponse,
     ScheduleResponse,
     WholeSchoolScheduleResponse,
@@ -25,6 +31,23 @@ from klassenzeit_backend.scheduling.schemas.schedule import (
 
 router = APIRouter(tags=["schedule"])
 logger = logging.getLogger(__name__)
+
+
+def _quality_issues_to_response(
+    issues: list[QualityIssue],
+) -> list[QualityIssueResponse]:
+    """Map orchestrator output (tuple-of-tuples cells) to the wire format."""
+    return [
+        QualityIssueResponse(
+            kind=issue.kind,
+            school_class_id=issue.school_class_id,
+            day_of_week=issue.day_of_week,
+            subject_id=issue.subject_id,
+            detail=dict(issue.detail),
+            cells=[CellCoord(day_of_week=d, position=p) for d, p in issue.cells],
+        )
+        for issue in issues
+    ]
 
 
 @router.post("/classes/{class_id}/schedule")
@@ -102,7 +125,10 @@ async def generate_schedule_for_class(
     ).scalar_one()
     await solver_io.persist_supervision_assignments(db, week_scheme_id, solution)
     await db.commit()
-    return ScheduleResponse.model_validate(filtered)
+    quality_issues = await compute_quality_issues(db, class_id)
+    return ScheduleResponse.model_validate(
+        {**filtered, "quality_issues": _quality_issues_to_response(quality_issues)}
+    )
 
 
 @router.post("/schedule/all")
@@ -185,7 +211,11 @@ async def read_schedule_for_class_route(
         HTTPException: 404 if the class doesn't exist.
     """
     placements = await solver_io.read_schedule_for_class(db, class_id)
-    return ScheduleReadResponse(placements=placements)
+    quality_issues = await compute_quality_issues(db, class_id)
+    return ScheduleReadResponse(
+        placements=placements,
+        quality_issues=_quality_issues_to_response(quality_issues),
+    )
 
 
 @router.get("/teachers/{teacher_id}/schedule")
