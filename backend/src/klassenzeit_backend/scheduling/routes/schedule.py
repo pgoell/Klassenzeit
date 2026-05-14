@@ -218,6 +218,36 @@ async def read_schedule_for_class_route(
     )
 
 
+@router.get("/classes/{class_id}/quality-issues")
+async def read_quality_issues_for_class_route(
+    class_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> list[QualityIssueResponse]:
+    """Return the soft-quality issues for the given class.
+
+    Issues are computed on demand from the persisted ScheduledLesson rows;
+    no per-solve snapshot is stored. Returns an empty list when the class
+    exists but has never been scheduled.
+
+    Args:
+        class_id: UUID path parameter identifying the school class.
+        _admin: Injected admin user (enforces authentication).
+        db: Injected async database session.
+
+    Returns:
+        ``list[QualityIssueResponse]``; empty when no issues apply.
+
+    Raises:
+        HTTPException: 404 if the class doesn't exist.
+    """
+    cls = await db.get(SchoolClass, class_id)
+    if cls is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+    quality_issues = await compute_quality_issues(db, class_id)
+    return _quality_issues_to_response(quality_issues)
+
+
 @router.get("/teachers/{teacher_id}/schedule")
 async def read_schedule_for_teacher_route(
     teacher_id: uuid.UUID,
