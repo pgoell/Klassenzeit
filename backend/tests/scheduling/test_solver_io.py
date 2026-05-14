@@ -128,6 +128,7 @@ def test_filter_solution_for_class_empty_input() -> None:
         "soft_score": 0,
         "quality_report": _EMPTY_QUALITY_REPORT,
         "was_cancelled": False,
+        "supervision_assignments": [],
     }
 
 
@@ -750,6 +751,7 @@ def test_count_violations_by_kind_clean_solve_returns_zeros() -> None:
         "subject_daily_hour_cap_exceeded",
         "class_daily_lesson_cap_exceeded",
         "class_subject_teacher_split",
+        "supervision_gap",
     }
 
 
@@ -813,6 +815,7 @@ def test_count_violations_by_kind_aggregates_mixed_kinds() -> None:
         "subject_daily_hour_cap_exceeded": 0,
         "class_daily_lesson_cap_exceeded": 0,
         "class_subject_teacher_split": 0,
+        "supervision_gap": 0,
     }
 
 

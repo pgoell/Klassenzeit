@@ -7,9 +7,11 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling import solver_io
@@ -92,6 +94,13 @@ async def generate_schedule_for_class(
     )
     own_pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in own_pins}
     await solver_io.persist_solution_for_class(db, class_id, filtered, pinned_keys=own_pinned_keys)
+    # build_problem_json has already verified the class exists; the scalar
+    # below resolves its WeekScheme so the supervision rota can be scoped
+    # to the affected scheme on a delete-and-rewrite basis.
+    week_scheme_id = (
+        await db.execute(select(SchoolClass.week_scheme_id).where(SchoolClass.id == class_id))
+    ).scalar_one()
+    await solver_io.persist_supervision_assignments(db, week_scheme_id, solution)
     await db.commit()
     return ScheduleResponse.model_validate(filtered)
 

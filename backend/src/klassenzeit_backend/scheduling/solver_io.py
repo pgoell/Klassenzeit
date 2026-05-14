@@ -26,6 +26,7 @@ from klassenzeit_backend.db.models.room import (
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.supervision_assignment import SupervisionAssignment
 from klassenzeit_backend.db.models.teacher import (
     Teacher,
     TeacherAvailability,
@@ -98,6 +99,7 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
         "soft_score": solution.get("soft_score", 0),
         "quality_report": solution["quality_report"],
         "was_cancelled": bool(solution.get("was_cancelled", False)),
+        "supervision_assignments": solution.get("supervision_assignments", []),
     }
 
 
@@ -748,6 +750,42 @@ async def persist_solution_for_class(
             "rows_inserted": len(new_rows),
         },
     )
+
+
+async def persist_supervision_assignments(
+    db: AsyncSession,
+    week_scheme_id: UUID,
+    solution: dict,
+) -> None:
+    """Replace the WeekScheme's supervision rota with the solver output.
+
+    Deletes every ``supervision_assignments`` row whose ``time_block_id``
+    belongs to ``week_scheme_id``, then inserts one row per entry in
+    ``solution["supervision_assignments"]``. Scoped to the WeekScheme
+    rather than the class because Hofpause supervision is a school-wide
+    duty: the supervision pass emits one entry per break-kind TimeBlock
+    on the affected scheme, and a per-class re-solve overwrites the
+    whole rota.
+
+    Runs inside the caller's transaction; does not commit.
+    """
+    tb_id_rows = (
+        (await db.execute(select(TimeBlock.id).where(TimeBlock.week_scheme_id == week_scheme_id)))
+        .scalars()
+        .all()
+    )
+    tb_ids = set(tb_id_rows)
+    if tb_ids:
+        await db.execute(
+            delete(SupervisionAssignment).where(SupervisionAssignment.time_block_id.in_(tb_ids))
+        )
+    for a in solution.get("supervision_assignments", []):
+        db.add(
+            SupervisionAssignment(
+                time_block_id=UUID(a["time_block_id"]),
+                teacher_id=UUID(a["teacher_id"]),
+            )
+        )
 
 
 async def _existing_pin_keys_for_class(db: AsyncSession, class_id: UUID) -> set[tuple[UUID, UUID]]:

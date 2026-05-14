@@ -44,10 +44,24 @@ class ViolationResponse(BaseModel):
         "subject_daily_hour_cap_exceeded",
         "class_daily_lesson_cap_exceeded",
         "class_subject_teacher_split",
+        "supervision_gap",
     ]
     lesson_id: UUID
     hour_index: int = Field(ge=0)
     reason: str | None = None
+
+
+class SupervisionAssignmentResponse(BaseModel):
+    """One Hofpause supervision assignment: a teacher covering a break TimeBlock.
+
+    Mirrors the solver-core ``SupervisionAssignment`` wire format. One entry
+    per break-kind TimeBlock for which the solver found an eligible
+    supervisor; break slots without a feasible supervisor surface as a
+    ``ViolationResponse`` with ``kind="supervision_gap"`` instead.
+    """
+
+    time_block_id: UUID
+    teacher_id: UUID
 
 
 class ScheduleResponse(BaseModel):
@@ -56,6 +70,12 @@ class ScheduleResponse(BaseModel):
     ``was_cancelled`` is ``True`` when the originating POST was interrupted
     via ``POST /schedule/cancel`` mid-solve; the placements list then carries
     the best-so-far solution at the moment of the cancel.
+
+    ``supervision_assignments`` carries the whole-school Hofpause rota
+    emitted by the solver. The list is school-wide rather than class-scoped
+    because supervision is a teacher-level duty: every break-kind TimeBlock
+    on the affected WeekScheme appears, regardless of which class triggered
+    the solve.
     """
 
     placements: list[PlacementResponse]
@@ -63,6 +83,7 @@ class ScheduleResponse(BaseModel):
     soft_score: int = Field(default=0, ge=0)
     quality_report: QualityReportResponse
     was_cancelled: bool = False
+    supervision_assignments: list[SupervisionAssignmentResponse] = Field(default_factory=list)
 
 
 class ProgressSnapshot(BaseModel):
