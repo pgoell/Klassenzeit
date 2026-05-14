@@ -31,6 +31,8 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 11. **Production-refresh ratification of `soft_pin_miss` weight (5).** ADR 0042 set the tentative weight at 5, mirroring `prefer_home_room`. A 20-iter production-budget bench (60s × 20 seeds × 4 fixtures, pinned + unpinned cross-section) would confirm the weight does not regress soft-score competitive shape. Trigger: opportunistic on a quiet host window. Anchor: ADR 0042.
 
+82. **`test_grundschule_schedule_meets_quality_bar` spread flake.** Locally ~1/3 of runs fail with `imbalance` on class 2a (typical shape `daily=[2,6,5,4,6], spread=4, max_spread=2`); LAHC under the 5000 ms deadline lands on the high-spread distribution often enough that the test is a coin-flip for the imbalance predicate. Pre-existing on master; surfaced by running the test 3× in a row during the item-6 verification. Fix candidates: (a) bump `solve_deadline_ms` for this single test until the spread distribution lands consistently under 2, (b) pin an LAHC seed for this test, (c) raise `MAX_DAY_LOAD_SPREAD` from 2 to 3 in `quality_checks.py` if a wider spread is the realistic Hessen Grundschule shape, (d) mark the test `pytest.mark.xfail(strict=False)` per the existing CLAUDE.md flake-shipping rule. Trigger: CI red on this test in a green-elsewhere PR, or two consecutive flake hits on master.
+
 ## Backlog
 
 ### Product capabilities
