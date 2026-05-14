@@ -66,7 +66,7 @@ fn slice_costs_inner(
 /// position / multi-class delta is too tangled for an incremental update.
 /// Behaviour: equals the slice component of `score_solution(...)`; builds the
 /// same lookups and partitions, then delegates to `slice_costs_inner`.
-pub fn slice_recompute(
+pub(crate) fn slice_recompute(
     problem: &Problem,
     placements: &[Placement],
     weights: &ConstraintWeights,

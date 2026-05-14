@@ -284,30 +284,56 @@ pub(crate) fn run(
                 config.lahc_kempe_max_chain as usize,
             );
         } else {
-            // Always consume two random draws per Change iteration so the RNG
-            // sequence is invariant across feasibility branches; this is what
-            // the determinism property test relies on.
+            // Three unconditional draws per Change-branch iteration. The
+            // determinism property test pins this; solver/CLAUDE.md documents
+            // the 3-draw invariant. `move_selector` routes to block-aware
+            // Change (selectors 0+1) or cell-cell Swap (selector 2);
+            // `partner_or_tb_idx` is reinterpreted per branch (modulo
+            // `time_blocks.len()` for Change, `placements.len()` for Swap).
             let placement_idx = change_rng.random_range(0..placements.len());
-            let new_tb_idx = change_rng.random_range(0..problem.time_blocks.len());
+            let move_selector = change_rng.random_range(0..3u32);
+            let partner_or_tb_idx = change_rng.random_range(0..usize::MAX);
 
-            try_change_move(
-                problem,
-                idx,
-                placement_idx,
-                new_tb_idx,
-                &lesson_lookup,
-                &tb_lookup,
-                &subject_lookup,
-                &home_room_lookup,
-                &max_position_per_day,
-                &config.weights,
-                placements,
-                state,
-                pinned,
-                class_max_lessons_per_day,
-                &lahc_list,
-                iter,
-            );
+            if move_selector < 2 {
+                let new_tb_idx = partner_or_tb_idx % problem.time_blocks.len();
+                try_change_block_move(
+                    problem,
+                    idx,
+                    placement_idx,
+                    new_tb_idx,
+                    &lesson_lookup,
+                    &tb_lookup,
+                    &subject_lookup,
+                    &home_room_lookup,
+                    &max_position_per_day,
+                    &config.weights,
+                    placements,
+                    state,
+                    pinned,
+                    class_max_lessons_per_day,
+                    &lahc_list,
+                    iter,
+                    &tb_by_day_pos,
+                    &room_order,
+                );
+            } else {
+                let partner_idx = partner_or_tb_idx % placements.len();
+                try_swap_move(
+                    problem,
+                    idx,
+                    placement_idx,
+                    partner_idx,
+                    &lesson_lookup,
+                    &tb_lookup,
+                    &config.weights,
+                    placements,
+                    state,
+                    pinned,
+                    class_max_lessons_per_day,
+                    &lahc_list,
+                    iter,
+                );
+            }
         }
 
         iter += 1;
@@ -370,60 +396,10 @@ pub(crate) fn run(
     was_cancelled
 }
 
-/// Attempt one Change move: shim that preserves the run-loop entry point
-/// while Task 3 lands `try_change_block_move`. n=1 lessons route to
-/// `try_change_move_n1` (the renamed body of today's `try_change_move`); n>1
-/// lessons short-circuit (the run loop's call site retains today's
-/// block-skip semantics for the production binary until Task 5 wires
-/// `try_change_block_move` from `run` and removes this shim).
-#[allow(clippy::too_many_arguments)] // Reason: internal helper
-fn try_change_move(
-    problem: &Problem,
-    idx: &Indexed,
-    placement_idx: usize,
-    new_tb_idx: usize,
-    lesson_lookup: &HashMap<LessonId, &Lesson>,
-    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
-    subject_lookup: &HashMap<SubjectId, &Subject>,
-    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
-    max_position_per_day: &HashMap<u8, u8>,
-    weights: &ConstraintWeights,
-    placements: &mut [Placement],
-    state: &mut crate::solve::GreedyState,
-    pinned: &HashSet<LessonId>,
-    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
-    lahc_list: &[u32],
-    iter: u64,
-) -> bool {
-    let lesson = lesson_lookup[&placements[placement_idx].lesson_id];
-    if lesson.preferred_block_size > 1 {
-        return false;
-    }
-    try_change_move_n1(
-        problem,
-        idx,
-        placement_idx,
-        new_tb_idx,
-        lesson_lookup,
-        tb_lookup,
-        subject_lookup,
-        home_room_lookup,
-        max_position_per_day,
-        weights,
-        placements,
-        state,
-        pinned,
-        class_max_lessons_per_day,
-        lahc_list,
-        iter,
-    )
-}
-
 /// n=1 Change move: lifted verbatim from the original `try_change_move`
-/// body minus the `preferred_block_size > 1` skip. Routed from both the
-/// `try_change_move` shim above (run-loop entry) and from
-/// `try_change_block_move`'s n=1 dispatch (test-only entry today; Task 5
-/// makes it production).
+/// body minus the `preferred_block_size > 1` skip. Routed from
+/// `try_change_block_move`'s n=1 dispatch (the production call site under
+/// the 3-draw RNG budget).
 #[allow(clippy::too_many_arguments)] // Reason: internal helper
 fn try_change_move_n1(
     problem: &Problem,
@@ -450,7 +426,7 @@ fn try_change_move_n1(
     }
     // Pinned placements are caller-fixed (Problem.pinned_placements) and must
     // survive LAHC verbatim. Same RNG-invariance argument as the block / group
-    // guards above: the two random_range draws are already consumed.
+    // guards above: the three random_range draws are already consumed.
     if pinned.contains(&p.lesson_id) {
         return false;
     }
@@ -460,9 +436,10 @@ fn try_change_move_n1(
     if new_tb.id == old_tb.id {
         return false;
     }
-    // Lessons must never land on a Hofpause slot. The two random_range draws
-    // for placement_idx / new_tb_idx are already consumed in `run`, so the
-    // determinism RNG-budget invariant (lahc_property.rs) holds.
+    // Lessons must never land on a Hofpause slot. The three random_range
+    // draws for placement_idx / move_selector / partner_or_tb_idx are already
+    // consumed in `run`, so the determinism RNG-budget invariant
+    // (lahc_property.rs) holds.
     if new_tb.kind != TimeBlockKind::Lesson {
         return false;
     }
@@ -734,10 +711,8 @@ fn try_change_move_n1(
 /// block's TBs are treated as free for double-booking checks against
 /// `state.used_*`).
 ///
-/// Gated on `#[cfg(test)]` while the only caller is the test module; Task 5
-/// wires `run` to the helper and removes the gate. See spec
-/// `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
-#[cfg(test)]
+/// Wired into `run`'s Change branch under the 3-draw RNG budget (Task 5).
+/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
 fn try_change_block_move(
     problem: &Problem,
@@ -915,9 +890,34 @@ fn try_change_block_move(
         }
     }
 
-    // Room selection. Try source room first; otherwise walk `room_order`
-    // for a subject-suitable room hard-feasible at all n dest TBs (under
-    // the subtract-source overlay).
+    // Same-room hard constraint at new_day (mirror try_change_move_n1).
+    // If any member-class has a (class, new_day, subject) lock with a count
+    // not entirely owned by the source block, the destination triple's room
+    // is fixed. Source-block-only locks at the destination triple are
+    // effectively self (the move clears them as part of the apply step).
+    let mut new_day_lock: Option<RoomId> = None;
+    for class in class_ids {
+        let key = (*class, new_day, lesson.subject_id);
+        if let Some(&(locked, count)) = state.locked_room.get(&key) {
+            // When old_day == new_day and the source block fully owns the
+            // triple, the lock clears as the move applies (n entries removed,
+            // n added). Otherwise the lock's room must hold post-move.
+            let self_only = old_anchor_day == new_day && count as usize == n;
+            if self_only {
+                continue;
+            }
+            match new_day_lock {
+                None => new_day_lock = Some(locked),
+                Some(prev) if prev != locked => return false,
+                _ => {}
+            }
+        }
+    }
+
+    // Room selection. If the destination triple is locked, the move must use
+    // that room (no walking room_order). Otherwise try source room first;
+    // failing that, walk `room_order` for a subject-suitable room
+    // hard-feasible at all n dest TBs (under the subtract-source overlay).
     let room_feasible_all = |room_id: RoomId| -> bool {
         if !idx.room_suits_subject(room_id, lesson.subject_id) {
             return false;
@@ -938,7 +938,12 @@ fn try_change_block_move(
         }
         true
     };
-    let chosen_room_id = if room_feasible_all(source_room_id) {
+    let chosen_room_id = if let Some(locked) = new_day_lock {
+        if !room_feasible_all(locked) {
+            return false;
+        }
+        locked
+    } else if room_feasible_all(source_room_id) {
         source_room_id
     } else {
         let mut picked: Option<RoomId> = None;
@@ -1278,10 +1283,8 @@ fn try_change_block_move(
 /// Teachers and rooms stay attached to their lessons; only `time_block_id`
 /// is rewritten on apply.
 ///
-/// Gated on `#[cfg(test)]` while the only caller is the test module; Task 5
-/// wires `run` to the helper and removes the gate. See spec
-/// `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
-#[cfg(test)]
+/// Wired into `run`'s Change branch under the 3-draw RNG budget (Task 5).
+/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
 #[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
 fn try_swap_move(
     problem: &Problem,
@@ -1458,6 +1461,30 @@ fn try_swap_move(
             };
             if cur + delta > cap as i32 {
                 return false;
+            }
+        }
+    }
+
+    // Same-room hard constraint at destination triples (mirror
+    // try_change_move_n1). After the swap, lesson_A occupies tb_b (so
+    // (class_a, tb_b.day, subject_a) must hold any existing lock unless A
+    // is its only occupant from the source side), and lesson_B occupies
+    // tb_a symmetrically. Same-day swap is a no-op on the locked_room map.
+    if tb_a.day_of_week != tb_b.day_of_week {
+        for class in class_ids_a {
+            let key = (*class, tb_b.day_of_week, lesson_a.subject_id);
+            if let Some(&(locked, _count)) = state.locked_room.get(&key) {
+                if locked != room_a {
+                    return false;
+                }
+            }
+        }
+        for class in class_ids_b {
+            let key = (*class, tb_a.day_of_week, lesson_b.subject_id);
+            if let Some(&(locked, _count)) = state.locked_room.get(&key) {
+                if locked != room_b {
+                    return false;
+                }
             }
         }
     }
@@ -5052,8 +5079,15 @@ mod tests {
         assert_eq!(state.search_score_slice, 0);
     }
 
+    /// Pre-Task-5, this test asserted that LAHC never moved a block placement
+    /// (because the Change branch had a `preferred_block_size > 1` short-circuit
+    /// and Kempe is asymmetric on block placements). Task 5 wires
+    /// `try_change_block_move` into the production Change branch, so block
+    /// placements now move. The test is repurposed: with `avoid_first_period=1`
+    /// active on the seed window (positions 0 + 1), LAHC must shift the
+    /// doppelstunde off position 0 and keep it contiguous.
     #[test]
-    fn lahc_does_not_move_block_placements() {
+    fn lahc_moves_block_placement_off_avoid_first_window() {
         use crate::types::{
             Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
         };
@@ -5189,11 +5223,41 @@ mod tests {
             None,
         );
 
-        let tb_ids: HashSet<TimeBlockId> = placements.iter().map(|p| p.time_block_id).collect();
+        // The block must move (Change branch routes through try_change_block_move
+        // under the 3-draw budget) and stay contiguous on a single day.
+        assert_eq!(
+            placements.len(),
+            2,
+            "block size invariant: still 2 placements"
+        );
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let days: HashSet<u8> = placements
+            .iter()
+            .map(|p| tb_lookup[&p.time_block_id].day_of_week)
+            .collect();
+        assert_eq!(
+            days.len(),
+            1,
+            "block lesson on one day; got days={:?}",
+            days
+        );
+        let mut positions: Vec<u8> = placements
+            .iter()
+            .map(|p| tb_lookup[&p.time_block_id].position)
+            .collect();
+        positions.sort_unstable();
+        assert_eq!(
+            positions[1] - positions[0],
+            1,
+            "block lesson positions must be contiguous; got positions={:?}",
+            positions
+        );
+        // Avoid-first penalty escaped: the anchor must be off position 0.
         assert!(
-            tb_ids.contains(&tb_zero) && tb_ids.contains(&tb_one),
-            "block placement must not be moved by LAHC; got {:?}",
-            tb_ids
+            positions[0] > 0,
+            "LAHC must move the block off avoid_first window; got positions={:?}",
+            positions
         );
     }
 
