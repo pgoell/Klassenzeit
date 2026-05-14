@@ -370,10 +370,12 @@ pub(crate) fn run(
     was_cancelled
 }
 
-/// Attempt one Change move: move `placements[placement_idx]` to time-block
-/// `problem.time_blocks[new_tb_idx]`, reusing the old room when feasible or
-/// falling back to the lowest-id hard-feasible room. Returns true if the
-/// move was accepted (LAHC criterion) and applied. Mutates state on accept.
+/// Attempt one Change move: shim that preserves the run-loop entry point
+/// while Task 3 lands `try_change_block_move`. n=1 lessons route to
+/// `try_change_move_n1` (the renamed body of today's `try_change_move`); n>1
+/// lessons short-circuit (the run loop's call site retains today's
+/// block-skip semantics for the production binary until Task 5 wires
+/// `try_change_block_move` from `run` and removes this shim).
 #[allow(clippy::too_many_arguments)] // Reason: internal helper
 fn try_change_move(
     problem: &Problem,
@@ -393,15 +395,56 @@ fn try_change_move(
     lahc_list: &[u32],
     iter: u64,
 ) -> bool {
-    let p = placements[placement_idx].clone();
-    let lesson = lesson_lookup[&p.lesson_id];
-    // LAHC's single-cell Change move would fragment a Doppelstunde mid-search.
-    // Skip block placements; the two random_range draws in `run` are already
-    // consumed before this check, so the determinism RNG-budget invariant
-    // (lahc_property.rs) holds.
+    let lesson = lesson_lookup[&placements[placement_idx].lesson_id];
     if lesson.preferred_block_size > 1 {
         return false;
     }
+    try_change_move_n1(
+        problem,
+        idx,
+        placement_idx,
+        new_tb_idx,
+        lesson_lookup,
+        tb_lookup,
+        subject_lookup,
+        home_room_lookup,
+        max_position_per_day,
+        weights,
+        placements,
+        state,
+        pinned,
+        class_max_lessons_per_day,
+        lahc_list,
+        iter,
+    )
+}
+
+/// n=1 Change move: lifted verbatim from the original `try_change_move`
+/// body minus the `preferred_block_size > 1` skip. Routed from both the
+/// `try_change_move` shim above (run-loop entry) and from
+/// `try_change_block_move`'s n=1 dispatch (test-only entry today; Task 5
+/// makes it production).
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn try_change_move_n1(
+    problem: &Problem,
+    idx: &Indexed,
+    placement_idx: usize,
+    new_tb_idx: usize,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    max_position_per_day: &HashMap<u8, u8>,
+    weights: &ConstraintWeights,
+    placements: &mut [Placement],
+    state: &mut crate::solve::GreedyState,
+    pinned: &HashSet<LessonId>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    lahc_list: &[u32],
+    iter: u64,
+) -> bool {
+    let p = placements[placement_idx].clone();
+    let lesson = lesson_lookup[&p.lesson_id];
     if lesson.lesson_group_id.is_some() {
         return false;
     }
@@ -686,34 +729,545 @@ fn try_change_move(
 }
 
 /// Block-aware Change move. n=1 delegates to the existing delta-score path
-/// in `try_change_move_n1`; n>1 uses the full-recompute path. Stub returns
-/// `false` until Task 3 lands the real body. Gated on `#[cfg(test)]` while
-/// the only caller is the test module; Task 5 wires `run` to the helper and
-/// removes the gate.
+/// in `try_change_move_n1`; n>1 takes a snapshot-apply-recompute-rollback
+/// path with feasibility checks via a subtract-source overlay (the source
+/// block's TBs are treated as free for double-booking checks against
+/// `state.used_*`).
 ///
-/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
+/// Gated on `#[cfg(test)]` while the only caller is the test module; Task 5
+/// wires `run` to the helper and removes the gate. See spec
+/// `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
 fn try_change_block_move(
-    _problem: &Problem,
-    _idx: &Indexed,
-    _placement_idx: usize,
-    _new_tb_idx: usize,
-    _lesson_lookup: &HashMap<LessonId, &Lesson>,
-    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
-    _subject_lookup: &HashMap<SubjectId, &Subject>,
-    _home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
-    _max_position_per_day: &HashMap<u8, u8>,
-    _weights: &ConstraintWeights,
-    _placements: &mut [Placement],
-    _state: &mut crate::solve::GreedyState,
-    _pinned: &HashSet<LessonId>,
-    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
-    _lahc_list: &[u32],
-    _iter: u64,
-    _tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
-    _room_order: &[usize],
+    problem: &Problem,
+    idx: &Indexed,
+    placement_idx: usize,
+    new_tb_idx: usize,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    subject_lookup: &HashMap<SubjectId, &Subject>,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    max_position_per_day: &HashMap<u8, u8>,
+    weights: &ConstraintWeights,
+    placements: &mut [Placement],
+    state: &mut crate::solve::GreedyState,
+    pinned: &HashSet<LessonId>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    lahc_list: &[u32],
+    iter: u64,
+    tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    room_order: &[usize],
 ) -> bool {
+    let p = placements[placement_idx].clone();
+    let lesson = lesson_lookup[&p.lesson_id];
+    let n = lesson.preferred_block_size as usize;
+
+    // Standard exclusions (group, pinned, kind, no-op). All before any
+    // short-circuit so the three RNG draws upstream are already consumed
+    // by the call site (Task 5).
+    if lesson.lesson_group_id.is_some() {
+        return false;
+    }
+    if pinned.contains(&p.lesson_id) {
+        return false;
+    }
+    let anchor_new_tb = problem.time_blocks[new_tb_idx].clone();
+    if anchor_new_tb.kind != TimeBlockKind::Lesson {
+        return false;
+    }
+
+    // n=1 fast path: delegate to the existing delta-score Change move. The
+    // anchor `new_tb` resolves through `tb_by_day_pos` upstream just as well
+    // as through `problem.time_blocks[new_tb_idx]`; we delegate with the
+    // index the caller provided.
+    if n == 1 {
+        return try_change_move_n1(
+            problem,
+            idx,
+            placement_idx,
+            new_tb_idx,
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            weights,
+            placements,
+            state,
+            pinned,
+            class_max_lessons_per_day,
+            lahc_list,
+            iter,
+        );
+    }
+
+    // n>1 path. Identify the source block: every placement of this lesson
+    // that lives on the same day as the anchor (`placements[placement_idx]`).
+    // The block-room invariant guarantees one shared room across the block.
+    let anchor_old_tb = tb_lookup[&p.time_block_id].clone();
+    let old_anchor_day = anchor_old_tb.day_of_week;
+    let mut source_rows: Vec<(usize, u8)> = placements
+        .iter()
+        .enumerate()
+        .filter_map(|(i, pl)| {
+            if pl.lesson_id != lesson.id {
+                return None;
+            }
+            let tb = tb_lookup.get(&pl.time_block_id)?;
+            if tb.day_of_week == old_anchor_day {
+                Some((i, tb.position))
+            } else {
+                None
+            }
+        })
+        .collect();
+    source_rows.sort_by_key(|(_, pos)| *pos);
+    if source_rows.len() != n {
+        // FFD invariant: a block lesson on one day owns exactly n
+        // contiguous placements. Mismatch means the source isn't a clean
+        // block we can move atomically; bail out.
+        return false;
+    }
+    // Contiguity check (block invariant under FFD + R&R).
+    for w in source_rows.windows(2) {
+        if w[1].1 != w[0].1 + 1 {
+            return false;
+        }
+    }
+    let source_indices: Vec<usize> = source_rows.iter().map(|(i, _)| *i).collect();
+    let source_positions: Vec<u8> = source_rows.iter().map(|(_, pos)| *pos).collect();
+    let old_anchor_pos = source_positions[0];
+    let source_tb_ids: Vec<TimeBlockId> = source_indices
+        .iter()
+        .map(|&i| placements[i].time_block_id)
+        .collect();
+    let source_tb_set: HashSet<TimeBlockId> = source_tb_ids.iter().copied().collect();
+    let source_room_id = placements[source_indices[0]].room_id;
+    let teacher = placements[source_indices[0]].teacher_id;
+
+    // Destination window via tb_by_day_pos lookup. Off-day-end or break-slot
+    // positions miss (tb_by_day_pos is filtered to Lesson-kind upstream).
+    let new_day = anchor_new_tb.day_of_week;
+    let new_start_pos = anchor_new_tb.position;
+    let mut dest_tb_ids: Vec<TimeBlockId> = Vec::with_capacity(n);
+    for i in 0..n {
+        let pos = new_start_pos.checked_add(i as u8);
+        let Some(pos) = pos else {
+            return false;
+        };
+        let Some(tb_id) = tb_by_day_pos.get(&(new_day, pos)).copied() else {
+            return false;
+        };
+        dest_tb_ids.push(tb_id);
+    }
+
+    // Exact self-window reject.
+    if new_day == old_anchor_day && new_start_pos == old_anchor_pos {
+        return false;
+    }
+
+    // Feasibility with subtract-source overlay. Teacher, per-class, and
+    // teacher-blocked-time checks at every dest TB.
+    let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
+    for &dest_tb in &dest_tb_ids {
+        if idx.teacher_blocked(teacher, dest_tb) {
+            return false;
+        }
+        if state.used_teacher.contains(&(teacher, dest_tb)) && !source_tb_set.contains(&dest_tb) {
+            return false;
+        }
+        for class in class_ids {
+            if state.used_class.contains(&(*class, dest_tb)) && !source_tb_set.contains(&dest_tb) {
+                return false;
+            }
+        }
+    }
+
+    // Daily caps (per-class total + per-subject-per-class-day). Same-day
+    // moves preserve counts; cross-day moves move n source -> n dest.
+    if old_anchor_day != new_day {
+        let subject_cap = problem
+            .subjects
+            .iter()
+            .find(|s| s.id == lesson.subject_id)
+            .map(|s| s.max_hours_per_day)
+            .unwrap_or(u8::MAX);
+        for class in class_ids {
+            let dest_lessons = state
+                .lessons_by_class_day
+                .get(&(*class, new_day))
+                .copied()
+                .unwrap_or(0);
+            if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                if (dest_lessons as u16) + (n as u16) > cap as u16 {
+                    return false;
+                }
+            }
+            let dest_subject_hours = state
+                .subject_hours_by_class_day
+                .get(&(*class, new_day, lesson.subject_id))
+                .copied()
+                .unwrap_or(0);
+            if (dest_subject_hours as u16) + (n as u16) > subject_cap as u16 {
+                return false;
+            }
+        }
+    }
+
+    // Room selection. Try source room first; otherwise walk `room_order`
+    // for a subject-suitable room hard-feasible at all n dest TBs (under
+    // the subtract-source overlay).
+    let room_feasible_all = |room_id: RoomId| -> bool {
+        if !idx.room_suits_subject(room_id, lesson.subject_id) {
+            return false;
+        }
+        for &dest_tb in &dest_tb_ids {
+            if idx.room_blocked(room_id, dest_tb) {
+                return false;
+            }
+            if state.used_room.contains(&(room_id, dest_tb)) {
+                // Source room at source TBs is the overlay-allowed case;
+                // any non-source room must not be in `used_room` for the
+                // dest TB.
+                if room_id == source_room_id && source_tb_set.contains(&dest_tb) {
+                    continue;
+                }
+                return false;
+            }
+        }
+        true
+    };
+    let chosen_room_id = if room_feasible_all(source_room_id) {
+        source_room_id
+    } else {
+        let mut picked: Option<RoomId> = None;
+        for &room_idx in room_order {
+            let cand = problem.rooms[room_idx].id;
+            if cand == source_room_id {
+                continue;
+            }
+            if room_feasible_all(cand) {
+                picked = Some(cand);
+                break;
+            }
+        }
+        let Some(room_id) = picked else {
+            return false;
+        };
+        room_id
+    };
+
+    // Apply: snapshot the source rows + the state-map entries the move
+    // touches, then rewrite placements + state in place.
+    let placements_snapshot: Vec<Placement> = source_indices
+        .iter()
+        .map(|&i| placements[i].clone())
+        .collect();
+    let class_positions_snapshot: HashMap<(SchoolClassId, u8), Vec<u8>> = {
+        let mut m: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        for class in class_ids {
+            for day in [old_anchor_day, new_day] {
+                if let Some(v) = state.class_positions.get(&(*class, day)) {
+                    m.insert((*class, day), v.clone());
+                }
+            }
+        }
+        m
+    };
+    let teacher_positions_snapshot: HashMap<(TeacherId, u8), Vec<u8>> = {
+        let mut m: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
+        for day in [old_anchor_day, new_day] {
+            if let Some(v) = state.teacher_positions.get(&(teacher, day)) {
+                m.insert((teacher, day), v.clone());
+            }
+        }
+        m
+    };
+    let used_teacher_snapshot: HashSet<(TeacherId, TimeBlockId)> = source_tb_ids
+        .iter()
+        .chain(dest_tb_ids.iter())
+        .filter_map(|tb| {
+            let key = (teacher, *tb);
+            if state.used_teacher.contains(&key) {
+                Some(key)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let used_class_snapshot: HashSet<(SchoolClassId, TimeBlockId)> = {
+        let mut s: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
+        for class in class_ids {
+            for tb in source_tb_ids.iter().chain(dest_tb_ids.iter()) {
+                let key = (*class, *tb);
+                if state.used_class.contains(&key) {
+                    s.insert(key);
+                }
+            }
+        }
+        s
+    };
+    let used_room_snapshot: HashSet<(RoomId, TimeBlockId)> = {
+        let mut s: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
+        for room in [source_room_id, chosen_room_id] {
+            for tb in source_tb_ids.iter().chain(dest_tb_ids.iter()) {
+                let key = (room, *tb);
+                if state.used_room.contains(&key) {
+                    s.insert(key);
+                }
+            }
+        }
+        s
+    };
+    let locked_room_snapshot: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> = {
+        let mut m = HashMap::new();
+        for class in class_ids {
+            for day in [old_anchor_day, new_day] {
+                let key = (*class, day, lesson.subject_id);
+                if let Some(v) = state.locked_room.get(&key).copied() {
+                    m.insert(key, v);
+                }
+            }
+        }
+        m
+    };
+    let subject_hours_snapshot: HashMap<(SchoolClassId, u8, SubjectId), u8> = {
+        let mut m = HashMap::new();
+        for class in class_ids {
+            for day in [old_anchor_day, new_day] {
+                let key = (*class, day, lesson.subject_id);
+                if let Some(v) = state.subject_hours_by_class_day.get(&key).copied() {
+                    m.insert(key, v);
+                }
+            }
+        }
+        m
+    };
+    let lessons_by_class_day_snapshot: HashMap<(SchoolClassId, u8), u8> = {
+        let mut m = HashMap::new();
+        for class in class_ids {
+            for day in [old_anchor_day, new_day] {
+                let key = (*class, day);
+                if let Some(v) = state.lessons_by_class_day.get(&key).copied() {
+                    m.insert(key, v);
+                }
+            }
+        }
+        m
+    };
+    let canonical_before = state.canonical_score;
+    let search_slice_before = state.search_score_slice;
+
+    // Apply step: rewrite source rows and update state maps.
+    for i in 0..n {
+        let row_idx = source_indices[i];
+        placements[row_idx].time_block_id = dest_tb_ids[i];
+        placements[row_idx].room_id = chosen_room_id;
+    }
+    // Rebuild class_positions / teacher_positions touched days from
+    // scratch from the current placements view, restricted to the two
+    // (class, day) and (teacher, day) keys we own. This keeps the partition
+    // shape (sorted, dedup'd) in lockstep with score_solution's reader.
+    for class in class_ids {
+        for day in [old_anchor_day, new_day] {
+            let mut positions: Vec<u8> = Vec::new();
+            for pl in placements.iter() {
+                let l = lesson_lookup[&pl.lesson_id];
+                if !l.school_class_ids.contains(class) {
+                    continue;
+                }
+                let tb = tb_lookup[&pl.time_block_id];
+                if tb.day_of_week == day {
+                    positions.push(tb.position);
+                }
+            }
+            positions.sort_unstable();
+            positions.dedup();
+            if positions.is_empty() {
+                state.class_positions.remove(&(*class, day));
+            } else {
+                state.class_positions.insert((*class, day), positions);
+            }
+        }
+    }
+    for day in [old_anchor_day, new_day] {
+        let mut positions: Vec<u8> = Vec::new();
+        for pl in placements.iter() {
+            if pl.teacher_id != teacher {
+                continue;
+            }
+            let tb = tb_lookup[&pl.time_block_id];
+            if tb.day_of_week == day {
+                positions.push(tb.position);
+            }
+        }
+        positions.sort_unstable();
+        positions.dedup();
+        if positions.is_empty() {
+            state.teacher_positions.remove(&(teacher, day));
+        } else {
+            state.teacher_positions.insert((teacher, day), positions);
+        }
+    }
+    // used_teacher / used_class / used_room: subtract source, add dest.
+    for &tb in &source_tb_ids {
+        state.used_teacher.remove(&(teacher, tb));
+        for class in class_ids {
+            state.used_class.remove(&(*class, tb));
+        }
+        state.used_room.remove(&(source_room_id, tb));
+    }
+    for &tb in &dest_tb_ids {
+        state.used_teacher.insert((teacher, tb));
+        for class in class_ids {
+            state.used_class.insert((*class, tb));
+        }
+        state.used_room.insert((chosen_room_id, tb));
+    }
+    // locked_room bookkeeping: drop n at source triple, add n at dest.
+    for class in class_ids {
+        let old_key = (*class, old_anchor_day, lesson.subject_id);
+        if let Some(entry) = state.locked_room.get_mut(&old_key) {
+            entry.1 = entry.1.saturating_sub(n as u32);
+            if entry.1 == 0 {
+                state.locked_room.remove(&old_key);
+            }
+        }
+        let new_key = (*class, new_day, lesson.subject_id);
+        let entry = state
+            .locked_room
+            .entry(new_key)
+            .or_insert((chosen_room_id, 0));
+        entry.0 = chosen_room_id;
+        entry.1 += n as u32;
+    }
+    // Per-day caps: source day -n; dest day +n.
+    for class in class_ids {
+        let old_hour_key = (*class, old_anchor_day, lesson.subject_id);
+        if let Some(h) = state.subject_hours_by_class_day.get_mut(&old_hour_key) {
+            *h = h.saturating_sub(n as u8);
+            if *h == 0 {
+                state.subject_hours_by_class_day.remove(&old_hour_key);
+            }
+        }
+        let old_lesson_key = (*class, old_anchor_day);
+        if let Some(c) = state.lessons_by_class_day.get_mut(&old_lesson_key) {
+            *c = c.saturating_sub(n as u8);
+            if *c == 0 {
+                state.lessons_by_class_day.remove(&old_lesson_key);
+            }
+        }
+        *state
+            .subject_hours_by_class_day
+            .entry((*class, new_day, lesson.subject_id))
+            .or_insert(0) += n as u8;
+        *state
+            .lessons_by_class_day
+            .entry((*class, new_day))
+            .or_insert(0) += n as u8;
+    }
+
+    // Recompute scores (full recompute; the multi-position multi-class
+    // delta is too tangled for an incremental update on the n>1 path).
+    let new_canonical =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
+    let new_slice = crate::score::slice_recompute(problem, placements, weights);
+
+    // LAHC accept criterion (identical to try_change_move_n1).
+    let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
+    let accept = new_canonical <= state.canonical_score || new_canonical <= prior;
+
+    if accept {
+        state.canonical_score = new_canonical;
+        state.search_score_slice = new_slice;
+        return true;
+    }
+
+    // Reject: restore from snapshot. Placements first, then state maps.
+    for (i, snap) in source_indices.iter().zip(placements_snapshot.iter()) {
+        placements[*i] = snap.clone();
+    }
+    for class in class_ids {
+        for day in [old_anchor_day, new_day] {
+            let key = (*class, day);
+            match class_positions_snapshot.get(&key) {
+                Some(v) => {
+                    state.class_positions.insert(key, v.clone());
+                }
+                None => {
+                    state.class_positions.remove(&key);
+                }
+            }
+        }
+    }
+    for day in [old_anchor_day, new_day] {
+        let key = (teacher, day);
+        match teacher_positions_snapshot.get(&key) {
+            Some(v) => {
+                state.teacher_positions.insert(key, v.clone());
+            }
+            None => {
+                state.teacher_positions.remove(&key);
+            }
+        }
+    }
+    for tb in source_tb_ids.iter().chain(dest_tb_ids.iter()) {
+        let key = (teacher, *tb);
+        if used_teacher_snapshot.contains(&key) {
+            state.used_teacher.insert(key);
+        } else {
+            state.used_teacher.remove(&key);
+        }
+        for class in class_ids {
+            let ckey = (*class, *tb);
+            if used_class_snapshot.contains(&ckey) {
+                state.used_class.insert(ckey);
+            } else {
+                state.used_class.remove(&ckey);
+            }
+        }
+        for room in [source_room_id, chosen_room_id] {
+            let rkey = (room, *tb);
+            if used_room_snapshot.contains(&rkey) {
+                state.used_room.insert(rkey);
+            } else {
+                state.used_room.remove(&rkey);
+            }
+        }
+    }
+    for class in class_ids {
+        for day in [old_anchor_day, new_day] {
+            let key = (*class, day, lesson.subject_id);
+            match locked_room_snapshot.get(&key).copied() {
+                Some(v) => {
+                    state.locked_room.insert(key, v);
+                }
+                None => {
+                    state.locked_room.remove(&key);
+                }
+            }
+            match subject_hours_snapshot.get(&key).copied() {
+                Some(v) => {
+                    state.subject_hours_by_class_day.insert(key, v);
+                }
+                None => {
+                    state.subject_hours_by_class_day.remove(&key);
+                }
+            }
+            let lkey = (*class, day);
+            match lessons_by_class_day_snapshot.get(&lkey).copied() {
+                Some(v) => {
+                    state.lessons_by_class_day.insert(lkey, v);
+                }
+                None => {
+                    state.lessons_by_class_day.remove(&lkey);
+                }
+            }
+        }
+    }
+    state.canonical_score = canonical_before;
+    state.search_score_slice = search_slice_before;
     false
 }
 
@@ -7193,7 +7747,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_change_block_move_rejects_off_day_end() {
         let (problem, mut placements, mut state, weights, bad_anchor_idx) =
             block_change_off_day_end_fixture();
@@ -7238,7 +7791,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_change_block_move_rejects_break_in_window() {
         let (problem, mut placements, mut state, weights, bad_anchor_idx) =
             block_change_break_in_window_fixture();
@@ -7342,7 +7894,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_change_block_move_same_window_rejected() {
         let (problem, mut placements, mut state, weights) = block_change_doppelstunde_fixture();
         let idx = crate::index::Indexed::new(&problem);
