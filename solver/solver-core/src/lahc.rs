@@ -640,7 +640,24 @@ fn try_change_move(
         state,
     );
     state.search_score_slice = new_score;
-    state.canonical_score = new_canonical;
+    // Item 3 (supervision spread): `score_solution` includes the
+    // supervision contribution but the Change-move delta arithmetic above
+    // does not, so the delta-predicted `new_canonical` drifts from the
+    // true score by `weights.supervision_spread * (new_spread -
+    // old_spread)` whenever an accepted move alters the supervision
+    // adjacency surface. Recompute the canonical score from the full
+    // scorer post-apply so the per-iteration `debug_assert_eq!` invariant
+    // at the LAHC iteration tail holds. R&R and Kempe accept paths
+    // already recompute via `score_solution` (see `rr_attempt` and
+    // `kempe_apply_block` finalisation); Change is the only delta-only
+    // path. Cost: one supervision pass per accept; accepts are 1-3
+    // orders of magnitude rarer than proposals so the hot-path budget
+    // is unaffected. The accept criterion above still compares the
+    // delta-predicted `new_canonical` against the pre-move
+    // `state.canonical_score`; supervision is intentionally not
+    // delta-tracked per the supervision-objective design doc ("full
+    // rescore at Kempe + finalization captures supervision cost").
+    state.canonical_score = crate::score::score_solution(problem, placements, weights);
     true
 }
 
