@@ -132,6 +132,12 @@ pub struct ConstraintWeights {
     /// the backend quality_checks module. Zero disables the axis.
     /// Item 57.
     pub max_per_class_interior_gaps: u32,
+    /// Penalty applied per unit of supervision-load spread across teachers
+    /// (`max - min` over teachers with at least one Hofpause supervision).
+    /// Computed by `supervision::compute_supervision_spread`; folded into
+    /// the canonical `score_solution` total (saturating). Zero disables the
+    /// axis. Item 3 (Hofpause supervision objective).
+    pub supervision_spread: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -168,6 +174,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
     max_per_class_spread: 10, // item 57: per-class worst-case axis
     max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
+    supervision_spread: 5,   // item 3: Hofpause supervision load-balance axis
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -650,6 +657,7 @@ mod tests {
             prefer_class_teacher: 5,
             max_per_class_spread: 10,
             max_per_class_interior_gaps: 10,
+            supervision_spread: 5,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }

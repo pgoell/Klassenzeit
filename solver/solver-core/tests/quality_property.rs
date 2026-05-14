@@ -173,6 +173,7 @@ prop_compose! {
             prefer_class_teacher,
             max_per_class_spread,
             max_per_class_interior_gaps,
+            supervision_spread: 0,
         }
     }
 }

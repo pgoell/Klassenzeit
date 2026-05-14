@@ -28,6 +28,7 @@ pub fn score_solution(
         && weights.prefer_class_teacher == 0
         && weights.max_per_class_spread == 0
         && weights.max_per_class_interior_gaps == 0
+        && weights.supervision_spread == 0
     {
         return 0;
     }
@@ -167,6 +168,13 @@ pub fn score_solution(
         }
     }
 
+    let supervision_score =
+        weights
+            .supervision_spread
+            .saturating_mul(crate::supervision::compute_supervision_spread(
+                problem, placements,
+            ));
+
     weights
         .class_gap
         .saturating_mul(class_gaps)
@@ -189,6 +197,7 @@ pub fn score_solution(
                 .prefer_class_teacher
                 .saturating_mul(prefer_class_teacher_misses),
         )
+        .saturating_add(supervision_score)
 }
 
 /// Worst per-class daily-load spread:
@@ -1120,6 +1129,7 @@ mod tests {
             prefer_class_teacher: 0,
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
+            supervision_spread: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total

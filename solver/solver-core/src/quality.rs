@@ -345,6 +345,12 @@ pub fn quality_report(
     let worst_per_class_interior_gaps =
         crate::score::worst_class_interior_gaps(problem, placements);
 
+    // Supervision spread over teachers with at least one Hofpause supervision.
+    // Mirrors `score_solution`'s supervision contribution so
+    // `weighted_score == score_solution(...)` stays invariant (item 3).
+    let supervision_spread_raw =
+        crate::supervision::compute_supervision_spread(problem, placements);
+
     let weighted_score = weights
         .class_gap
         .saturating_mul(class_gap_hours)
@@ -370,6 +376,11 @@ pub fn quality_report(
             weights
                 .prefer_class_teacher
                 .saturating_mul(prefer_class_teacher_misses),
+        )
+        .saturating_add(
+            weights
+                .supervision_spread
+                .saturating_mul(supervision_spread_raw),
         );
 
     QualityReport {
