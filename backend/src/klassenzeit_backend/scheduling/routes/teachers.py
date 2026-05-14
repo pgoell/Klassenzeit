@@ -99,6 +99,7 @@ async def _build_teacher_detail(db: AsyncSession, teacher: Teacher) -> TeacherDe
         is_active=teacher.is_active,
         qualifications=qualifications,
         availability=availability,
+        working_days=teacher.working_days,
         created_at=teacher.created_at,
         updated_at=teacher.updated_at,
     )
@@ -129,6 +130,7 @@ async def create_teacher_route(
         short_code=body.short_code,
         max_hours_per_week=body.max_hours_per_week,
         reserve_hours_per_week=body.reserve_hours_per_week,
+        working_days=body.working_days,
     )
     db.add(teacher)
     try:
@@ -148,6 +150,7 @@ async def create_teacher_route(
         reserve_hours_per_week=teacher.reserve_hours_per_week,
         is_active=teacher.is_active,
         subject_ids=[],
+        working_days=teacher.working_days,
         created_at=teacher.created_at,
         updated_at=teacher.updated_at,
     )
@@ -196,6 +199,7 @@ async def list_teachers(
             reserve_hours_per_week=t.reserve_hours_per_week,
             is_active=t.is_active,
             subject_ids=subject_ids_by_teacher[t.id],
+            working_days=t.working_days,
             created_at=t.created_at,
             updated_at=t.updated_at,
         )
@@ -259,6 +263,8 @@ async def update_teacher_route(
         teacher.max_hours_per_week = body.max_hours_per_week
     if body.reserve_hours_per_week is not None:
         teacher.reserve_hours_per_week = body.reserve_hours_per_week
+    if "working_days" in body.model_fields_set:
+        teacher.working_days = sorted(body.working_days) if body.working_days is not None else None
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -280,6 +286,7 @@ async def update_teacher_route(
         reserve_hours_per_week=teacher.reserve_hours_per_week,
         is_active=teacher.is_active,
         subject_ids=subject_ids,
+        working_days=teacher.working_days,
         created_at=teacher.created_at,
         updated_at=teacher.updated_at,
     )

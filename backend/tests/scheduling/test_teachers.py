@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from klassenzeit_backend.db.models.user import User
+from tests.scheduling.conftest import CreateTeacherFn
 
 pytestmark = pytest.mark.anyio
 
@@ -659,3 +660,134 @@ async def test_list_teachers_includes_subject_ids(
     rows = list_resp.json()
     row = next(t for t in rows if t["id"] == teacher_id)
     assert sorted(row["subject_ids"]) == sorted([ma_id, de_id])
+
+
+async def test_create_teacher_with_working_days_round_trips(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """POST with working_days persists; GET returns sorted list."""
+    await create_test_user(email="admin@wd1.com", role="admin")
+    await login_as("admin@wd1.com", "testpassword123")
+    response = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Dana",
+            "last_name": "Teilzeit",
+            "short_code": "DTZ",
+            "max_hours_per_week": 14,
+            "working_days": [2, 0, 1],
+        },
+    )
+    assert response.status_code == 201
+    teacher_id = response.json()["id"]
+
+    detail = await client.get(f"/api/teachers/{teacher_id}")
+    assert detail.status_code == 200
+    assert detail.json()["working_days"] == [0, 1, 2]
+
+
+async def test_patch_teacher_working_days_replace(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+    create_teacher: CreateTeacherFn,
+) -> None:
+    """PATCH replaces working_days with the new sorted list."""
+    await create_test_user(email="admin@wd2.com", role="admin")
+    await login_as("admin@wd2.com", "testpassword123")
+    teacher = await create_teacher()
+
+    response = await client.patch(
+        f"/api/teachers/{teacher.id}",
+        json={"working_days": [4, 1]},
+    )
+    assert response.status_code == 200
+
+    detail = await client.get(f"/api/teachers/{teacher.id}")
+    assert detail.json()["working_days"] == [1, 4]
+
+
+async def test_patch_teacher_working_days_explicit_null_clears(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+    create_teacher: CreateTeacherFn,
+) -> None:
+    """PATCH with working_days: null clears the field (uses model_fields_set)."""
+    await create_test_user(email="admin@wd3.com", role="admin")
+    await login_as("admin@wd3.com", "testpassword123")
+    teacher = await create_teacher(working_days=[0, 1, 2])
+
+    response = await client.patch(
+        f"/api/teachers/{teacher.id}",
+        json={"working_days": None},
+    )
+    assert response.status_code == 200
+
+    detail = await client.get(f"/api/teachers/{teacher.id}")
+    assert detail.json()["working_days"] is None
+
+
+async def test_patch_teacher_working_days_omitted_unchanged(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+    create_teacher: CreateTeacherFn,
+) -> None:
+    """PATCH without working_days leaves the existing value alone."""
+    await create_test_user(email="admin@wd4.com", role="admin")
+    await login_as("admin@wd4.com", "testpassword123")
+    teacher = await create_teacher(working_days=[0, 1, 2])
+
+    response = await client.patch(
+        f"/api/teachers/{teacher.id}",
+        json={"first_name": "Renamed"},
+    )
+    assert response.status_code == 200
+
+    detail = await client.get(f"/api/teachers/{teacher.id}")
+    assert detail.json()["working_days"] == [0, 1, 2]
+
+
+async def test_create_teacher_rejects_empty_working_days(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """Empty list returns 422."""
+    await create_test_user(email="admin@wd5.com", role="admin")
+    await login_as("admin@wd5.com", "testpassword123")
+    response = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Bad",
+            "last_name": "Bad",
+            "short_code": "BAD",
+            "max_hours_per_week": 14,
+            "working_days": [],
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_create_teacher_rejects_out_of_range_working_day(
+    client: AsyncClient,
+    create_test_user: CreateUserFn,
+    login_as: LoginFn,
+) -> None:
+    """Element 5 returns 422."""
+    await create_test_user(email="admin@wd6.com", role="admin")
+    await login_as("admin@wd6.com", "testpassword123")
+    response = await client.post(
+        "/api/teachers",
+        json={
+            "first_name": "Bad",
+            "last_name": "Bad",
+            "short_code": "BAD2",
+            "max_hours_per_week": 14,
+            "working_days": [0, 5],
+        },
+    )
+    assert response.status_code == 422

@@ -274,6 +274,7 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
         short_code: str | None = None,
         max_hours_per_week: int = 24,
         reserve_hours_per_week: int = 0,
+        working_days: list[int] | None = None,
     ) -> Teacher:
         """Create and flush a Teacher with auto-generated unique defaults.
 
@@ -284,6 +285,8 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
             max_hours_per_week: Maximum teaching hours per week.
             reserve_hours_per_week: Vertretungsreserve subtracted from
                 ``max_hours_per_week`` by the solver's effective-capacity rule.
+            working_days: Optional Teilzeit weekday restriction; ``None`` means
+                full-time (Mo-Fr).
 
         Returns:
             The newly created Teacher ORM instance.
@@ -295,6 +298,7 @@ def create_teacher(db_session: AsyncSession) -> CreateTeacherFn:
             short_code=short_code if short_code is not None else f"TC{n}",
             max_hours_per_week=max_hours_per_week,
             reserve_hours_per_week=reserve_hours_per_week,
+            working_days=working_days,
         )
         db_session.add(teacher)
         await db_session.flush()
