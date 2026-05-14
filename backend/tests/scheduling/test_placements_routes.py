@@ -96,15 +96,17 @@ async def test_pin_toggle_round_trip(
     fixture = seeded_movable_placement
     response_on = await client.patch(
         f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin",
-        json={"pinned": True},
+        json={"pin_kind": "hard"},
     )
     assert response_on.status_code == 200, response_on.text
+    assert response_on.json()["pin_kind"] == "hard"
     assert response_on.json()["pinned"] is True
     response_off = await client.patch(
         f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin",
-        json={"pinned": False},
+        json={"pin_kind": None},
     )
     assert response_off.status_code == 200, response_off.text
+    assert response_off.json()["pin_kind"] is None
     assert response_off.json()["pinned"] is False
 
 
@@ -173,4 +175,4 @@ async def test_swap_placements_with_missing_b_returns_404_and_rolls_back(
         )
     ).scalar_one()
     assert a_row.time_block_id == fixture.time_block_a_id
-    assert a_row.pinned is False
+    assert a_row.pin_kind is None

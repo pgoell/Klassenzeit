@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
@@ -517,14 +518,14 @@ async def seeded_class_with_two_placements(
                 time_block_id=tb_pinned.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
-                pinned=True,
+                pin_kind=PinKind.HARD,
             ),
             ScheduledLesson(
                 lesson_id=unpinned_lesson.id,
                 time_block_id=tb_unpinned.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
-                pinned=False,
+                pin_kind=None,
             ),
         ]
     )
@@ -594,7 +595,7 @@ async def seeded_movable_placement(
             time_block_id=source_tb.id,
             room_id=room.id,
             teacher_id=teacher.id,
-            pinned=False,
+            pin_kind=None,
         )
     )
     await db_session.flush()
@@ -648,7 +649,7 @@ async def seeded_movable_placement_cross_week(
             time_block_id=source_tb.id,
             room_id=room.id,
             teacher_id=teacher.id,
-            pinned=False,
+            pin_kind=None,
         )
     )
     await db_session.flush()
@@ -712,14 +713,14 @@ async def seeded_two_placements_for_swap(
                 time_block_id=tb_a.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
-                pinned=False,
+                pin_kind=None,
             ),
             ScheduledLesson(
                 lesson_id=lesson_b.id,
                 time_block_id=tb_b.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
-                pinned=False,
+                pin_kind=None,
             ),
         ]
     )
@@ -823,7 +824,7 @@ async def seeded_dreizuegig_with_one_pin(
                 time_block_id=tb_1.id,
                 room_id=room_a.id,
                 teacher_id=teacher_a.id,
-                pinned=True,
+                pin_kind=PinKind.HARD,
             ),
         ]
     )

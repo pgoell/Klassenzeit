@@ -3,10 +3,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, func, text
+from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
+from klassenzeit_backend.db.models.pin_kind import PinKind
 
 
 class ScheduledLesson(Base):
@@ -20,8 +22,9 @@ class ScheduledLesson(Base):
     user-facing meaning. The next solve rebuilds whatever placements are still
     consistent with the updated schema.
 
-    ``pinned`` flags placements that the user has manually fixed. The solver
-    treats pinned placements as immovable on subsequent runs (Sprint C).
+    ``pin_kind`` flags placements the user has manually fixed. ``HARD`` pins
+    survive re-solves verbatim; ``SOFT`` pins enter the LAHC objective as a
+    per-placement penalty axis (Task 2). ``None`` means unpinned. See ADR 0042.
 
     ``teacher_id`` records the teacher the solver picked for this placement
     (item 65). For lessons with ``Lesson.teacher_id`` pinned (pin-only
@@ -41,5 +44,15 @@ class ScheduledLesson(Base):
     teacher_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False
     )
-    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    pin_kind: Mapped[PinKind | None] = mapped_column(
+        PG_ENUM(
+            PinKind,
+            name="pin_kind",
+            create_type=False,
+            native_enum=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=True,
+        server_default=None,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

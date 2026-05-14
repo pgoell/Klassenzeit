@@ -93,10 +93,24 @@ pub fn score_solution_json(problem_json: &str, placements_json: &str) -> Result<
         .map_err(|e| Error::Input(format!("json (problem): {e}")))?;
     let placements: Vec<Placement> = serde_json::from_str(placements_json)
         .map_err(|e| Error::Input(format!("json (placements): {e}")))?;
+    // Derive `soft_pinned_blocks` from the wire-format `pinned_placements`:
+    // entries with `kind == Soft` flow into the score axis (ADR 0042). CP-SAT
+    // round-trips through this entry point so the cross-backend parity contract
+    // ("CP-SAT objective == score_solution_json") accounts for soft pins.
+    let soft_pinned_blocks: std::collections::HashSet<(
+        crate::ids::LessonId,
+        crate::ids::TimeBlockId,
+    )> = problem
+        .pinned_placements
+        .iter()
+        .filter(|pin| pin.kind == crate::types::PinKind::Soft)
+        .map(|pin| (pin.lesson_id, pin.time_block_id))
+        .collect();
     Ok(score_solution(
         &problem,
         &placements,
         &crate::PRODUCTION_ACTIVE_WEIGHTS,
+        &soft_pinned_blocks,
     ))
 }
 
@@ -161,7 +175,7 @@ mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
+        Lesson, PinKind, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
         TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
@@ -342,6 +356,7 @@ mod tests {
                 time_block_id: TimeBlockId(time_block_uuid),
                 room_id: RoomId(room_uuid),
                 teacher_id: None,
+                kind: PinKind::Hard,
             }],
         };
         let json = serde_json::to_string(&original).unwrap();

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.scheduling.solver_io import (
     persist_solution_for_class,
@@ -445,10 +446,11 @@ async def test_read_schedule_surfaces_pinned_flag(
             time_block_id=tb_id,
             room_id=room_id,
             teacher_id=teacher_id,
-            pinned=True,
+            pin_kind=PinKind.HARD,
         )
     )
     await db_session.flush()
     result = await read_schedule_for_class(db_session, class_id)
     assert len(result) == 1
     assert result[0].pinned is True
+    assert result[0].pin_kind is PinKind.HARD

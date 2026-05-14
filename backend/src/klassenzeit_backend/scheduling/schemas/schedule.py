@@ -7,7 +7,9 @@ class's lessons by the route handler.
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from klassenzeit_backend.db.models.pin_kind import PinKind
 
 from .quality_report import QualityReportResponse
 
@@ -15,11 +17,13 @@ from .quality_report import QualityReportResponse
 class PlacementResponse(BaseModel):
     """One placed lesson-hour: which lesson, in which time block, in which room.
 
-    ``pinned`` reflects ``ScheduledLesson.pinned`` for persisted reads and the
-    placement-mutation endpoints; defaults to ``False`` for fresh solver
-    output, which carries no pinned flag in its wire format. ``teacher_id``
-    mirrors ``ScheduledLesson.teacher_id`` (non-null since OPEN_THINGS item 63);
-    on fresh solver output it is the solver's per-placement pick.
+    ``pin_kind`` reflects ``ScheduledLesson.pin_kind`` for persisted reads and
+    the placement-mutation endpoints; defaults to ``None`` (unpinned) for fresh
+    solver output, which carries no pin flag in its wire format. The computed
+    ``pinned`` field surfaces ``pin_kind is not None`` for one release window
+    of frontend-bundle compatibility. ``teacher_id`` mirrors
+    ``ScheduledLesson.teacher_id`` (non-null since OPEN_THINGS item 63); on
+    fresh solver output it is the solver's per-placement pick.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -28,7 +32,13 @@ class PlacementResponse(BaseModel):
     teacher_id: UUID
     time_block_id: UUID
     room_id: UUID
-    pinned: bool = False
+    pin_kind: PinKind | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pinned(self) -> bool:
+        """Derived flag: any pin (hard or soft) reads as pinned."""
+        return self.pin_kind is not None
 
 
 class ViolationResponse(BaseModel):

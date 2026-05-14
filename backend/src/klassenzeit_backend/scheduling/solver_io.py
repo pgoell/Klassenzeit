@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import (
     Room,
     RoomAvailability,
@@ -687,6 +688,10 @@ async def collect_pinned_placements(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # Sibling-class placements are immovable on a per-class re-solve
+            # regardless of the row's user-facing pin_kind; emit them as hard
+            # so the solver treats them as fixed.
+            "kind": PinKind.HARD.value,
         }
         for row in rows
     ]
@@ -711,7 +716,7 @@ async def collect_own_class_pins(
     stmt = (
         select(ScheduledLesson)
         .where(ScheduledLesson.lesson_id.in_(own_lessons_subq))
-        .where(ScheduledLesson.pinned.is_(True))
+        .where(ScheduledLesson.pin_kind.is_not(None))
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -721,6 +726,8 @@ async def collect_own_class_pins(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # pin_kind is not None by the WHERE filter above.
+            "kind": row.pin_kind.value if row.pin_kind is not None else PinKind.HARD.value,
         }
         for row in rows
     ]
@@ -729,13 +736,13 @@ async def collect_own_class_pins(
 async def collect_all_pins(
     db: AsyncSession,
 ) -> list[dict[str, str]]:
-    """Return wire-format pin dicts for every ScheduledLesson with pinned=True.
+    """Return wire-format pin dicts for every ScheduledLesson with a pin set.
 
     Carries ``teacher_id`` per item 77.
     """
     stmt = (
         select(ScheduledLesson)
-        .where(ScheduledLesson.pinned.is_(True))
+        .where(ScheduledLesson.pin_kind.is_not(None))
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -745,6 +752,8 @@ async def collect_all_pins(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # pin_kind is not None by the WHERE filter above.
+            "kind": row.pin_kind.value if row.pin_kind is not None else PinKind.HARD.value,
         }
         for row in rows
     ]
@@ -801,7 +810,11 @@ async def persist_solution_for_class(
             time_block_id=UUID(p["time_block_id"]),
             room_id=UUID(p["room_id"]),
             teacher_id=UUID(p["teacher_id"]),
-            pinned=(UUID(p["lesson_id"]), UUID(p["time_block_id"])) in pin_lookup,
+            pin_kind=(
+                PinKind.HARD
+                if (UUID(p["lesson_id"]), UUID(p["time_block_id"])) in pin_lookup
+                else None
+            ),
         )
         for p in filtered["placements"]
     ]
@@ -860,7 +873,7 @@ async def _existing_pin_keys_for_class(db: AsyncSession, class_id: UUID) -> set[
         select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == ScheduledLesson.lesson_id)
         .where(LessonSchoolClass.school_class_id == class_id)
-        .where(ScheduledLesson.pinned.is_(True))
+        .where(ScheduledLesson.pin_kind.is_not(None))
     )
     rows = (await db.execute(stmt)).all()
     return {(lesson_id, time_block_id) for lesson_id, time_block_id in rows}
@@ -915,7 +928,7 @@ async def persist_solution_for_all_classes(
             await db.execute(
                 select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id).where(
                     ScheduledLesson.lesson_id.in_(placement_lesson_ids),
-                    ScheduledLesson.pinned.is_(True),
+                    ScheduledLesson.pin_kind.is_not(None),
                 )
             )
         ).all()
@@ -938,7 +951,7 @@ async def persist_solution_for_all_classes(
                 time_block_id=time_block_uuid,
                 room_id=UUID(p["room_id"]),
                 teacher_id=UUID(p["teacher_id"]),
-                pinned=(lesson_uuid, time_block_uuid) in pin_lookup,
+                pin_kind=(PinKind.HARD if (lesson_uuid, time_block_uuid) in pin_lookup else None),
             )
         )
     await db.flush()
@@ -1006,7 +1019,7 @@ async def read_schedule_for_class(
             teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
-            pinned=row.pinned,
+            pin_kind=row.pin_kind,
         )
         for row in rows
     ]
@@ -1052,7 +1065,7 @@ async def read_schedule_for_teacher(
             teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
-            pinned=row.pinned,
+            pin_kind=row.pin_kind,
         )
         for row in rows
     ]
@@ -1126,7 +1139,7 @@ async def read_schedule_for_room(
             teacher_id=row.teacher_id,
             time_block_id=row.time_block_id,
             room_id=row.room_id,
-            pinned=row.pinned,
+            pin_kind=row.pin_kind,
         )
         for row in rows
     ]

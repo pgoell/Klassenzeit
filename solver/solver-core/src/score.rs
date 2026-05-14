@@ -16,6 +16,7 @@ pub fn score_solution(
     problem: &Problem,
     placements: &[Placement],
     weights: &ConstraintWeights,
+    soft_pinned_blocks: &HashSet<(LessonId, TimeBlockId)>,
 ) -> u32 {
     if weights.class_gap == 0
         && weights.teacher_gap == 0
@@ -29,6 +30,7 @@ pub fn score_solution(
         && weights.max_per_class_spread == 0
         && weights.max_per_class_interior_gaps == 0
         && weights.supervision_spread == 0
+        && weights.soft_pin_miss == 0
     {
         return 0;
     }
@@ -175,6 +177,25 @@ pub fn score_solution(
                 problem, placements,
             ));
 
+    // Soft-pin miss count: one per `(lesson_id, time_block_id)` entry in
+    // `soft_pinned_blocks` that is not present in the solution's placement
+    // key set. Positioned alongside `prefer_home_room` (both per-placement
+    // aspirational axes). Allocation-free when the soft-pin set is empty:
+    // the placement-keys HashSet still allocates here but the cold-path
+    // call-site cost is bounded by `placements.len()`. See ADR 0042.
+    let soft_pin_miss_count: u32 = if weights.soft_pin_miss == 0 || soft_pinned_blocks.is_empty() {
+        0
+    } else {
+        let placement_keys: HashSet<(LessonId, TimeBlockId)> = placements
+            .iter()
+            .map(|p| (p.lesson_id, p.time_block_id))
+            .collect();
+        soft_pinned_blocks
+            .iter()
+            .filter(|key| !placement_keys.contains(key))
+            .count() as u32
+    };
+
     weights
         .class_gap
         .saturating_mul(class_gaps)
@@ -192,6 +213,7 @@ pub fn score_solution(
                 .saturating_mul(worst_class_interior_gaps(problem, placements)),
         )
         .saturating_add(home_room_total)
+        .saturating_add(weights.soft_pin_miss.saturating_mul(soft_pin_miss_count))
         .saturating_add(
             weights
                 .prefer_class_teacher
@@ -765,7 +787,10 @@ mod tests {
             teacher_gap: 7,
             ..ConstraintWeights::default()
         };
-        assert_eq!(score_solution(&p, &[], &weights), 0);
+        assert_eq!(
+            score_solution(&p, &[], &weights, &::std::collections::HashSet::new()),
+            0
+        );
     }
 
     #[test]
@@ -777,7 +802,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -789,7 +822,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 11)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -803,7 +844,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 12)];
-        assert_eq!(score_solution(&p, &placements, &weights), 12);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            12
+        );
     }
 
     #[test]
@@ -820,8 +869,14 @@ mod tests {
             teacher_gap: 0,
             ..ConstraintWeights::default()
         };
-        assert_eq!(score_solution(&p, &placements, &w1), 1);
-        assert_eq!(score_solution(&p, &placements, &w2), 2);
+        assert_eq!(
+            score_solution(&p, &placements, &w1, &::std::collections::HashSet::new()),
+            1
+        );
+        assert_eq!(
+            score_solution(&p, &placements, &w2, &::std::collections::HashSet::new()),
+            2
+        );
     }
 
     #[test]
@@ -839,7 +894,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 13)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -847,7 +910,15 @@ mod tests {
         let p = three_block_one_class_problem();
         let weights = ConstraintWeights::default();
         let placements = [place(60, 10), place(60, 12)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -1086,7 +1157,15 @@ mod tests {
             room_id: RoomId(score_uuid(30)),
             teacher_id: TeacherId(Uuid::nil()),
         }];
-        assert_eq!(score_solution(&p, &placements, &weights), 2);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            2
+        );
     }
 
     #[test]
@@ -1103,7 +1182,15 @@ mod tests {
             room_id: RoomId(score_uuid(30)),
             teacher_id: TeacherId(Uuid::nil()),
         }];
-        assert_eq!(score_solution(&p, &placements_at_zero, &weights), 7);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements_at_zero,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            7
+        );
         // At position 1: contribution = 0.
         let placements_at_one = [Placement {
             lesson_id: LessonId(score_uuid(60)),
@@ -1111,7 +1198,15 @@ mod tests {
             room_id: RoomId(score_uuid(30)),
             teacher_id: TeacherId(Uuid::nil()),
         }];
-        assert_eq!(score_solution(&p, &placements_at_one, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements_at_one,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -1130,13 +1225,22 @@ mod tests {
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
             supervision_spread: 0,
+            soft_pin_miss: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
         // matches the pre-9c gap-only score of 12 (one gap each in class + teacher
         // partitions, weights 5 and 7).
         let placements = [place(60, 10), place(60, 12)];
-        assert_eq!(score_solution(&p, &placements, &weights), 12);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            12
+        );
     }
 
     #[test]
@@ -1294,7 +1398,15 @@ mod tests {
             room_id: RoomId(score_uuid(31)),
             teacher_id: TeacherId(Uuid::nil()),
         }];
-        assert_eq!(score_solution(&p, &placements, &weights), 7);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            7
+        );
     }
 
     #[test]
@@ -1306,7 +1418,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 12)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -1543,7 +1663,15 @@ mod tests {
         // p(11) is day 0 max (pos 1); p(14) is day 1 max (pos 2). Two hits at
         // weight 3 = 6.
         let placements = [p(10), p(11), p(12), p(14)];
-        assert_eq!(score_solution(&problem, &placements, &weights), 6);
+        assert_eq!(
+            score_solution(
+                &problem,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            6
+        );
     }
 
     #[test]
@@ -1563,7 +1691,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 21), place(60, 22), place(60, 23)];
-        assert_eq!(score_solution(&p, &placements, &weights), 0);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            0
+        );
     }
 
     #[test]
@@ -1595,7 +1731,15 @@ mod tests {
             ..ConstraintWeights::default()
         };
         let placements = [place(60, 10), place(60, 11), place(60, 12), place(60, 13)];
-        assert_eq!(score_solution(&p, &placements, &weights), 30);
+        assert_eq!(
+            score_solution(
+                &p,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            30
+        );
     }
 
     #[test]
@@ -1824,7 +1968,15 @@ mod tests {
         };
         // First-encountered teacher for (class, subject) is T2; class_teacher
         // is T1, qualified for subject; one miss * weight 5 = 5.
-        assert_eq!(score_solution(&problem, &placements, &weights), 5);
+        assert_eq!(
+            score_solution(
+                &problem,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new()
+            ),
+            5
+        );
     }
 
     #[test]
@@ -1841,8 +1993,18 @@ mod tests {
             ..ConstraintWeights::default()
         };
         assert_eq!(
-            score_solution(&problem, &placements, &weights_on),
-            score_solution(&problem, &placements, &weights_off),
+            score_solution(
+                &problem,
+                &placements,
+                &weights_on,
+                &::std::collections::HashSet::new()
+            ),
+            score_solution(
+                &problem,
+                &placements,
+                &weights_off,
+                &::std::collections::HashSet::new()
+            ),
         );
     }
 
@@ -1863,8 +2025,18 @@ mod tests {
             ..ConstraintWeights::default()
         };
         assert_eq!(
-            score_solution(&problem, &placements, &weights_on),
-            score_solution(&problem, &placements, &weights_off),
+            score_solution(
+                &problem,
+                &placements,
+                &weights_on,
+                &::std::collections::HashSet::new()
+            ),
+            score_solution(
+                &problem,
+                &placements,
+                &weights_off,
+                &::std::collections::HashSet::new()
+            ),
         );
     }
 
@@ -2086,8 +2258,17 @@ mod tests {
         let unbalanced = synthetic_placements_unbalanced_two_class();
         let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
         assert!(
-            score_solution(&problem, &unbalanced, &weights)
-                > score_solution(&problem, &balanced, &weights)
+            score_solution(
+                &problem,
+                &unbalanced,
+                &weights,
+                &::std::collections::HashSet::new()
+            ) > score_solution(
+                &problem,
+                &balanced,
+                &weights,
+                &::std::collections::HashSet::new()
+            )
         );
     }
 
@@ -2098,8 +2279,17 @@ mod tests {
         let gappy = synthetic_placements_class_a_gaps_one_day();
         let weights = crate::PRODUCTION_ACTIVE_WEIGHTS;
         assert!(
-            score_solution(&problem, &gappy, &weights)
-                > score_solution(&problem, &contiguous, &weights)
+            score_solution(
+                &problem,
+                &gappy,
+                &weights,
+                &::std::collections::HashSet::new()
+            ) > score_solution(
+                &problem,
+                &contiguous,
+                &weights,
+                &::std::collections::HashSet::new()
+            )
         );
     }
 }

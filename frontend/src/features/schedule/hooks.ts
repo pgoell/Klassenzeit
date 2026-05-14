@@ -102,17 +102,17 @@ export function useRoomSchedule(roomId: string | undefined) {
 export interface PinPlacementVars {
   lesson_id: string;
   time_block_id: string;
-  pinned: boolean;
+  pin_kind: "hard" | "soft" | null;
 }
 
 export function usePinPlacement() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (vars: PinPlacementVars): Promise<Placement> => {
-      const { lesson_id, time_block_id, pinned } = vars;
+      const { lesson_id, time_block_id, pin_kind } = vars;
       const { data } = await client.PATCH("/api/placements/{lesson_id}/{time_block_id}/pin", {
         params: { path: { lesson_id, time_block_id } },
-        body: { pinned },
+        body: { pin_kind },
       });
       if (!data) {
         throw new ApiError(500, null, "Empty response from PATCH /placements/{ids}/pin");

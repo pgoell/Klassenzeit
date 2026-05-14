@@ -9,8 +9,8 @@ use proptest::test_runner::TestCaseError;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::test_fixtures::dreizuegig_fixture;
 use solver_core::types::{
-    ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
-    Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
+    ConstraintWeights, Lesson, PinKind, PinnedPlacement, Problem, Room, SchoolClass, Solution,
+    SolveConfig, Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::validate::{validate_daily_caps, validate_no_double_booking};
 use solver_core::{
@@ -251,7 +251,7 @@ proptest! {
             seed: 11,
             ..SolveConfig::default()
         }).unwrap();
-        let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+        let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
         prop_assert_eq!(lahc.soft_score, recomputed);
     }
 
@@ -340,7 +340,7 @@ proptest! {
     fn lahc_rr_running_score_matches_recompute_when_feasible(p in lahc_small_problem()) {
         let lahc = solve_with_config(&p, &lahc_rr_cfg(11)).unwrap();
         if lahc.violations.is_empty() {
-            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
             prop_assert_eq!(lahc.soft_score, recomputed);
         }
     }
@@ -398,7 +398,7 @@ proptest! {
     fn lahc_kempe_running_score_matches_recompute_when_feasible(p in lahc_small_problem()) {
         let lahc = solve_with_config(&p, &lahc_kempe_cfg(11)).unwrap();
         if lahc.violations.is_empty() {
-            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
             prop_assert_eq!(lahc.soft_score, recomputed);
         }
     }
@@ -466,7 +466,7 @@ proptest! {
             ..SolveConfig::default()
         };
         let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
-        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        let canonical = score_solution(&problem, &solution.placements, &config.weights, &::std::collections::HashSet::new());
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
@@ -501,7 +501,7 @@ proptest! {
         // home_room coverage lives in the fixture builder below.
         let problem = canonical_score_test_problem();
         let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
-        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        let canonical = score_solution(&problem, &solution.placements, &config.weights, &::std::collections::HashSet::new());
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
@@ -859,6 +859,7 @@ fn build_lahc_pinned_problem() -> Problem {
             time_block_id: tb_zero,
             room_id: room,
             teacher_id: None,
+            kind: PinKind::Hard,
         }],
     }
 }
@@ -974,7 +975,12 @@ fn lahc_canonical_score_matches_score_solution_under_widened_per_class_axes() {
     let solution = solve_with_config(&problem, &config)
         .expect("solver should not return Err under production weights on dreizuegig");
 
-    let recomputed = score_solution(&problem, &solution.placements, &weights);
+    let recomputed = score_solution(
+        &problem,
+        &solution.placements,
+        &weights,
+        &::std::collections::HashSet::new(),
+    );
     assert_eq!(
         solution.soft_score, recomputed,
         "post-solve soft_score must match score_solution under widened axes",

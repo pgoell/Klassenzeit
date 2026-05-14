@@ -13,7 +13,7 @@ is pinned by the same proptest. Entries with value 0 are omitted (skip-zero
 convention). Item 2 (anchor item 59).
 """
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QualityReportResponse(BaseModel):
@@ -39,3 +39,4 @@ class QualityReportResponse(BaseModel):
     weighted_score: int
     worst_per_class_spread: int
     worst_per_class_interior_gaps: int
+    soft_pin_misses: int = Field(ge=0, default=0)

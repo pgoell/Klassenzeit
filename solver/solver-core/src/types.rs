@@ -138,6 +138,14 @@ pub struct ConstraintWeights {
     /// the canonical `score_solution` total (saturating). Zero disables the
     /// axis. Item 3 (Hofpause supervision objective).
     pub supervision_spread: u32,
+    /// Penalty per soft pin whose `(lesson_id, time_block_id)` is not present
+    /// in the final solution. Soft pins live alongside hard pins on
+    /// `Problem.pinned_placements` discriminated by `PinnedPlacement.kind`;
+    /// hard pins continue to seed FFD and block LAHC, while soft pins only
+    /// contribute via this canonical-score axis. Item 5: tentative weight,
+    /// mirrors `prefer_home_room`; revisit when a real Klassenlehrer corpus
+    /// surfaces a preference signal. ADR 0042.
+    pub soft_pin_miss: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -175,6 +183,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     max_per_class_spread: 10, // item 57: per-class worst-case axis
     max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
     supervision_spread: 5,   // item 3: Hofpause supervision load-balance axis
+    soft_pin_miss: 5,        // item 5: tentative weight, mirrors prefer_home_room
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -211,6 +220,21 @@ pub struct Problem {
     pub pinned_placements: Vec<PinnedPlacement>,
 }
 
+/// Discriminator for [`PinnedPlacement`]. Hard pins seed FFD and block
+/// LAHC; soft pins ride along the score axis instead (see ADR 0042).
+/// Additive wire field; callers omitting `kind` deserialise to [`PinKind::Hard`]
+/// (today's binary-hard semantic).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PinKind {
+    /// Hard pin: the solver MUST keep the placement.
+    #[default]
+    Hard,
+    /// Soft pin: the solver SHOULD keep the placement; misses are penalised
+    /// via the per-axis weight wired in a follow-up commit (ADR 0042).
+    Soft,
+}
+
 /// A pre-placed lesson that the solver must keep at its given
 /// (time_block, room) without modification. FFD seeding skips lessons
 /// whose ids appear in `Problem.pinned_placements`; LAHC moves never
@@ -241,6 +265,12 @@ pub struct PinnedPlacement {
     /// real teacher into the post-condition validators.
     #[serde(default)]
     pub teacher_id: Option<TeacherId>,
+    /// Discriminator: hard vs soft pin. Additive wire field; JSON callers
+    /// omitting `kind` deserialise to [`PinKind::Hard`] (today's binary-hard
+    /// semantic). Hard pins continue to seed FFD and block LAHC; soft pins
+    /// will become a canonical-score axis in a follow-up commit (ADR 0042).
+    #[serde(default)]
+    pub kind: PinKind,
 }
 
 /// Categorises a [`TimeBlock`] as a teaching slot or a non-teaching break
@@ -670,6 +700,7 @@ mod tests {
             max_per_class_spread: 10,
             max_per_class_interior_gaps: 10,
             supervision_spread: 5,
+            soft_pin_miss: 5,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }

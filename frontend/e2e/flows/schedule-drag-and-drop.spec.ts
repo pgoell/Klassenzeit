@@ -86,8 +86,9 @@ test.describe("Schedule drag-and-drop", () => {
     );
     await expect(movedCard).toBeVisible();
 
-    // Auto-pin: the visible toggle button now reads "Unpin this lesson".
-    await expect(movedCard.getByRole("button", { name: "Unpin this lesson" })).toBeVisible();
+    // Auto-pin: the toggle button is now in its "hard" state. The cycle's
+    // next action (and the button's accessible name) is "Soften to soft pin".
+    await expect(movedCard.getByRole("button", { name: "Soften to soft pin" })).toBeVisible();
 
     // Reload and re-assert: the move and the pin both persisted.
     await page.goto(scheduleUrl);
@@ -96,6 +97,8 @@ test.describe("Schedule drag-and-drop", () => {
       `[data-testid="placement-slot-${targetTimeBlockId}"] [data-lesson-id="${lessonId}"]`,
     );
     await expect(movedAfterReload).toBeVisible();
-    await expect(movedAfterReload.getByRole("button", { name: "Unpin this lesson" })).toBeVisible();
+    await expect(
+      movedAfterReload.getByRole("button", { name: "Soften to soft pin" }),
+    ).toBeVisible();
   });
 });

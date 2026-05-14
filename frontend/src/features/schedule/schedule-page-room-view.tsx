@@ -65,7 +65,7 @@ export function SchedulePageRoomView() {
         lessonId: p.lesson_id,
         timeBlockId: p.time_block_id,
         roomId: p.room_id,
-        pinned: p.pinned,
+        pinKind: p.pin_kind ?? null,
         kind: block.kind,
       };
     })

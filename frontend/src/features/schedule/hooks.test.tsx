@@ -245,9 +245,9 @@ describe("usePinPlacement", () => {
     const data = await result.current.mutateAsync({
       lesson_id: lessonId,
       time_block_id: timeBlockId,
-      pinned: true,
+      pin_kind: "hard",
     });
-    expect(receivedBody).toEqual({ pinned: true });
+    expect(receivedBody).toEqual({ pin_kind: "hard" });
     expect(data).toEqual({
       lesson_id: lessonId,
       time_block_id: timeBlockId,

@@ -1,8 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
 import { beforeAll, describe, expect, it } from "vitest";
 import i18n from "@/i18n/init";
+import { server } from "../../../tests/msw-handlers";
 import { type ScheduleCell, ScheduleGrid } from "./schedule-grid";
 
 beforeAll(async () => {
@@ -28,7 +31,7 @@ function samplePinnedCell(overrides: Partial<ScheduleCell> = {}): ScheduleCell {
     roomName: "Room 101",
     lessonId: "00000000-0000-0000-0000-00000000b001",
     timeBlockId: "00000000-0000-0000-0000-00000000c001",
-    pinned: true,
+    pinKind: "hard",
     kind: "lesson",
     ...overrides,
   };
@@ -85,33 +88,117 @@ describe("ScheduleGrid", () => {
     }
   });
 
-  it("renders an unpin button on pinned cells and a pin button on unpinned cells", () => {
-    const pinned = samplePinnedCell({ key: "0:1", day: 0, position: 1, pinned: true });
-    const unpinned = samplePinnedCell({
+  it("labels the pin button by the next state of the three-state cycle", () => {
+    const hardCell = samplePinnedCell({ key: "0:1", day: 0, position: 1, pinKind: "hard" });
+    const softCell = samplePinnedCell({
       key: "1:2",
       day: 1,
       position: 2,
       subjectName: "German",
       lessonId: "00000000-0000-0000-0000-00000000b002",
       timeBlockId: "00000000-0000-0000-0000-00000000c002",
-      pinned: false,
+      pinKind: "soft",
+    });
+    const unpinnedCell = samplePinnedCell({
+      key: "2:1",
+      day: 2,
+      position: 1,
+      subjectName: "English",
+      lessonId: "00000000-0000-0000-0000-00000000b003",
+      timeBlockId: "00000000-0000-0000-0000-00000000c003",
+      pinKind: null,
     });
     const Wrapper = wrapScheduleGrid();
     render(
       <Wrapper>
-        <ScheduleGrid cells={[pinned, unpinned]} daysPresent={[0, 1]} positions={[1, 2]} />
+        <ScheduleGrid
+          cells={[hardCell, softCell, unpinnedCell]}
+          daysPresent={[0, 1, 2]}
+          positions={[1, 2]}
+        />
       </Wrapper>,
     );
-    expect(screen.getByRole("button", { name: "Unpin this lesson" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pin this lesson" })).toBeInTheDocument();
+    // null cell → next click sets "hard"
+    expect(screen.getByRole("button", { name: "Set hard pin" })).toBeInTheDocument();
+    // hard cell → next click softens to "soft"
+    expect(screen.getByRole("button", { name: "Soften to soft pin" })).toBeInTheDocument();
+    // soft cell → next click clears
+    expect(screen.getByRole("button", { name: "Clear pin" })).toBeInTheDocument();
   });
 
-  it("highlights pinned cells with a primary border", () => {
+  it("cycles pin_kind null → hard → soft → null when the user clicks through", async () => {
+    const lessonId = "00000000-0000-0000-0000-00000000b001";
+    const timeBlockId = "00000000-0000-0000-0000-00000000c001";
+    const received: Array<"hard" | "soft" | null> = [];
+    server.use(
+      http.patch(
+        `http://localhost:3000/api/placements/${lessonId}/${timeBlockId}/pin`,
+        async ({ request }) => {
+          const body = (await request.json()) as { pin_kind: "hard" | "soft" | null };
+          received.push(body.pin_kind);
+          return HttpResponse.json({
+            lesson_id: lessonId,
+            teacher_id: "00000000-0000-0000-0000-00000000a001",
+            time_block_id: timeBlockId,
+            room_id: "00000000-0000-0000-0000-00000000d001",
+            pin_kind: body.pin_kind,
+            pinned: body.pin_kind !== null,
+          });
+        },
+      ),
+    );
+    const user = userEvent.setup();
+
+    // Step 1: null cell → click sends "hard"
+    const Wrapper1 = wrapScheduleGrid();
+    const { unmount: unmount1 } = render(
+      <Wrapper1>
+        <ScheduleGrid
+          cells={[samplePinnedCell({ pinKind: null })]}
+          daysPresent={[0]}
+          positions={[1]}
+        />
+      </Wrapper1>,
+    );
+    await user.click(screen.getByRole("button", { name: "Set hard pin" }));
+    unmount1();
+
+    // Step 2: hard cell → click sends "soft"
+    const Wrapper2 = wrapScheduleGrid();
+    const { unmount: unmount2 } = render(
+      <Wrapper2>
+        <ScheduleGrid
+          cells={[samplePinnedCell({ pinKind: "hard" })]}
+          daysPresent={[0]}
+          positions={[1]}
+        />
+      </Wrapper2>,
+    );
+    await user.click(screen.getByRole("button", { name: "Soften to soft pin" }));
+    unmount2();
+
+    // Step 3: soft cell → click sends null
+    const Wrapper3 = wrapScheduleGrid();
+    render(
+      <Wrapper3>
+        <ScheduleGrid
+          cells={[samplePinnedCell({ pinKind: "soft" })]}
+          daysPresent={[0]}
+          positions={[1]}
+        />
+      </Wrapper3>,
+    );
+    await user.click(screen.getByRole("button", { name: "Clear pin" }));
+
+    expect(received).toEqual(["hard", "soft", null]);
+  });
+
+  it("applies kz-ws-cell--pinned-hard to hard-pinned cells", () => {
     const Wrapper = wrapScheduleGrid();
     render(
       <Wrapper>
         <ScheduleGrid
-          cells={[samplePinnedCell({ pinned: true })]}
+          cells={[samplePinnedCell({ pinKind: "hard" })]}
           daysPresent={[0]}
           positions={[1]}
         />
@@ -119,7 +206,25 @@ describe("ScheduleGrid", () => {
     );
     const card = screen.getByText("Mathematics").closest(".kz-ws-cell");
     expect(card).not.toBeNull();
-    expect(card?.className ?? "").toContain("kz-ws-cell--pinned");
+    expect(card?.className ?? "").toContain("kz-ws-cell--pinned-hard");
+    expect(card?.className ?? "").not.toContain("kz-ws-cell--pinned-soft");
+  });
+
+  it("applies kz-ws-cell--pinned-soft to soft-pinned cells", () => {
+    const Wrapper = wrapScheduleGrid();
+    render(
+      <Wrapper>
+        <ScheduleGrid
+          cells={[samplePinnedCell({ pinKind: "soft" })]}
+          daysPresent={[0]}
+          positions={[1]}
+        />
+      </Wrapper>,
+    );
+    const card = screen.getByText("Mathematics").closest(".kz-ws-cell");
+    expect(card).not.toBeNull();
+    expect(card?.className ?? "").toContain("kz-ws-cell--pinned-soft");
+    expect(card?.className ?? "").not.toContain("kz-ws-cell--pinned-hard");
   });
 
   it("does not render a pin button on cells lacking lessonId/timeBlockId", () => {

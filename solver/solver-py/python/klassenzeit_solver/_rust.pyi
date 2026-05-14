@@ -1,4 +1,31 @@
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+PinKind = Literal["hard", "soft"]
+"""Discriminator for a `PinnedPlacement.kind` entry on the JSON wire format.
+
+Mirrors `solver_core::types::PinKind` (snake_case serde tag). Callers omitting
+`kind` deserialise to `"hard"` (today's binary-hard semantic). See ADR 0042.
+"""
+
+class ConstraintWeights(TypedDict, total=False):
+    """Wire-format mirror of `solver_core::types::ConstraintWeights`.
+
+    Only the soft-pin axis is pinned here; the broader field set is not
+    consumed type-statically by Python callers today. Extend as new axes
+    surface in Python consumers.
+    """
+
+    soft_pin_miss: int
+
+class QualityReport(TypedDict, total=False):
+    """Wire-format mirror of `solver_core::quality::QualityReport`.
+
+    Only `soft_pin_misses` is pinned in the stub; the broader field set is
+    not consumed type-statically by Python callers today. Extend as new
+    axes surface in Python consumers.
+    """
+
+    soft_pin_misses: int
 
 class ProgressSnapshotDict(TypedDict):
     """Snapshot of a `ProgressHandle`'s underlying atomic counters."""

@@ -380,7 +380,12 @@
     "actions": {
       "pin": "Stunde anpinnen",
       "unpin": "Stunde lösen",
-      "moveHandle": "Zum Verschieben ziehen"
+      "moveHandle": "Zum Verschieben ziehen",
+      "pinCycle": {
+        "setHard": "Festpin setzen",
+        "softenToSoft": "Festpin entfernen → Sanftpin setzen",
+        "clear": "Sanftpin entfernen"
+      }
     },
     "toasts": {
       "moveSuccess": "Stunde verschoben.",

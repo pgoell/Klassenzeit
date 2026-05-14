@@ -11,6 +11,17 @@ import {
   useScheduleDragAndDrop,
 } from "./use-schedule-drag-and-drop";
 
+type PinKind = "hard" | "soft" | null;
+
+// Three-state pin cycle: null → "hard" → "soft" → null. The tooltip mapping
+// in the click handler keys off this same cycle (next-state describes the
+// click outcome).
+function nextPinKind(current: PinKind | undefined): PinKind {
+  if (current == null) return "hard";
+  if (current === "hard") return "soft";
+  return null;
+}
+
 export interface ScheduleCell {
   key: string;
   day: number;
@@ -19,13 +30,17 @@ export interface ScheduleCell {
   classNames?: string;
   teacherName?: string;
   roomName: string;
-  // Optional placement identity. When present alongside `pinned`, the cell
+  // Optional placement identity. When present alongside `pinKind`, the cell
   // renders a pin / unpin toggle button. Cells without these fields render
   // read-only (e.g. skeleton or detached previews).
   lessonId?: string;
   timeBlockId?: string;
   roomId?: string;
-  pinned?: boolean;
+  // Three-state pin discriminator (mirrors `PlacementResponse.pin_kind`).
+  // Task 1 ships the storage shape; Task 6 widens click handling into a
+  // three-state cycle. For now the click handler treats this as a two-state
+  // toggle: any non-null kind clears, null sets `"hard"`.
+  pinKind?: "hard" | "soft" | null;
   // Discriminator from `TimeBlockResponse.kind`. When "break", the cell
   // renders a non-bookable variant (no drag, drop, or click affordances).
   kind: "lesson" | "break";
@@ -182,10 +197,14 @@ export function ScheduleGrid({
                 </div>
               );
             }
-            const togglable = cell?.lessonId && cell.timeBlockId && cell.pinned !== undefined;
+            const isPinnedHard = cell?.pinKind === "hard";
+            const isPinnedSoft = cell?.pinKind === "soft";
+            const isPinned = isPinnedHard || isPinnedSoft;
+            const togglable = cell?.lessonId && cell.timeBlockId && cell.pinKind !== undefined;
             const cellClassName = cn(
               "kz-ws-cell",
-              cell?.pinned && "kz-ws-cell--pinned",
+              isPinnedHard && "kz-ws-cell--pinned-hard",
+              isPinnedSoft && "kz-ws-cell--pinned-soft",
               cell && "group",
             );
             const slotTimeBlockId =
@@ -201,24 +220,34 @@ export function ScheduleGrid({
                   <button
                     type="button"
                     aria-label={
-                      cell.pinned ? t("schedule.actions.unpin") : t("schedule.actions.pin")
+                      cell.pinKind === "hard"
+                        ? t("schedule.actions.pinCycle.softenToSoft")
+                        : cell.pinKind === "soft"
+                          ? t("schedule.actions.pinCycle.clear")
+                          : t("schedule.actions.pinCycle.setHard")
                     }
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       pinMutation.mutate({
                         lesson_id: cell.lessonId as string,
                         time_block_id: cell.timeBlockId as string,
-                        pinned: !cell.pinned,
+                        pin_kind: nextPinKind(cell.pinKind),
                       });
                     }}
                     className={cn(
                       "absolute right-0 top-0 rounded p-0.5 transition-opacity",
-                      cell.pinned
+                      isPinned
                         ? "text-primary"
                         : "text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                     )}
                   >
-                    {cell.pinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                    {isPinnedHard ? (
+                      <Pin className="h-3 w-3" fill="currentColor" />
+                    ) : isPinnedSoft ? (
+                      <Pin className="h-3 w-3" />
+                    ) : (
+                      <PinOff className="h-3 w-3" />
+                    )}
                   </button>
                 ) : null}
               </>

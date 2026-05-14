@@ -4,6 +4,7 @@ import uuid
 
 from pydantic import BaseModel
 
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.scheduling.schemas.schedule import PlacementResponse
 
 __all__ = [
@@ -24,9 +25,13 @@ class MovePlacementRequest(BaseModel):
 
 
 class PinPlacementRequest(BaseModel):
-    """Body for `PATCH /api/placements/{lesson_id}/{time_block_id}/pin`."""
+    """Body for `PATCH /api/placements/{lesson_id}/{time_block_id}/pin`.
 
-    pinned: bool
+    ``pin_kind`` is the new three-state field: ``"hard"`` (immovable),
+    ``"soft"`` (preferred but optional), or ``None`` (unpinned). See ADR 0042.
+    """
+
+    pin_kind: PinKind | None = None
 
 
 class PlacementKey(BaseModel):

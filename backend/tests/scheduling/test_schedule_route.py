@@ -737,7 +737,7 @@ async def test_schedule_post_response_carries_quality_report(
     body = resp.json()
     assert "quality_report" in body, "quality_report must be on the wire format"
     qr = body["quality_report"]
-    # Mirrors QualityReport in solver-core/src/quality.rs (18 fields total).
+    # Mirrors QualityReport in solver-core/src/quality.rs (19 fields total).
     expected_fields = {
         "hard_violations",
         "unplaced_hours",
@@ -757,6 +757,7 @@ async def test_schedule_post_response_carries_quality_report(
         "weighted_score",
         "worst_per_class_spread",
         "worst_per_class_interior_gaps",
+        "soft_pin_misses",
     }
     assert expected_fields == set(qr.keys()), (
         f"quality_report fields drift from solver-core: "

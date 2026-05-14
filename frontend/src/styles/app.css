@@ -277,8 +277,15 @@ body {
   border: 1px solid color-mix(in oklch, var(--primary) 25%, transparent);
 }
 
-.kz-ws-cell--pinned[data-variant="period"] {
+.kz-ws-cell--pinned-hard[data-variant="period"] {
   border-color: color-mix(in oklch, var(--primary) 60%, transparent);
+  background: color-mix(in oklch, var(--primary) 22%, var(--card));
+}
+
+.kz-ws-cell--pinned-soft[data-variant="period"] {
+  border-color: color-mix(in oklch, var(--primary) 35%, transparent);
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
+  border-style: dashed;
 }
 
 input[type="number"]::-webkit-outer-spin-button,

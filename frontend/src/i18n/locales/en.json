@@ -380,7 +380,12 @@
     "actions": {
       "pin": "Pin this lesson",
       "unpin": "Unpin this lesson",
-      "moveHandle": "Drag to move"
+      "moveHandle": "Drag to move",
+      "pinCycle": {
+        "setHard": "Set hard pin",
+        "softenToSoft": "Soften to soft pin",
+        "clear": "Clear pin"
+      }
     },
     "toasts": {
       "moveSuccess": "Lesson moved.",

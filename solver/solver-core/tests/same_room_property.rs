@@ -311,6 +311,7 @@ fn ffd_does_not_lock_in_on_demo_grundschule() {
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
             supervision_spread: 0,
+            soft_pin_miss: 0,
         },
         deadline: None, // greedy only; Path A's contribution is at the FFD layer.
         ..SolveConfig::default()

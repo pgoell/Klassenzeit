@@ -51,6 +51,7 @@ pub fn solve(problem: &Problem) -> Result<Solution, Error> {
             max_per_class_spread: 10,
             max_per_class_interior_gaps: 10,
             supervision_spread: 5,
+            soft_pin_miss: 5,
         },
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
@@ -111,7 +112,7 @@ fn solve_with_config_stats_inner(
     let mut stats = SolveStats::default();
     validate_structural(problem)?;
 
-    let (seed_placements, pinned, mut pin_violations) = validate_pins(problem);
+    let (seed_placements, pinned, soft_pinned_blocks, mut pin_violations) = validate_pins(problem);
 
     let idx = Indexed::new(problem);
     let mut solution = Solution {
@@ -128,6 +129,7 @@ fn solve_with_config_stats_inner(
     };
 
     let mut state = GreedyState::new();
+    state.soft_pinned_blocks = soft_pinned_blocks;
     use crate::ids::LessonGroupId;
     let mut placed_groups: HashSet<LessonGroupId> = HashSet::new();
     let mut group_members: HashMap<LessonGroupId, Vec<usize>> = HashMap::new();
@@ -339,8 +341,12 @@ fn solve_with_config_stats_inner(
     // into state.search_score_slice via try_place_block; the canonical adds
     // home_room + class_day_balance over the slice. Set once here so LAHC
     // can maintain canonical incrementally per move.
-    state.canonical_score =
-        crate::score::score_solution(problem, &solution.placements, &config.weights);
+    state.canonical_score = crate::score::score_solution(
+        problem,
+        &solution.placements,
+        &config.weights,
+        &state.soft_pinned_blocks,
+    );
 
     let was_cancelled = crate::lahc::run(
         problem,
@@ -421,8 +427,13 @@ fn solve_with_config_stats_inner(
     solution.quality_report = qr;
     debug_assert_eq!(
         solution.soft_score,
-        crate::score::score_solution(problem, &solution.placements, &config.weights),
-        "Solution.soft_score must equal score_solution(problem, placements, weights) for every backend (item 51)",
+        crate::score::score_solution(
+            problem,
+            &solution.placements,
+            &config.weights,
+            &state.soft_pinned_blocks,
+        ),
+        "Solution.soft_score must equal score_solution(problem, placements, weights, soft_pinned_blocks) for every backend (item 51)",
     );
     Ok((solution, stats))
 }
@@ -474,13 +485,21 @@ pub(crate) struct GreedyState {
     /// debug_assert in `try_change_move`.
     pub(crate) search_score_slice: u32,
     /// Running canonical objective: `score_solution(problem, placements,
-    /// weights)`. Initialised at the end of greedy in
+    /// weights, soft_pinned_blocks)`. Initialised at the end of greedy in
     /// `solve_with_config_stats` before LAHC dispatch. Maintained in
     /// lockstep with `search_score_slice` across the LAHC Change move
     /// (incremental delta), R&R (full recompute), and Kempe (snapshot
     /// plus delta). Drives LAHC's accept criterion, `time_to_optimal_ms`
     /// probe, early-exit predicate, and running-best snapshot.
     pub(crate) canonical_score: u32,
+    /// Soft-pin partition (ADR 0042). Each entry is one
+    /// `(lesson_id, time_block_id)` pair the solver should honor. Hot-path
+    /// access from `score_solution` via the LAHC iteration tail (full
+    /// recompute) and from R&R / Kempe accept sites (recompute path).
+    /// Populated once at solver entry from `validate_pins` and never
+    /// mutated for the lifetime of the solve; empty by default so the
+    /// no-soft-pin path stays byte-equal to today's behaviour.
+    pub(crate) soft_pinned_blocks: HashSet<(LessonId, TimeBlockId)>,
 }
 
 impl GreedyState {
@@ -498,6 +517,7 @@ impl GreedyState {
             class_subject_teacher: HashMap::new(),
             search_score_slice: 0,
             canonical_score: 0,
+            soft_pinned_blocks: HashSet::new(),
         }
     }
 }
@@ -1757,7 +1777,18 @@ pub(crate) fn try_place_group(
 ///
 /// Reason codes: `unknown_lesson`, `unknown_time_block`, `unknown_room`,
 /// `duplicate_slot`, `block_size_mismatch`. Bad pins do not abort the solve.
-fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<Violation>) {
+///
+/// Return shape: `(seed_placements, hard_pinned, soft_pinned_blocks,
+/// violations)`. Hard pins seed FFD and block LAHC; soft pins flow into
+/// the `score_solution` axis via `state.soft_pinned_blocks`. ADR 0042.
+type ValidatePinsOutput = (
+    Vec<Placement>,
+    HashSet<LessonId>,
+    HashSet<(LessonId, TimeBlockId)>,
+    Vec<Violation>,
+);
+
+fn validate_pins(problem: &Problem) -> ValidatePinsOutput {
     let lessons_by_id: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
     let time_blocks_by_id: HashMap<TimeBlockId, &TimeBlock> =
@@ -1768,6 +1799,16 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
     let mut surviving_per_lesson: HashMap<LessonId, Vec<&crate::types::PinnedPlacement>> =
         HashMap::new();
     let mut taken_slots: HashSet<(TimeBlockId, RoomId)> = HashSet::new();
+    // Soft pins partition: ADR 0042. Each entry is one
+    // `(lesson_id, time_block_id)` pair the solver should honor but is not
+    // hard-bound to. Soft pins do NOT seed FFD and do NOT emit
+    // `PinnedConflict` for bad shape: malformed entries drop silently so
+    // operators get the soft-pin's tentative semantic without
+    // out-of-band violation noise. Only entries whose
+    // `(lesson_id, time_block_id)` reference valid IDs flow into the set;
+    // each block of a multi-block soft pin gets its own entry, validated
+    // independently.
+    let mut soft_pinned_blocks: HashSet<(LessonId, TimeBlockId)> = HashSet::new();
 
     let push_violation = |violations: &mut Vec<Violation>, lesson_id: LessonId, reason: &str| {
         violations.push(Violation {
@@ -1779,7 +1820,22 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
     };
 
     // First pass: per-entry validation (id existence + duplicate-slot).
+    // Soft pins partition off here: we drop them after the id-validity
+    // check and never enter the hard-pin shape validator.
     for pin in &problem.pinned_placements {
+        if pin.kind == crate::types::PinKind::Soft {
+            // Soft-pin path: silently drop bad-shape entries. No
+            // `PinnedConflict` is emitted; the soft-pin contract permits
+            // misses by construction (the score axis absorbs them).
+            if !lessons_by_id.contains_key(&pin.lesson_id) {
+                continue;
+            }
+            if !time_blocks_by_id.contains_key(&pin.time_block_id) {
+                continue;
+            }
+            soft_pinned_blocks.insert((pin.lesson_id, pin.time_block_id));
+            continue;
+        }
         if !lessons_by_id.contains_key(&pin.lesson_id) {
             push_violation(&mut violations, pin.lesson_id, "unknown_lesson");
             continue;
@@ -1890,7 +1946,7 @@ fn validate_pins(problem: &Problem) -> (Vec<Placement>, HashSet<LessonId>, Vec<V
         pinned_set.insert(lesson_id);
     }
 
-    (seed, pinned_set, violations)
+    (seed, pinned_set, soft_pinned_blocks, violations)
 }
 
 /// Replay seeded placements into greedy bookkeeping so the FFD loop's
@@ -1980,7 +2036,7 @@ mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
+        Lesson, PinKind, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
         SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
         TimeBlockKind,
     };
@@ -2457,6 +2513,7 @@ mod tests {
                     max_per_class_spread: 0,
                     max_per_class_interior_gaps: 0,
                     supervision_spread: 0,
+                    soft_pin_miss: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -2941,6 +2998,7 @@ mod tests {
             time_block_id: TimeBlockId(solve_uuid(11)),
             room_id: RoomId(solve_uuid(30)),
             teacher_id: None,
+            kind: PinKind::Hard,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -2980,6 +3038,7 @@ mod tests {
             time_block_id: TimeBlockId(solve_uuid(10)),
             room_id: RoomId(solve_uuid(30)),
             teacher_id: None,
+            kind: PinKind::Hard,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -3055,6 +3114,7 @@ mod tests {
                     max_per_class_spread: 0,
                     max_per_class_interior_gaps: 0,
                     supervision_spread: 0,
+                    soft_pin_miss: 0,
                 },
                 ..SolveConfig::default()
             },
@@ -3129,24 +3189,28 @@ mod tests {
                 time_block_id: TimeBlockId(solve_uuid(10)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(11)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(12)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(13)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
         ];
 
@@ -3374,6 +3438,7 @@ mod tests {
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
             supervision_spread: 0,
+            soft_pin_miss: 0,
         };
         let tb_order: Vec<usize> = vec![0];
         // room_order intentionally orders R1 first so the picker would pick
@@ -3515,6 +3580,7 @@ mod tests {
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
             supervision_spread: 0,
+            soft_pin_miss: 0,
         };
         let tb_order: Vec<usize> = vec![0];
         // Walk R1 first to check the picker still considers R0 and prefers
@@ -3735,24 +3801,28 @@ mod tests {
                     time_block_id: tb_d0_p0,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_b,
                     time_block_id: tb_d0_p1,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_c,
                     time_block_id: tb_d0_p2,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_d,
                     time_block_id: tb_d1_p0,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
             ],
         };
