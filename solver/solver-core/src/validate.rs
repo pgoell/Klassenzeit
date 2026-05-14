@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::Error;
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::types::{Lesson, Placement, Problem, Violation, ViolationKind};
+use crate::types::{Lesson, Placement, Problem, TimeBlockKind, Violation, ViolationKind};
 
 /// Validate a `Problem` against purely structural rules: non-empty core
 /// collections, unique IDs, known references, `hours_per_week > 0`.
@@ -606,6 +606,37 @@ pub fn validate_class_subject_teacher_uniformity(
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// Post-condition validator: no placement targets a break-kind
+/// [`crate::types::TimeBlock`]. Lessons must only land on `TimeBlockKind::Lesson`
+/// slots; Hofpause supervision is handled separately by
+/// [`crate::supervision::compute_supervision_full`]. A failure here indicates a
+/// solver bug (FFD / LAHC enumeration site missed the kind filter) rather than
+/// malformed input; the canonical fix is to filter the enumeration site, not
+/// to relax the validator. Pattern matches the rest of the validator quintet:
+/// returns `Err(Error::Input)` so the caller can `?`-bail.
+pub fn validate_no_lesson_on_break_slot(
+    problem: &Problem,
+    placements: &[Placement],
+) -> Result<(), Error> {
+    let tb_by_id: HashMap<TimeBlockId, &crate::types::TimeBlock> =
+        problem.time_blocks.iter().map(|t| (t.id, t)).collect();
+    for placement in placements {
+        let tb = tb_by_id.get(&placement.time_block_id).ok_or_else(|| {
+            Error::Input(format!(
+                "placement references unknown time block {:?}",
+                placement.time_block_id
+            ))
+        })?;
+        if tb.kind != TimeBlockKind::Lesson {
+            return Err(Error::Input(format!(
+                "lesson placed on break-kind time block: lesson {:?} on {:?} (day={} position={})",
+                placement.lesson_id, tb.id, tb.day_of_week, tb.position,
+            )));
         }
     }
     Ok(())

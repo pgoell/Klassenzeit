@@ -13,12 +13,12 @@ use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBloc
 use crate::index::Indexed;
 use crate::types::{
     ConstraintWeights, Lesson, Placement, Problem, Solution, SolveConfig, SolveStats, TimeBlock,
-    Violation, ViolationKind,
+    TimeBlockKind, Violation, ViolationKind,
 };
 use crate::validate::{
     pre_solve_violations, validate_class_subject_teacher_uniformity, validate_daily_caps,
-    validate_no_double_booking, validate_no_room_hopping, validate_placement_teacher_in_candidates,
-    validate_structural,
+    validate_no_double_booking, validate_no_lesson_on_break_slot, validate_no_room_hopping,
+    validate_placement_teacher_in_candidates, validate_structural,
 };
 
 #[cfg(feature = "solver-trace")]
@@ -154,7 +154,12 @@ fn solve_with_config_stats_inner(
     // Iterate time-blocks in (day, position) order and rooms in id order so
     // the lowest-delta picker can prune later candidates whose tiebreak rank
     // they could no longer beat. Sorting once amortises across all placements.
-    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len()).collect();
+    // Break-kind time blocks are excluded: lessons must never be placed on a
+    // Hofpause slot. The supervision pass in `crate::supervision` already
+    // iterates only break-kind blocks, so the asymmetry is intentional.
+    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len())
+        .filter(|&i| problem.time_blocks[i].kind == TimeBlockKind::Lesson)
+        .collect();
     tb_order.sort_unstable_by_key(|&i| {
         let tb = &problem.time_blocks[i];
         (tb.day_of_week, tb.position, tb.id.0)
@@ -388,6 +393,7 @@ fn solve_with_config_stats_inner(
     validate_daily_caps(problem, &solution.placements)?;
     validate_placement_teacher_in_candidates(problem, &solution.placements)?;
     validate_class_subject_teacher_uniformity(problem, &solution.placements)?;
+    validate_no_lesson_on_break_slot(problem, &solution.placements)?;
 
     // Hofpause supervision finalisation (item 3). Run after placements are
     // frozen but before quality_report so SupervisionGap violations land in
@@ -1190,7 +1196,8 @@ fn unplaced_kind(
     }
 
     let any_slot_open = problem.time_blocks.iter().any(|tb| {
-        !used_teacher.contains(&(lesson.assigned_teacher_id(), tb.id))
+        tb.kind == TimeBlockKind::Lesson
+            && !used_teacher.contains(&(lesson.assigned_teacher_id(), tb.id))
             && !idx.teacher_blocked(lesson.assigned_teacher_id(), tb.id)
             && lesson
                 .school_class_ids

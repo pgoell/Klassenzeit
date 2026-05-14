@@ -16,6 +16,7 @@ use crate::index::Indexed;
 use crate::score::{gap_count, gap_count_after_insert, gap_count_after_remove};
 use crate::types::{
     ConstraintWeights, Lesson, Placement, Problem, SolveConfig, SolveStats, Subject, TimeBlock,
+    TimeBlockKind,
 };
 
 /// Length of the LAHC cost-history list. Burke & Bykov 2008 reports the
@@ -115,9 +116,14 @@ pub(crate) fn run(
             .or_default()
             .insert(q.teacher_id);
     }
+    // Kempe destination lookup. Filtered to lesson-kind so the seed window
+    // verification and the chain neighbour window verification in
+    // `kempe_build_chain` abort cleanly when any destination position is a
+    // break slot (lessons must never land on Hofpause TBs).
     let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
         .time_blocks
         .iter()
+        .filter(|tb| tb.kind == TimeBlockKind::Lesson)
         .map(|tb| ((tb.day_of_week, tb.position), tb.id))
         .collect();
     let subject_lookup: HashMap<SubjectId, &Subject> =
@@ -136,7 +142,13 @@ pub(crate) fn run(
 
     // R&R needs the same precomputed orderings the greedy uses. Recompute
     // them here so lahc::run does not depend on solve.rs's local state.
-    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len()).collect();
+    // Break-kind time blocks are excluded for the same reason as in
+    // `solve_with_config_stats_inner`: R&R recreate calls `try_place_block`
+    // which iterates `tb_order` to enumerate candidate windows; a break slot
+    // is never a valid lesson destination.
+    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len())
+        .filter(|&i| problem.time_blocks[i].kind == TimeBlockKind::Lesson)
+        .collect();
     tb_order.sort_unstable_by_key(|&i| {
         let tb = &problem.time_blocks[i];
         (tb.day_of_week, tb.position, tb.id.0)
@@ -398,6 +410,12 @@ fn try_change_move(
     let new_tb = problem.time_blocks[new_tb_idx].clone();
 
     if new_tb.id == old_tb.id {
+        return false;
+    }
+    // Lessons must never land on a Hofpause slot. The two random_range draws
+    // for placement_idx / new_tb_idx are already consumed in `run`, so the
+    // determinism RNG-budget invariant (lahc_property.rs) holds.
+    if new_tb.kind != TimeBlockKind::Lesson {
         return false;
     }
 
