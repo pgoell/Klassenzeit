@@ -4,7 +4,120 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::types::{ConstraintWeights, Lesson, Placement, Problem, SchoolClass, TimeBlock};
+use crate::types::{
+    ConstraintWeights, Lesson, Placement, Problem, SchoolClass, Subject, TimeBlock,
+};
+
+/// Sum the slice-axis weighted soft-score (class_gap plus teacher_gap plus
+/// subject_preference) from already-built lookups and partitions.
+///
+/// Shared by `score_solution` (which folds in the canonical-extra axes) and
+/// `slice_recompute` (which exposes the slice as a standalone scalar for
+/// LAHC's block-Change and Swap recompute paths). `by_class_day`'s vec values
+/// must be sorted and deduplicated by the caller; `by_teacher_day`'s are
+/// deduped inside the helper because they are still needed in raw form by
+/// callers that hold them by reference.
+#[allow(clippy::too_many_arguments)]
+// Reason: internal helper called by two sites with identical pre-built
+// lookups; threading them through avoids re-building HashMaps on every call.
+fn slice_costs_inner(
+    placements: &[Placement],
+    weights: &ConstraintWeights,
+    by_class_day: &HashMap<(SchoolClassId, u8), Vec<u8>>,
+    by_teacher_day: &HashMap<(TeacherId, u8), Vec<u8>>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    subject_lookup: &HashMap<SubjectId, &Subject>,
+    max_position_per_day: &HashMap<u8, u8>,
+) -> u32 {
+    let class_gaps: u32 = by_class_day.values().map(|v| gap_count(v)).sum();
+    let teacher_gaps: u32 = by_teacher_day
+        .values()
+        .map(|v| {
+            let mut deduped = v.clone();
+            deduped.sort_unstable();
+            deduped.dedup();
+            gap_count(&deduped)
+        })
+        .sum();
+    let subject_preference: u32 = placements
+        .iter()
+        .map(|p| {
+            let lesson = lesson_lookup[&p.lesson_id];
+            let subject = subject_lookup[&lesson.subject_id];
+            let tb = tb_lookup[&p.time_block_id];
+            let max_pos = max_position_per_day
+                .get(&tb.day_of_week)
+                .copied()
+                .unwrap_or(tb.position);
+            subject_preference_score(subject, tb, max_pos, weights)
+        })
+        .sum();
+    weights
+        .class_gap
+        .saturating_mul(class_gaps)
+        .saturating_add(weights.teacher_gap.saturating_mul(teacher_gaps))
+        .saturating_add(subject_preference)
+}
+
+/// Recompute the slice score (class_gap plus teacher_gap plus subject_pref)
+/// from `placements` without consulting `GreedyState`. Used by LAHC's
+/// `try_change_block_move` (n>1 path) and `try_swap_move`, where the multi-
+/// position / multi-class delta is too tangled for an incremental update.
+/// Behaviour: equals the slice component of `score_solution(...)`; builds the
+/// same lookups and partitions, then delegates to `slice_costs_inner`.
+pub fn slice_recompute(
+    problem: &Problem,
+    placements: &[Placement],
+    weights: &ConstraintWeights,
+) -> u32 {
+    let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+        problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+    let lesson_lookup: HashMap<LessonId, &Lesson> =
+        problem.lessons.iter().map(|l| (l.id, l)).collect();
+    let subject_lookup: HashMap<SubjectId, &Subject> =
+        problem.subjects.iter().map(|s| (s.id, s)).collect();
+    let max_position_per_day: HashMap<u8, u8> =
+        problem
+            .time_blocks
+            .iter()
+            .fold(HashMap::new(), |mut acc, tb| {
+                acc.entry(tb.day_of_week)
+                    .and_modify(|m| *m = (*m).max(tb.position))
+                    .or_insert(tb.position);
+                acc
+            });
+    let mut by_class_day: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+    let mut by_teacher_day: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
+    for p in placements {
+        let tb = tb_lookup[&p.time_block_id];
+        let lesson = lesson_lookup[&p.lesson_id];
+        for cid in &lesson.school_class_ids {
+            by_class_day
+                .entry((*cid, tb.day_of_week))
+                .or_default()
+                .push(tb.position);
+        }
+        by_teacher_day
+            .entry((p.teacher_id, tb.day_of_week))
+            .or_default()
+            .push(tb.position);
+    }
+    for v in by_class_day.values_mut() {
+        v.sort_unstable();
+        v.dedup();
+    }
+    slice_costs_inner(
+        placements,
+        weights,
+        &by_class_day,
+        &by_teacher_day,
+        &tb_lookup,
+        &lesson_lookup,
+        &subject_lookup,
+        &max_position_per_day,
+    )
+}
 
 /// Compute the total weighted soft-score for a placement set.
 ///
@@ -38,7 +151,7 @@ pub fn score_solution(
         problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
-    let subject_lookup: std::collections::HashMap<crate::ids::SubjectId, &crate::types::Subject> =
+    let subject_lookup: HashMap<SubjectId, &Subject> =
         problem.subjects.iter().map(|s| (s.id, s)).collect();
     let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
         .school_classes
@@ -100,29 +213,16 @@ pub fn score_solution(
         v.dedup();
     }
     let class_balance = class_day_balance_cost(&by_class_day, &problem.school_classes, days);
-    let class_gaps: u32 = by_class_day.into_values().map(|v| gap_count(&v)).sum();
-    let teacher_gaps: u32 = by_teacher_day
-        .into_values()
-        .map(|mut v| {
-            v.sort_unstable();
-            v.dedup();
-            gap_count(&v)
-        })
-        .sum();
-
-    let subject_preference: u32 = placements
-        .iter()
-        .map(|p| {
-            let lesson = lesson_lookup[&p.lesson_id];
-            let subject = subject_lookup[&lesson.subject_id];
-            let tb = tb_lookup[&p.time_block_id];
-            let max_pos = max_position_per_day
-                .get(&tb.day_of_week)
-                .copied()
-                .unwrap_or(tb.position);
-            subject_preference_score(subject, tb, max_pos, weights)
-        })
-        .sum();
+    let slice = slice_costs_inner(
+        placements,
+        weights,
+        &by_class_day,
+        &by_teacher_day,
+        &tb_lookup,
+        &lesson_lookup,
+        &subject_lookup,
+        &max_position_per_day,
+    );
 
     let home_room_total: u32 = placements
         .iter()
@@ -196,11 +296,7 @@ pub fn score_solution(
             .count() as u32
     };
 
-    weights
-        .class_gap
-        .saturating_mul(class_gaps)
-        .saturating_add(weights.teacher_gap.saturating_mul(teacher_gaps))
-        .saturating_add(subject_preference)
+    slice
         .saturating_add(weights.class_day_balance.saturating_mul(class_balance))
         .saturating_add(
             weights
@@ -2291,5 +2387,43 @@ mod tests {
                 &::std::collections::HashSet::new()
             )
         );
+    }
+
+    fn small_fixture_for_slice_test() -> (Problem, Vec<Placement>) {
+        // Reuses the existing 1-day / 3-position / 1-class / 1-teacher fixture.
+        // Placements at positions 0 and 2 leave a gap at position 1, so
+        // `class_gaps == 1` and `teacher_gaps == 1`. Subject preference is
+        // zero with the default Subject (all prefer/avoid flags zero), so the
+        // slice score is exactly `class_gap * 1 + teacher_gap * 1`.
+        let p = three_block_one_class_problem();
+        let placements = vec![place(60, 10), place(60, 12)];
+        (p, placements)
+    }
+
+    #[test]
+    fn slice_recompute_matches_score_solution_slice_component() {
+        // Build a Problem with class_gap=5, teacher_gap=7, prefer_early_period=3
+        // (the slice axes), and zero on all other weights. Then
+        // slice_recompute(...) must equal score_solution(...) since canonical =
+        // slice + 0 + 0 + ... when the non-slice weights are zero.
+        let (p, placements) = small_fixture_for_slice_test();
+        let weights = ConstraintWeights {
+            class_gap: 5,
+            teacher_gap: 7,
+            prefer_early_period: 3,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            prefer_home_room: 0,
+            class_day_balance: 0,
+            prefer_class_teacher: 0,
+            max_per_class_spread: 0,
+            max_per_class_interior_gaps: 0,
+            supervision_spread: 0,
+            soft_pin_miss: 0,
+        };
+        let canonical = score_solution(&p, &placements, &weights, &HashSet::new());
+        let slice = slice_recompute(&p, &placements, &weights);
+        assert_eq!(slice, canonical);
     }
 }
