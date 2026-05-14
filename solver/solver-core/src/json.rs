@@ -161,7 +161,7 @@ mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
+        Lesson, PinKind, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
         TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
@@ -342,6 +342,7 @@ mod tests {
                 time_block_id: TimeBlockId(time_block_uuid),
                 room_id: RoomId(room_uuid),
                 teacher_id: None,
+                kind: PinKind::Hard,
             }],
         };
         let json = serde_json::to_string(&original).unwrap();

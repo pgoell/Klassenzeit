@@ -9,8 +9,8 @@ use proptest::test_runner::TestCaseError;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::test_fixtures::dreizuegig_fixture;
 use solver_core::types::{
-    ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
-    Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
+    ConstraintWeights, Lesson, PinKind, PinnedPlacement, Problem, Room, SchoolClass, Solution,
+    SolveConfig, Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::validate::{validate_daily_caps, validate_no_double_booking};
 use solver_core::{
@@ -859,6 +859,7 @@ fn build_lahc_pinned_problem() -> Problem {
             time_block_id: tb_zero,
             room_id: room,
             teacher_id: None,
+            kind: PinKind::Hard,
         }],
     }
 }

@@ -1484,7 +1484,9 @@ export interface paths {
         head?: never;
         /**
          * Pin Placement Route
-         * @description Toggle the ``pinned`` flag on an existing placement.
+         * @description Set the ``pin_kind`` discriminator on an existing placement.
+         *
+         *     Body ``{"pin_kind": "hard" | "soft" | null}``. ``null`` clears the pin.
          */
         patch: operations["pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch"];
         trace?: never;
@@ -1818,12 +1820,20 @@ export interface components {
             room_id: string;
         };
         /**
+         * PinKind
+         * @description Two-state pin discriminator. `None` on the column means unpinned.
+         * @enum {string}
+         */
+        PinKind: "hard" | "soft";
+        /**
          * PinPlacementRequest
          * @description Body for `PATCH /api/placements/{lesson_id}/{time_block_id}/pin`.
+         *
+         *     ``pin_kind`` is the new three-state field: ``"hard"`` (immovable),
+         *     ``"soft"`` (preferred but optional), or ``None`` (unpinned). See ADR 0042.
          */
         PinPlacementRequest: {
-            /** Pinned */
-            pinned: boolean;
+            pin_kind?: components["schemas"]["PinKind"] | null;
         };
         /**
          * PlacementKey
@@ -1845,11 +1855,13 @@ export interface components {
          * PlacementResponse
          * @description One placed lesson-hour: which lesson, in which time block, in which room.
          *
-         *     ``pinned`` reflects ``ScheduledLesson.pinned`` for persisted reads and the
-         *     placement-mutation endpoints; defaults to ``False`` for fresh solver
-         *     output, which carries no pinned flag in its wire format. ``teacher_id``
-         *     mirrors ``ScheduledLesson.teacher_id`` (non-null since OPEN_THINGS item 63);
-         *     on fresh solver output it is the solver's per-placement pick.
+         *     ``pin_kind`` reflects ``ScheduledLesson.pin_kind`` for persisted reads and
+         *     the placement-mutation endpoints; defaults to ``None`` (unpinned) for fresh
+         *     solver output, which carries no pin flag in its wire format. The computed
+         *     ``pinned`` field surfaces ``pin_kind is not None`` for one release window
+         *     of frontend-bundle compatibility. ``teacher_id`` mirrors
+         *     ``ScheduledLesson.teacher_id`` (non-null since OPEN_THINGS item 63); on
+         *     fresh solver output it is the solver's per-placement pick.
          */
         PlacementResponse: {
             /**
@@ -1872,11 +1884,12 @@ export interface components {
              * Format: uuid
              */
             room_id: string;
+            pin_kind?: components["schemas"]["PinKind"] | null;
             /**
              * Pinned
-             * @default false
+             * @description Derived flag: any pin (hard or soft) reads as pinned.
              */
-            pinned: boolean;
+            readonly pinned: boolean;
         };
         /**
          * ProgressSnapshot

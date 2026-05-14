@@ -19,13 +19,17 @@ export interface ScheduleCell {
   classNames?: string;
   teacherName?: string;
   roomName: string;
-  // Optional placement identity. When present alongside `pinned`, the cell
+  // Optional placement identity. When present alongside `pinKind`, the cell
   // renders a pin / unpin toggle button. Cells without these fields render
   // read-only (e.g. skeleton or detached previews).
   lessonId?: string;
   timeBlockId?: string;
   roomId?: string;
-  pinned?: boolean;
+  // Three-state pin discriminator (mirrors `PlacementResponse.pin_kind`).
+  // Task 1 ships the storage shape; Task 6 widens click handling into a
+  // three-state cycle. For now the click handler treats this as a two-state
+  // toggle: any non-null kind clears, null sets `"hard"`.
+  pinKind?: "hard" | "soft" | null;
   // Discriminator from `TimeBlockResponse.kind`. When "break", the cell
   // renders a non-bookable variant (no drag, drop, or click affordances).
   kind: "lesson" | "break";
@@ -182,10 +186,11 @@ export function ScheduleGrid({
                 </div>
               );
             }
-            const togglable = cell?.lessonId && cell.timeBlockId && cell.pinned !== undefined;
+            const isPinned = cell?.pinKind === "hard";
+            const togglable = cell?.lessonId && cell.timeBlockId && cell.pinKind !== undefined;
             const cellClassName = cn(
               "kz-ws-cell",
-              cell?.pinned && "kz-ws-cell--pinned",
+              isPinned && "kz-ws-cell--pinned",
               cell && "group",
             );
             const slotTimeBlockId =
@@ -200,25 +205,23 @@ export function ScheduleGrid({
                 {togglable && cell.lessonId && cell.timeBlockId ? (
                   <button
                     type="button"
-                    aria-label={
-                      cell.pinned ? t("schedule.actions.unpin") : t("schedule.actions.pin")
-                    }
+                    aria-label={isPinned ? t("schedule.actions.unpin") : t("schedule.actions.pin")}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       pinMutation.mutate({
                         lesson_id: cell.lessonId as string,
                         time_block_id: cell.timeBlockId as string,
-                        pinned: !cell.pinned,
+                        pin_kind: cell.pinKind ? null : "hard",
                       });
                     }}
                     className={cn(
                       "absolute right-0 top-0 rounded p-0.5 transition-opacity",
-                      cell.pinned
+                      isPinned
                         ? "text-primary"
                         : "text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                     )}
                   >
-                    {cell.pinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                    {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
                   </button>
                 ) : null}
               </>

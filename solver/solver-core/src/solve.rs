@@ -1980,7 +1980,7 @@ mod tests {
     use super::*;
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
-        Lesson, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
+        Lesson, PinKind, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
         SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
         TimeBlockKind,
     };
@@ -2941,6 +2941,7 @@ mod tests {
             time_block_id: TimeBlockId(solve_uuid(11)),
             room_id: RoomId(solve_uuid(30)),
             teacher_id: None,
+            kind: PinKind::Hard,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -2980,6 +2981,7 @@ mod tests {
             time_block_id: TimeBlockId(solve_uuid(10)),
             room_id: RoomId(solve_uuid(30)),
             teacher_id: None,
+            kind: PinKind::Hard,
         });
 
         let solution = greedy_solve(&p).unwrap();
@@ -3129,24 +3131,28 @@ mod tests {
                 time_block_id: TimeBlockId(solve_uuid(10)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(11)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(12)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
             PinnedPlacement {
                 lesson_id: LessonId(solve_uuid(60)),
                 time_block_id: TimeBlockId(solve_uuid(13)),
                 room_id: RoomId(solve_uuid(30)),
                 teacher_id: None,
+                kind: PinKind::Hard,
             },
         ];
 
@@ -3735,24 +3741,28 @@ mod tests {
                     time_block_id: tb_d0_p0,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_b,
                     time_block_id: tb_d0_p1,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_c,
                     time_block_id: tb_d0_p2,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
                 PinnedPlacement {
                     lesson_id: lesson_d,
                     time_block_id: tb_d1_p0,
                     room_id,
                     teacher_id: None,
+                    kind: PinKind::Hard,
                 },
             ],
         };

@@ -8,7 +8,7 @@
 // unpin_teachers_in_problem). Asserts the solve succeeds without
 // validate_no_double_booking firing.
 
-use solver_core::types::PinnedPlacement;
+use solver_core::types::{PinKind, PinnedPlacement};
 use solver_core::{
     solve_with_config, test_fixtures::grundschule_fixture, Problem, SolveConfig, SubjectId,
     TeacherId,
@@ -132,12 +132,14 @@ fn ffd_with_pins_carrying_teacher_id_routes_through_seed_placement() {
         time_block_id: tb_0,
         room_id: room_1,
         teacher_id: Some(t_a),
+        kind: PinKind::Hard,
     });
     problem.pinned_placements.push(PinnedPlacement {
         lesson_id: *l2_id,
         time_block_id: tb_0,
         room_id: room_2,
         teacher_id: Some(t_b),
+        kind: PinKind::Hard,
     });
 
     let cfg = SolveConfig {

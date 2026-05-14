@@ -211,6 +211,21 @@ pub struct Problem {
     pub pinned_placements: Vec<PinnedPlacement>,
 }
 
+/// Discriminator for [`PinnedPlacement`]. Hard pins seed FFD and block
+/// LAHC; soft pins ride along the score axis instead (see ADR 0042).
+/// Additive wire field; callers omitting `kind` deserialise to [`PinKind::Hard`]
+/// (today's binary-hard semantic).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PinKind {
+    /// Hard pin: the solver MUST keep the placement.
+    #[default]
+    Hard,
+    /// Soft pin: the solver SHOULD keep the placement; misses are penalised
+    /// via the per-axis weight wired in a follow-up commit (ADR 0042).
+    Soft,
+}
+
 /// A pre-placed lesson that the solver must keep at its given
 /// (time_block, room) without modification. FFD seeding skips lessons
 /// whose ids appear in `Problem.pinned_placements`; LAHC moves never
@@ -241,6 +256,12 @@ pub struct PinnedPlacement {
     /// real teacher into the post-condition validators.
     #[serde(default)]
     pub teacher_id: Option<TeacherId>,
+    /// Discriminator: hard vs soft pin. Additive wire field; JSON callers
+    /// omitting `kind` deserialise to [`PinKind::Hard`] (today's binary-hard
+    /// semantic). Hard pins continue to seed FFD and block LAHC; soft pins
+    /// will become a canonical-score axis in a follow-up commit (ADR 0042).
+    #[serde(default)]
+    pub kind: PinKind,
 }
 
 /// Categorises a [`TimeBlock`] as a teaching slot or a non-teaching break

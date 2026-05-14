@@ -28,7 +28,7 @@ function samplePinnedCell(overrides: Partial<ScheduleCell> = {}): ScheduleCell {
     roomName: "Room 101",
     lessonId: "00000000-0000-0000-0000-00000000b001",
     timeBlockId: "00000000-0000-0000-0000-00000000c001",
-    pinned: true,
+    pinKind: "hard",
     kind: "lesson",
     ...overrides,
   };
@@ -86,7 +86,7 @@ describe("ScheduleGrid", () => {
   });
 
   it("renders an unpin button on pinned cells and a pin button on unpinned cells", () => {
-    const pinned = samplePinnedCell({ key: "0:1", day: 0, position: 1, pinned: true });
+    const pinned = samplePinnedCell({ key: "0:1", day: 0, position: 1, pinKind: "hard" });
     const unpinned = samplePinnedCell({
       key: "1:2",
       day: 1,
@@ -94,7 +94,7 @@ describe("ScheduleGrid", () => {
       subjectName: "German",
       lessonId: "00000000-0000-0000-0000-00000000b002",
       timeBlockId: "00000000-0000-0000-0000-00000000c002",
-      pinned: false,
+      pinKind: null,
     });
     const Wrapper = wrapScheduleGrid();
     render(
@@ -111,7 +111,7 @@ describe("ScheduleGrid", () => {
     render(
       <Wrapper>
         <ScheduleGrid
-          cells={[samplePinnedCell({ pinned: true })]}
+          cells={[samplePinnedCell({ pinKind: "hard" })]}
           daysPresent={[0]}
           positions={[1]}
         />

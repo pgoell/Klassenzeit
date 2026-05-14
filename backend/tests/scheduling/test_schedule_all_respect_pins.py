@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.user import User
 from tests.scheduling.conftest import SeededDreizuegigWithPin
@@ -42,7 +43,7 @@ async def test_schedule_all_default_respects_pins(
         )
     ).scalar_one()
     assert pinned.time_block_id == fixture.pinned_time_block_id
-    assert pinned.pinned is True
+    assert pinned.pin_kind is PinKind.HARD
 
 
 @pytest.mark.asyncio
@@ -70,7 +71,7 @@ async def test_schedule_all_respect_pins_false_keeps_pin_state(
     )
     assert len(pinned_rows) == 1
     # Pin state is preserved across the run; only the slot may have changed.
-    assert pinned_rows[0].pinned is True
+    assert pinned_rows[0].pin_kind is PinKind.HARD
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
@@ -130,12 +131,12 @@ async def move_placement_route(
             time_block_id=body.time_block_id,
             room_id=body.room_id,
             teacher_id=prior_teacher_id,
-            pinned=True,
+            pin_kind=PinKind.HARD,
         )
         db.add(placement)
     else:
         placement.room_id = body.room_id
-        placement.pinned = True
+        placement.pin_kind = PinKind.HARD
     await db.commit()
     await db.refresh(placement)
     return PlacementResponse.model_validate(placement)
@@ -149,9 +150,12 @@ async def pin_placement_route(
     _admin: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> PlacementResponse:
-    """Toggle the ``pinned`` flag on an existing placement."""
+    """Set the ``pin_kind`` discriminator on an existing placement.
+
+    Body ``{"pin_kind": "hard" | "soft" | null}``. ``null`` clears the pin.
+    """
     placement = await _load_placement_or_404(db, lesson_id, time_block_id)
-    placement.pinned = body.pinned
+    placement.pin_kind = body.pin_kind
     await db.commit()
     await db.refresh(placement)
     return PlacementResponse.model_validate(placement)
@@ -182,14 +186,14 @@ async def swap_placements_route(
         time_block_id=body.b.time_block_id,
         room_id=b_room,
         teacher_id=a_teacher,
-        pinned=True,
+        pin_kind=PinKind.HARD,
     )
     new_b = ScheduledLesson(
         lesson_id=body.b.lesson_id,
         time_block_id=body.a.time_block_id,
         room_id=a_room,
         teacher_id=b_teacher,
-        pinned=True,
+        pin_kind=PinKind.HARD,
     )
     db.add(new_a)
     db.add(new_b)
