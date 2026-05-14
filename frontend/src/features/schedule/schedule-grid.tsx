@@ -11,6 +11,17 @@ import {
   useScheduleDragAndDrop,
 } from "./use-schedule-drag-and-drop";
 
+type PinKind = "hard" | "soft" | null;
+
+// Three-state pin cycle: null → "hard" → "soft" → null. The tooltip mapping
+// in the click handler keys off this same cycle (next-state describes the
+// click outcome).
+function nextPinKind(current: PinKind | undefined): PinKind {
+  if (current == null) return "hard";
+  if (current === "hard") return "soft";
+  return null;
+}
+
 export interface ScheduleCell {
   key: string;
   day: number;
@@ -186,11 +197,14 @@ export function ScheduleGrid({
                 </div>
               );
             }
-            const isPinned = cell?.pinKind === "hard";
+            const isPinnedHard = cell?.pinKind === "hard";
+            const isPinnedSoft = cell?.pinKind === "soft";
+            const isPinned = isPinnedHard || isPinnedSoft;
             const togglable = cell?.lessonId && cell.timeBlockId && cell.pinKind !== undefined;
             const cellClassName = cn(
               "kz-ws-cell",
-              isPinned && "kz-ws-cell--pinned",
+              isPinnedHard && "kz-ws-cell--pinned-hard",
+              isPinnedSoft && "kz-ws-cell--pinned-soft",
               cell && "group",
             );
             const slotTimeBlockId =
@@ -205,13 +219,19 @@ export function ScheduleGrid({
                 {togglable && cell.lessonId && cell.timeBlockId ? (
                   <button
                     type="button"
-                    aria-label={isPinned ? t("schedule.actions.unpin") : t("schedule.actions.pin")}
+                    aria-label={
+                      cell.pinKind === "hard"
+                        ? t("schedule.actions.pinCycle.softenToSoft")
+                        : cell.pinKind === "soft"
+                          ? t("schedule.actions.pinCycle.clear")
+                          : t("schedule.actions.pinCycle.setHard")
+                    }
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       pinMutation.mutate({
                         lesson_id: cell.lessonId as string,
                         time_block_id: cell.timeBlockId as string,
-                        pin_kind: cell.pinKind ? null : "hard",
+                        pin_kind: nextPinKind(cell.pinKind),
                       });
                     }}
                     className={cn(
@@ -221,7 +241,13 @@ export function ScheduleGrid({
                         : "text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                     )}
                   >
-                    {isPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                    {isPinnedHard ? (
+                      <Pin className="h-3 w-3" fill="currentColor" />
+                    ) : isPinnedSoft ? (
+                      <Pin className="h-3 w-3" />
+                    ) : (
+                      <PinOff className="h-3 w-3" />
+                    )}
                   </button>
                 ) : null}
               </>
