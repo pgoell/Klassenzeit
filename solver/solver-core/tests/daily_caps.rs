@@ -7,6 +7,7 @@ use uuid::Uuid;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::types::{
     Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification, TimeBlock,
+    TimeBlockKind,
 };
 use solver_core::{solve_with_config, SolveConfig};
 
@@ -37,6 +38,7 @@ fn caps_subject_hours_per_class_per_day_to_two_by_default() {
                 id: caps_tb_id(d, p),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
         }
     }
@@ -121,6 +123,7 @@ fn caps_total_lessons_per_class_per_day_when_set() {
                 id: caps_tb_id(d, p),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
         }
     }

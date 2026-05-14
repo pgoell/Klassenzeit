@@ -558,7 +558,8 @@ mod tests {
     use crate::test_fixtures::grundschule_fixture;
     use crate::types::{
         Lesson, Placement, Problem, Room, SchoolClass, Solution, SolveConfig, Subject, Teacher,
-        TeacherQualification, TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
+        TeacherQualification, TimeBlock, TimeBlockKind, Violation, ViolationKind,
+        PRODUCTION_ACTIVE_WEIGHTS,
     };
     use uuid::Uuid;
 
@@ -573,16 +574,19 @@ mod tests {
                     id: TimeBlockId(quality_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(quality_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(quality_uuid(12)),
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -693,17 +697,20 @@ mod tests {
                 id: TimeBlockId(quality_uuid(20 + day)),
                 day_of_week: day,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             });
         }
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(quality_uuid(13)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(quality_uuid(14)),
             day_of_week: 0,
             position: 4,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             place_in(60, 10, 30),
@@ -995,6 +1002,7 @@ mod tests {
                     id: TimeBlockId(quality_uuid(100 + day * 10 + pos)),
                     day_of_week: day,
                     position: pos,
+                    kind: TimeBlockKind::Lesson,
                 });
             }
         }

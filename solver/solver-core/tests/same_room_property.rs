@@ -19,6 +19,7 @@ use solver_core::{
     types::{
         ConstraintWeights, Lesson, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
         SchoolClass, Solution, SolveConfig, Subject, Teacher, TeacherQualification, TimeBlock,
+        TimeBlockKind,
     },
 };
 use uuid::Uuid;
@@ -74,11 +75,13 @@ fn forced_hop_problem() -> Problem {
                 id: tb0,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb1,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
         ],
         teachers: vec![Teacher {
@@ -168,6 +171,7 @@ fn same_room_grundschule() -> Problem {
             id: TimeBlockId(same_room_uuid(100 + i)),
             day_of_week: i / 5,
             position: i % 5,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 

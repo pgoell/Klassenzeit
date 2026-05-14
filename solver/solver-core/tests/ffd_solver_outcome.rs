@@ -7,7 +7,7 @@ use solver_core::{
     solve, solve_with_config,
     types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, SolveConfig, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     },
     PRODUCTION_ACTIVE_WEIGHTS,
 };
@@ -28,6 +28,7 @@ fn pessimal_input_problem() -> Problem {
             id: TimeBlockId(ffd_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         }],
         teachers: vec![
             Teacher {

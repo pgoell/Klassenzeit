@@ -162,7 +162,7 @@ mod tests {
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
         Lesson, PinnedPlacement, Problem, Room, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -176,6 +176,7 @@ mod tests {
                 id: TimeBlockId(json_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![Teacher {
                 id: TeacherId(json_uuid(20)),
@@ -249,6 +250,7 @@ mod tests {
                 id: TimeBlockId(json_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![],
             rooms: vec![Room {
@@ -294,6 +296,7 @@ mod tests {
                 id: TimeBlockId(time_block_uuid),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![Teacher {
                 id: TeacherId(json_uuid(20)),

@@ -644,7 +644,7 @@ mod tests {
     use super::*;
     use crate::types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -657,6 +657,7 @@ mod tests {
             id: TimeBlockId(uuid(1)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let teacher = Teacher {
             id: TeacherId(uuid(2)),
@@ -936,6 +937,7 @@ mod tests {
             id: TimeBlockId(uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.lessons[0].hours_per_week = 2;
         p
@@ -991,6 +993,7 @@ mod tests {
             id: TimeBlockId(uuid(12)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1038,6 +1041,7 @@ mod tests {
             id: TimeBlockId(uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.lessons[0].hours_per_week = 2;
         p.lessons[0].preferred_block_size = 2;
@@ -1228,6 +1232,7 @@ mod tests {
             id: TimeBlockId(uuid(60)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![Placement {
             lesson_id: p.lessons[0].id,
@@ -1246,11 +1251,13 @@ mod tests {
             id: TimeBlockId(uuid(70)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.time_blocks.push(TimeBlock {
             id: TimeBlockId(uuid(71)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1287,6 +1294,7 @@ mod tests {
             id: TimeBlockId(uuid(80)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1317,6 +1325,7 @@ mod tests {
             id: TimeBlockId(uuid(90)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.rooms.push(Room {
             id: RoomId(uuid(91)),
@@ -1350,6 +1359,7 @@ mod tests {
             id: TimeBlockId(uuid(100)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {

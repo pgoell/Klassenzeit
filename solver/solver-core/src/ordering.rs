@@ -223,7 +223,7 @@ mod tests {
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
         Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherBlockedTime,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -238,11 +238,13 @@ mod tests {
                     id: TimeBlockId(ord_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(ord_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -502,21 +504,25 @@ mod tests {
             id: TimeBlockId(ord_uuid(12)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(13)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(14)),
             day_of_week: 1,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(15)),
             day_of_week: 1,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         // Teacher 20 (lesson A): blocked mid-day on both days -> contiguity
         // busted, no viable doppelstunde window.

@@ -8,6 +8,7 @@ use uuid::Uuid;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::types::{
     Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification, TimeBlock,
+    TimeBlockKind,
 };
 use solver_core::{solve_with_config, SolveConfig};
 
@@ -38,6 +39,7 @@ fn lahc_exits_at_objective_floor_well_before_deadline() {
                 id: early_exit_tb_id(d, p),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
         }
     }

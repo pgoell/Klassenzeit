@@ -10,7 +10,7 @@ use solver_core::{
     solve,
     types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     },
 };
 use uuid::Uuid;
@@ -26,6 +26,7 @@ fn grundschule() -> Problem {
             id: TimeBlockId(grundschule_uuid(100 + i)),
             day_of_week: i / 5,
             position: i % 5,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 

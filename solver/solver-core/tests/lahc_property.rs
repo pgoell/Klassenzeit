@@ -10,7 +10,7 @@ use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, Ti
 use solver_core::test_fixtures::dreizuegig_fixture;
 use solver_core::types::{
     ConstraintWeights, Lesson, PinnedPlacement, Problem, Room, SchoolClass, Solution, SolveConfig,
-    Subject, Teacher, TeacherQualification, TimeBlock,
+    Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::validate::{validate_daily_caps, validate_no_double_booking};
 use solver_core::{
@@ -142,6 +142,7 @@ prop_compose! {
                     id: TimeBlockId(lahc_id_from(4000 + tb_idx)),
                     day_of_week: d,
                     position: p,
+                    kind: TimeBlockKind::Lesson,
                 });
                 tb_idx += 1;
             }
@@ -659,6 +660,7 @@ fn canonical_score_test_problem() -> Problem {
                 id: TimeBlockId(lahc_id_from(4000 + tb_idx)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
             tb_idx += 1;
         }
@@ -772,21 +774,25 @@ fn build_lahc_pinned_problem() -> Problem {
                 id: tb_zero,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb_one,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb_two,
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb_three,
                 day_of_week: 0,
                 position: 3,
+                kind: TimeBlockKind::Lesson,
             },
         ],
         teachers: vec![Teacher {

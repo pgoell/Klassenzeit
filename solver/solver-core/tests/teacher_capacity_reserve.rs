@@ -9,7 +9,7 @@ use solver_core::{
     solve,
     types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock, ViolationKind,
+        TeacherQualification, TimeBlock, TimeBlockKind, ViolationKind,
     },
 };
 use uuid::Uuid;
@@ -54,6 +54,7 @@ fn capacity_probe_problem(max: u8, reserve: u8) -> Problem {
                 id: TimeBlockId(reserve_uuid(100 + tb_idx)),
                 day_of_week: day,
                 position,
+                kind: TimeBlockKind::Lesson,
             });
             tb_idx += 1;
         }

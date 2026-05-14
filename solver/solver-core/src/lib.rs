@@ -34,5 +34,6 @@ pub use solve::{solve, solve_with_config, solve_with_config_stats, solve_with_pr
 pub use types::{
     ConstraintWeights, Lesson, Placement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
     SchoolClass, Solution, SolveConfig, SolveStats, Subject, Teacher, TeacherBlockedTime,
-    TeacherQualification, TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
+    TeacherQualification, TimeBlock, TimeBlockKind, Violation, ViolationKind,
+    PRODUCTION_ACTIVE_WEIGHTS,
 };

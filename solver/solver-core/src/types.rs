@@ -236,6 +236,20 @@ pub struct PinnedPlacement {
     pub teacher_id: Option<TeacherId>,
 }
 
+/// Categorises a [`TimeBlock`] as a teaching slot or a non-teaching break
+/// (Hofpause). Additive wire field; callers omitting `kind` get [`Lesson`].
+///
+/// [`Lesson`]: TimeBlockKind::Lesson
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeBlockKind {
+    /// A regular teaching period.
+    #[default]
+    Lesson,
+    /// A non-teaching break slot (e.g., Hofpause).
+    Break,
+}
+
 /// A single time slot (e.g., a period on a given weekday).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -246,6 +260,10 @@ pub struct TimeBlock {
     pub day_of_week: u8,
     /// Ordinal position within the day.
     pub position: u8,
+    /// Categorises the block as a lesson period or a break. Additive; callers
+    /// omitting the field deserialise to [`TimeBlockKind::Lesson`].
+    #[serde(default)]
+    pub kind: TimeBlockKind,
 }
 
 /// A teacher available to teach lessons.

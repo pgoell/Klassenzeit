@@ -372,7 +372,8 @@ mod tests {
     use solver_core::ids::{LessonId, TimeBlockId};
     use solver_core::test_fixtures::grundschule_fixture;
     use solver_core::types::{
-        Lesson, Placement as CorePlacement, RoomSubjectSuitability, SchoolClass, Subject, TimeBlock,
+        Lesson, Placement as CorePlacement, RoomSubjectSuitability, SchoolClass, Subject,
+        TimeBlock, TimeBlockKind,
     };
     use solver_core::types::{Solution as CoreSolution, SolveConfig};
     use solver_core::{solve_with_config, PRODUCTION_ACTIVE_WEIGHTS};
@@ -490,6 +491,7 @@ mod tests {
                     id: *id,
                     day_of_week: 0,
                     position: i as u8,
+                    kind: TimeBlockKind::Lesson,
                 })
                 .collect(),
             subjects: vec![Subject {
@@ -590,16 +592,19 @@ mod tests {
                     id: tb1,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb2,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb3,
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(s1), make_subject(s2), make_subject(s3)],
@@ -704,6 +709,7 @@ mod tests {
                     id: *id,
                     day_of_week: 0,
                     position: i as u8,
+                    kind: TimeBlockKind::Lesson,
                 })
                 .collect(),
             subjects: vec![Subject {
@@ -782,6 +788,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             subjects: vec![Subject {
                 id: subject_id,
@@ -870,11 +877,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(subj_a), make_subject(subj_b)],
@@ -938,11 +947,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(subj_a), make_subject(subj_b)],
@@ -1014,6 +1025,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             subjects: vec![Subject {
                 id: subj_id,
@@ -1077,11 +1089,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![Subject {

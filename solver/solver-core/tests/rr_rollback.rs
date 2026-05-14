@@ -15,7 +15,7 @@ use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, Ti
 use solver_core::solve_with_config;
 use solver_core::types::{
     ConstraintWeights, Lesson, Problem, Room, SchoolClass, SolveConfig, Subject, Teacher,
-    TeacherQualification, TimeBlock,
+    TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use uuid::Uuid;
 
@@ -45,6 +45,7 @@ fn rr_rollback_problem() -> Problem {
                 id: TimeBlockId(rr_rollback_uuid(4000 + tb_idx)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
             tb_idx += 1;
         }

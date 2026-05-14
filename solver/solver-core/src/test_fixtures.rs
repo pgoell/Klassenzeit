@@ -17,7 +17,7 @@ use crate::ids::{
 };
 use crate::types::{
     Lesson, Problem, Room, RoomBlockedTime, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-    TeacherQualification, TimeBlock,
+    TeacherQualification, TimeBlock, TimeBlockKind,
 };
 
 /// Deterministic 16-byte UUID with every byte equal to `n`. Replaces the
@@ -37,6 +37,7 @@ pub fn grundschule_fixture() -> Problem {
             id: TimeBlockId(fixture_uuid(100 + i)),
             day_of_week: i / 5,
             position: i % 5,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 
@@ -146,6 +147,7 @@ pub fn zweizuegig_fixture() -> Problem {
             id: TimeBlockId(fixture_uuid(140 + i)),
             day_of_week: i / 7,
             position: i % 7,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 
@@ -338,6 +340,7 @@ pub fn dreizuegig_fixture() -> Problem {
             id: TimeBlockId(fixture_uuid(i)),
             day_of_week: i / 8,
             position: i % 8,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 
@@ -596,6 +599,7 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             id: TimeBlockId(fixture_uuid(100 + i)),
             day_of_week: i / 7,
             position: i % 7,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 

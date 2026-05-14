@@ -11,7 +11,7 @@ use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, Ti
 use solver_core::score::score_solution;
 use solver_core::types::{
     ConstraintWeights, Lesson, Placement, Problem, Room, SchoolClass, Solution, SolveConfig,
-    Subject, Teacher, TeacherQualification, TimeBlock,
+    Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::{quality_report, solve_with_config};
 use uuid::Uuid;
@@ -99,6 +99,7 @@ prop_compose! {
                     id: TimeBlockId(quality_property_id_from(4000 + tb_idx)),
                     day_of_week: d,
                     position: p,
+                    kind: TimeBlockKind::Lesson,
                 });
                 tb_idx += 1;
             }

@@ -1965,6 +1965,7 @@ mod tests {
     use crate::types::{
         Lesson, PinnedPlacement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
         SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
+        TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -1996,11 +1997,13 @@ mod tests {
                     id: TimeBlockId(solve_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(solve_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -2248,21 +2251,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 0,
                 position: 3,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         for tb_id in [10u8, 11, 12] {
@@ -2327,21 +2334,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 0,
                 position: 3,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         for tb_id in [10u8, 11] {
@@ -2407,6 +2418,7 @@ mod tests {
             id: TimeBlockId(solve_uuid(12)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         // Mark the only subject as avoid_first.
         p.subjects[0].avoid_first_period = 1;
@@ -2450,6 +2462,7 @@ mod tests {
             id: TimeBlockId(solve_uuid(12)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         p.subjects[0].avoid_last_period = 1;
         p.lessons[0].hours_per_week = 2;
@@ -2485,21 +2498,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 0,
                 position: 3,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.lessons[0].hours_per_week = 2;
@@ -2535,21 +2552,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 1,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 1,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.teacher_blocked_times.push(TeacherBlockedTime {
@@ -2583,11 +2604,13 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.lessons[0].hours_per_week = 4;
@@ -2619,6 +2642,7 @@ mod tests {
             id: TimeBlockId(solve_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
@@ -2681,6 +2705,7 @@ mod tests {
             id: TimeBlockId(solve_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         }];
         p.school_classes.push(SchoolClass {
             id: SchoolClassId(solve_uuid(51)),
@@ -2764,11 +2789,13 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.lessons[0].hours_per_week = 2;
@@ -2787,6 +2814,7 @@ mod tests {
             id: TimeBlockId(solve_uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.subjects.push(Subject {
             id: SubjectId(solve_uuid(41)),
@@ -2970,21 +2998,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 0,
                 position: 3,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.lessons[0].hours_per_week = 2;
@@ -3041,21 +3073,25 @@ mod tests {
                 id: TimeBlockId(solve_uuid(10)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(11)),
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(12)),
                 day_of_week: 1,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: TimeBlockId(solve_uuid(13)),
                 day_of_week: 1,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
         ];
         p.lessons = vec![Lesson {
@@ -3156,11 +3192,13 @@ mod tests {
             id: TimeBlockId(solve_uuid(12)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         p.time_blocks.push(TimeBlock {
             id: TimeBlockId(solve_uuid(13)),
             day_of_week: 1,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.lessons.push(Lesson {
             id: LessonId(solve_uuid(61)),
@@ -3248,6 +3286,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![Teacher {
                 id: teacher_id,
@@ -3387,6 +3426,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![Teacher {
                 id: teacher_id,
@@ -3550,36 +3590,43 @@ mod tests {
                     id: tb_d0_p0,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d0_p1,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d0_p2,
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p0,
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p1,
                     day_of_week: 1,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d2,
                     day_of_week: 2,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d3,
                     day_of_week: 3,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -3772,6 +3819,7 @@ mod tests {
                 id: *id,
                 day_of_week: day,
                 position: i as u8,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
 
@@ -3927,6 +3975,7 @@ mod tests {
                 id: *id,
                 day_of_week: day,
                 position: i as u8,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
 
@@ -4082,6 +4131,7 @@ mod tests {
                 id: *id,
                 day_of_week: day,
                 position: i as u8,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
 
