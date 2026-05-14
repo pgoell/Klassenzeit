@@ -17,7 +17,7 @@
 
 use crate::ids::{RoomId, SchoolClassId};
 use crate::index::Indexed;
-use crate::types::{Lesson, Problem, TimeBlock};
+use crate::types::{Lesson, Problem, TimeBlock, TimeBlockKind};
 
 /// Compute placement order under First Fit Decreasing. See module docs.
 pub(crate) fn ffd_order(problem: &Problem, idx: &Indexed) -> Vec<usize> {
@@ -25,8 +25,14 @@ pub(crate) fn ffd_order(problem: &Problem, idx: &Indexed) -> Vec<usize> {
     // class -> home_room map once for the whole call so the per-lesson
     // metric does not re-allocate or re-scan `time_blocks` and
     // `school_classes` for every lesson.
+    // Break-kind time blocks are excluded: the FFD lesson placer never lands a
+    // lesson on a Hofpause slot, so the same-room-aware contiguity scan must
+    // not count break positions toward viable windows.
     let mut tbs_by_day: Vec<(u8, Vec<&TimeBlock>)> = Vec::new();
     for tb in &problem.time_blocks {
+        if tb.kind != TimeBlockKind::Lesson {
+            continue;
+        }
         match tbs_by_day.iter_mut().find(|(d, _)| *d == tb.day_of_week) {
             Some((_, vec)) => vec.push(tb),
             None => tbs_by_day.push((tb.day_of_week, vec![tb])),
@@ -223,7 +229,7 @@ mod tests {
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
         Lesson, Problem, Room, SchoolClass, Subject, Teacher, TeacherBlockedTime,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -238,11 +244,13 @@ mod tests {
                     id: TimeBlockId(ord_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(ord_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -502,21 +510,25 @@ mod tests {
             id: TimeBlockId(ord_uuid(12)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(13)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(14)),
             day_of_week: 1,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         problem.time_blocks.push(TimeBlock {
             id: TimeBlockId(ord_uuid(15)),
             day_of_week: 1,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         // Teacher 20 (lesson A): blocked mid-day on both days -> contiguity
         // busted, no viable doppelstunde window.

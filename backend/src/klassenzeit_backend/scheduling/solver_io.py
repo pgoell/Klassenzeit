@@ -26,15 +26,17 @@ from klassenzeit_backend.db.models.room import (
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.supervision_assignment import SupervisionAssignment
 from klassenzeit_backend.db.models.teacher import (
     Teacher,
     TeacherAvailability,
     TeacherQualification,
 )
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
+from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.scheduling.schemas.schedule import (
     ClassScheduleSummary,
     PlacementResponse,
+    SupervisionAssignmentResponse,
     ViolationResponse,
 )
 from klassenzeit_solver import (
@@ -98,6 +100,7 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
         "soft_score": solution.get("soft_score", 0),
         "quality_report": solution["quality_report"],
         "was_cancelled": bool(solution.get("was_cancelled", False)),
+        "supervision_assignments": solution.get("supervision_assignments", []),
     }
 
 
@@ -211,7 +214,6 @@ async def build_problem_json(
             await db.execute(
                 select(TimeBlock).where(
                     TimeBlock.week_scheme_id == requested_class.week_scheme_id,
-                    TimeBlock.kind == TimeBlockKind.LESSON,
                 )
             )
         )
@@ -362,7 +364,12 @@ async def build_problem_json(
 
     problem = {
         "time_blocks": [
-            {"id": str(tb.id), "day_of_week": tb.day_of_week, "position": tb.position}
+            {
+                "id": str(tb.id),
+                "day_of_week": tb.day_of_week,
+                "position": tb.position,
+                "kind": tb.kind.value,
+            }
             for tb in time_blocks
         ],
         "teachers": [
@@ -746,6 +753,42 @@ async def persist_solution_for_class(
     )
 
 
+async def persist_supervision_assignments(
+    db: AsyncSession,
+    week_scheme_id: UUID,
+    solution: dict,
+) -> None:
+    """Replace the WeekScheme's supervision rota with the solver output.
+
+    Deletes every ``supervision_assignments`` row whose ``time_block_id``
+    belongs to ``week_scheme_id``, then inserts one row per entry in
+    ``solution["supervision_assignments"]``. Scoped to the WeekScheme
+    rather than the class because Hofpause supervision is a school-wide
+    duty: the supervision pass emits one entry per break-kind TimeBlock
+    on the affected scheme, and a per-class re-solve overwrites the
+    whole rota.
+
+    Runs inside the caller's transaction; does not commit.
+    """
+    tb_id_rows = (
+        (await db.execute(select(TimeBlock.id).where(TimeBlock.week_scheme_id == week_scheme_id)))
+        .scalars()
+        .all()
+    )
+    tb_ids = set(tb_id_rows)
+    if tb_ids:
+        await db.execute(
+            delete(SupervisionAssignment).where(SupervisionAssignment.time_block_id.in_(tb_ids))
+        )
+    for a in solution.get("supervision_assignments", []):
+        db.add(
+            SupervisionAssignment(
+                time_block_id=UUID(a["time_block_id"]),
+                teacher_id=UUID(a["teacher_id"]),
+            )
+        )
+
+
 async def _existing_pin_keys_for_class(db: AsyncSession, class_id: UUID) -> set[tuple[UUID, UUID]]:
     """Return ``(lesson_id, time_block_id)`` pairs that are pinned for this class."""
     stmt = (
@@ -945,6 +988,40 @@ async def read_schedule_for_teacher(
             time_block_id=row.time_block_id,
             room_id=row.room_id,
             pinned=row.pinned,
+        )
+        for row in rows
+    ]
+
+
+async def read_supervision_assignments_for_teacher(
+    db: AsyncSession,
+    teacher_id: UUID,
+) -> list[SupervisionAssignmentResponse]:
+    """Return persisted Hofpause supervision rows assigned to this teacher.
+
+    Args:
+        db: The ambient async session.
+        teacher_id: UUID of the teacher to read.
+
+    Returns:
+        A list of :class:`SupervisionAssignmentResponse` values; empty if the
+        teacher has no supervision attributions yet. Does not raise on a
+        missing teacher; the sibling :func:`read_schedule_for_teacher` call
+        in the GET handler already enforces the 404.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(SupervisionAssignment).where(SupervisionAssignment.teacher_id == teacher_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        SupervisionAssignmentResponse(
+            time_block_id=row.time_block_id,
+            teacher_id=row.teacher_id,
         )
         for row in rows
     ]

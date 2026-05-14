@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::Error;
 use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
-use crate::types::{Lesson, Placement, Problem, Violation, ViolationKind};
+use crate::types::{Lesson, Placement, Problem, TimeBlockKind, Violation, ViolationKind};
 
 /// Validate a `Problem` against purely structural rules: non-empty core
 /// collections, unique IDs, known references, `hours_per_week > 0`.
@@ -611,6 +611,37 @@ pub fn validate_class_subject_teacher_uniformity(
     Ok(())
 }
 
+/// Post-condition validator: no placement targets a break-kind
+/// [`crate::types::TimeBlock`]. Lessons must only land on `TimeBlockKind::Lesson`
+/// slots; Hofpause supervision is handled separately by
+/// [`crate::supervision::compute_supervision_full`]. A failure here indicates a
+/// solver bug (FFD / LAHC enumeration site missed the kind filter) rather than
+/// malformed input; the canonical fix is to filter the enumeration site, not
+/// to relax the validator. Pattern matches the rest of the validator quintet:
+/// returns `Err(Error::Input)` so the caller can `?`-bail.
+pub fn validate_no_lesson_on_break_slot(
+    problem: &Problem,
+    placements: &[Placement],
+) -> Result<(), Error> {
+    let tb_by_id: HashMap<TimeBlockId, &crate::types::TimeBlock> =
+        problem.time_blocks.iter().map(|t| (t.id, t)).collect();
+    for placement in placements {
+        let tb = tb_by_id.get(&placement.time_block_id).ok_or_else(|| {
+            Error::Input(format!(
+                "placement references unknown time block {:?}",
+                placement.time_block_id
+            ))
+        })?;
+        if tb.kind != TimeBlockKind::Lesson {
+            return Err(Error::Input(format!(
+                "lesson placed on break-kind time block: lesson {:?} on {:?} (day={} position={})",
+                placement.lesson_id, tb.id, tb.day_of_week, tb.position,
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Scan lessons for teacher / subject pairs that are not in
 /// `teacher_qualifications` and record one `NoQualifiedTeacher` violation per
 /// hour on the affected lesson.
@@ -644,7 +675,7 @@ mod tests {
     use super::*;
     use crate::types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -657,6 +688,7 @@ mod tests {
             id: TimeBlockId(uuid(1)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let teacher = Teacher {
             id: TeacherId(uuid(2)),
@@ -936,6 +968,7 @@ mod tests {
             id: TimeBlockId(uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.lessons[0].hours_per_week = 2;
         p
@@ -991,6 +1024,7 @@ mod tests {
             id: TimeBlockId(uuid(12)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1038,6 +1072,7 @@ mod tests {
             id: TimeBlockId(uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.lessons[0].hours_per_week = 2;
         p.lessons[0].preferred_block_size = 2;
@@ -1228,6 +1263,7 @@ mod tests {
             id: TimeBlockId(uuid(60)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![Placement {
             lesson_id: p.lessons[0].id,
@@ -1246,11 +1282,13 @@ mod tests {
             id: TimeBlockId(uuid(70)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.time_blocks.push(TimeBlock {
             id: TimeBlockId(uuid(71)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1287,6 +1325,7 @@ mod tests {
             id: TimeBlockId(uuid(80)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {
@@ -1317,6 +1356,7 @@ mod tests {
             id: TimeBlockId(uuid(90)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         });
         p.rooms.push(Room {
             id: RoomId(uuid(91)),
@@ -1350,6 +1390,7 @@ mod tests {
             id: TimeBlockId(uuid(100)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let placements = vec![
             Placement {

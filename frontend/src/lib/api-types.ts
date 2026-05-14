@@ -744,8 +744,11 @@ export interface paths {
          *         db: Injected async database session.
          *
          *     Returns:
-         *         ``ScheduleReadResponse`` with the teacher's persisted placements. Empty
-         *         ``placements`` means the teacher exists but has no scheduled lessons yet.
+         *         ``ScheduleReadResponse`` with the teacher's persisted placements and the
+         *         subset of supervision_assignments rows attributed to this teacher.
+         *         Empty ``placements`` means the teacher exists but has no scheduled
+         *         lessons yet; empty ``supervision_assignments`` means the teacher has
+         *         no break-supervision attributions in the current rota.
          *
          *     Raises:
          *         HTTPException: 404 if the teacher doesn't exist.
@@ -2072,10 +2075,17 @@ export interface components {
          *     Deliberately omits ``violations``: they are per-solve diagnostics and are
          *     not persisted, so returning an empty list here would misrepresent the
          *     absence of storage.
+         *
+         *     ``supervision_assignments`` carries the persisted Hofpause rota scoped to
+         *     the resource: per-teacher GETs filter to that teacher's rows, while the
+         *     per-class and per-room GETs leave it empty (supervision is a teacher-level
+         *     duty, not a class- or room-level one).
          */
         ScheduleReadResponse: {
             /** Placements */
             placements: components["schemas"]["PlacementResponse"][];
+            /** Supervision Assignments */
+            supervision_assignments?: components["schemas"]["SupervisionAssignmentResponse"][];
         };
         /**
          * ScheduleResponse
@@ -2084,6 +2094,12 @@ export interface components {
          *     ``was_cancelled`` is ``True`` when the originating POST was interrupted
          *     via ``POST /schedule/cancel`` mid-solve; the placements list then carries
          *     the best-so-far solution at the moment of the cancel.
+         *
+         *     ``supervision_assignments`` carries the whole-school Hofpause rota
+         *     emitted by the solver. The list is school-wide rather than class-scoped
+         *     because supervision is a teacher-level duty: every break-kind TimeBlock
+         *     on the affected WeekScheme appears, regardless of which class triggered
+         *     the solve.
          */
         ScheduleResponse: {
             /** Placements */
@@ -2101,6 +2117,8 @@ export interface components {
              * @default false
              */
             was_cancelled: boolean;
+            /** Supervision Assignments */
+            supervision_assignments?: components["schemas"]["SupervisionAssignmentResponse"][];
         };
         /**
          * SchoolClassCreate
@@ -2408,6 +2426,27 @@ export interface components {
             short_name: string;
         };
         /**
+         * SupervisionAssignmentResponse
+         * @description One Hofpause supervision assignment: a teacher covering a break TimeBlock.
+         *
+         *     Mirrors the solver-core ``SupervisionAssignment`` wire format. One entry
+         *     per break-kind TimeBlock for which the solver found an eligible
+         *     supervisor; break slots without a feasible supervisor surface as a
+         *     ``ViolationResponse`` with ``kind="supervision_gap"`` instead.
+         */
+        SupervisionAssignmentResponse: {
+            /**
+             * Time Block Id
+             * Format: uuid
+             */
+            time_block_id: string;
+            /**
+             * Teacher Id
+             * Format: uuid
+             */
+            teacher_id: string;
+        };
+        /**
          * SwapPlacementsRequest
          * @description Body for `POST /api/placements/swap`.
          */
@@ -2672,7 +2711,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict" | "subject_daily_hour_cap_exceeded" | "class_daily_lesson_cap_exceeded" | "class_subject_teacher_split";
+            kind: "no_qualified_teacher" | "teacher_over_capacity" | "no_free_time_block" | "no_suitable_room" | "lesson_group_split" | "pinned_conflict" | "subject_daily_hour_cap_exceeded" | "class_daily_lesson_cap_exceeded" | "class_subject_teacher_split" | "supervision_gap";
             /**
              * Lesson Id
              * Format: uuid

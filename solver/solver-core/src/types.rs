@@ -132,6 +132,12 @@ pub struct ConstraintWeights {
     /// the backend quality_checks module. Zero disables the axis.
     /// Item 57.
     pub max_per_class_interior_gaps: u32,
+    /// Penalty applied per unit of supervision-load spread across teachers
+    /// (`max - min` over teachers with at least one Hofpause supervision).
+    /// Computed by `supervision::compute_supervision_spread`; folded into
+    /// the canonical `score_solution` total (saturating). Zero disables the
+    /// axis. Item 3 (Hofpause supervision objective).
+    pub supervision_spread: u32,
 }
 
 /// Optional timing probes produced by [`crate::solve_with_config_stats`].
@@ -168,6 +174,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
     max_per_class_spread: 10, // item 57: per-class worst-case axis
     max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
+    supervision_spread: 5,   // item 3: Hofpause supervision load-balance axis
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -236,6 +243,20 @@ pub struct PinnedPlacement {
     pub teacher_id: Option<TeacherId>,
 }
 
+/// Categorises a [`TimeBlock`] as a teaching slot or a non-teaching break
+/// (Hofpause). Additive wire field; callers omitting `kind` get [`Lesson`].
+///
+/// [`Lesson`]: TimeBlockKind::Lesson
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeBlockKind {
+    /// A regular teaching period.
+    #[default]
+    Lesson,
+    /// A non-teaching break slot (e.g., Hofpause).
+    Break,
+}
+
 /// A single time slot (e.g., a period on a given weekday).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -246,6 +267,10 @@ pub struct TimeBlock {
     pub day_of_week: u8,
     /// Ordinal position within the day.
     pub position: u8,
+    /// Categorises the block as a lesson period or a break. Additive; callers
+    /// omitting the field deserialise to [`TimeBlockKind::Lesson`].
+    #[serde(default)]
+    pub kind: TimeBlockKind,
 }
 
 /// A teacher available to teach lessons.
@@ -505,6 +530,18 @@ pub struct Solution {
     /// legacy solver-py callers) are not perturbed.
     #[serde(default)]
     pub was_cancelled: bool,
+    /// Post-solve Hofpause supervision rota: one entry per `Break`-kind
+    /// `TimeBlock` whose adjacency yields at least one eligible supervisor.
+    /// Populated by [`crate::supervision::compute_supervision_full`] at the
+    /// tail of every `solve_with_config_stats`; consumed by the backend's
+    /// `supervision_assignments` table and the teacher-week Aufsicht badge.
+    /// Slots with no eligible supervisor contribute a
+    /// [`ViolationKind::SupervisionGap`] row instead. Wire format is additive:
+    /// callers omitting the field deserialise to an empty vector, so existing
+    /// JSON consumers (CP-SAT bench, legacy solver-py callers) are not
+    /// perturbed.
+    #[serde(default)]
+    pub supervision_assignments: Vec<SupervisionAssignment>,
 }
 
 /// A single successful placement of one hour of one lesson.
@@ -521,6 +558,22 @@ pub struct Placement {
     /// When `Lesson.teacher_pin` is `Some`, this matches the pin; otherwise
     /// the solver picks (algorithm-phase PR for item 68 widens the picker;
     /// today the solver picks via `Lesson::assigned_teacher_id`).
+    pub teacher_id: TeacherId,
+}
+
+/// A single supervisor assignment for a `Break` time block.
+///
+/// Produced by [`crate::supervision::compute_supervision_full`] after a solve:
+/// pairs a Hofpause [`TimeBlock`] with the teacher chosen to staff it
+/// (Aufsicht). Surfaced on [`Solution`] and consumed by the backend's
+/// `supervision_assignments` table plus the teacher-week UI badge. Wire shape
+/// mirrors [`Placement`]: a flat record of newtype-wrapped UUIDs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SupervisionAssignment {
+    /// The Hofpause time block this assignment covers.
+    pub time_block_id: TimeBlockId,
+    /// The teacher chosen to supervise.
     pub teacher_id: TeacherId,
 }
 
@@ -578,6 +631,13 @@ pub enum ViolationKind {
     /// placement time via a lock map (item 66) so the search cannot reach
     /// a split-teacher state under normal operation.
     ClassSubjectTeacherSplit,
+    /// No teacher was eligible to supervise a Hofpause (`TimeBlock` whose
+    /// `kind == Break`). Eligibility requires the teacher to be free at the
+    /// break slot AND to have at least one placement at the immediately
+    /// preceding or following position on the same day. Emitted by
+    /// `supervision::compute_supervision_full`; the accompanying
+    /// `Violation.reason` carries `"day=<d> position=<p> candidates=0"`.
+    SupervisionGap,
 }
 
 #[cfg(test)]
@@ -609,6 +669,7 @@ mod tests {
             prefer_class_teacher: 5,
             max_per_class_spread: 10,
             max_per_class_interior_gaps: 10,
+            supervision_spread: 5,
         };
         assert_eq!(crate::PRODUCTION_ACTIVE_WEIGHTS, inline);
     }
@@ -809,6 +870,7 @@ mod tests {
             soft_score: 0,
             quality_report: crate::quality::QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let json = serde_json::to_string(&solution).unwrap();
         let parsed: Solution = serde_json::from_str(&json).unwrap();

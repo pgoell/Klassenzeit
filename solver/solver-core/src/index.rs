@@ -80,7 +80,7 @@ mod tests {
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
         Lesson, Problem, Room, RoomBlockedTime, RoomSubjectSuitability, SchoolClass, Subject,
-        Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock,
+        Teacher, TeacherBlockedTime, TeacherQualification, TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -94,6 +94,7 @@ mod tests {
                 id: TimeBlockId(u(1)),
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![Teacher {
                 id: TeacherId(u(2)),

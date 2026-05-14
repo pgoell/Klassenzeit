@@ -396,6 +396,9 @@
       "teacherBody": "Lehrkraft oben auswählen, um deren Wochenstunden zu sehen.",
       "roomBody": "Raum oben auswählen, um seine Wochenstunden zu sehen."
     },
+    "supervision": {
+      "label": "Aufsicht"
+    },
     "loadError": "Stundenplan konnte nicht geladen werden.",
     "retry": "Erneut versuchen",
     "stats": {
@@ -414,7 +417,8 @@
       "pinnedConflict": "Eine fixierte Platzierung war fehlerhaft und wurde verworfen: {{reason}}.",
       "subjectDailyHourCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für dieses Fach.",
       "classDailyLessonCapExceeded": "{{subject}} (Stunde {{hour}}): überschreitet die Tagesobergrenze für diese Klasse.",
-      "classSubjectTeacherSplit": "{{subject}} (Stunde {{hour}}): unterschiedliche Lehrkräfte wurden derselben Klasse für dasselbe Fach zugewiesen."
+      "classSubjectTeacherSplit": "{{subject}} (Stunde {{hour}}): unterschiedliche Lehrkräfte wurden derselben Klasse für dasselbe Fach zugewiesen.",
+      "supervisionGap": "Aufsicht: keine aufsichtsberechtigte Lehrkraft für eine Hofpause verfügbar."
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },

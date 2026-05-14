@@ -19,7 +19,7 @@ use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, Ti
 use solver_core::solve_with_config;
 use solver_core::types::{
     ConstraintWeights, Lesson, Problem, Room, SchoolClass, Solution, SolveConfig, Subject, Teacher,
-    TeacherQualification, TimeBlock,
+    TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use uuid::Uuid;
 
@@ -45,16 +45,19 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
                 id: tb1,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb2,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb3,
                 day_of_week: 0,
                 position: 2,
+                kind: TimeBlockKind::Lesson,
             },
         ],
         teachers: vec![Teacher {

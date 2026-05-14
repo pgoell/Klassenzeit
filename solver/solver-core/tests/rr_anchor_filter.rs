@@ -21,7 +21,7 @@ use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, Ti
 use solver_core::solve_with_config;
 use solver_core::types::{
     ConstraintWeights, Lesson, Problem, Room, RoomBlockedTime, SchoolClass, SolveConfig, Subject,
-    Teacher, TeacherQualification, TimeBlock,
+    Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use uuid::Uuid;
 
@@ -47,6 +47,7 @@ fn build_anchor_filter_fixture() -> Problem {
                 id: TimeBlockId(anchor_filter_id(100 + tb_idx)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
             tb_idx += 1;
         }
@@ -209,6 +210,7 @@ fn build_many_anchors_fixture() -> Problem {
                 id: TimeBlockId(anchor_filter_id(2000 + tb_idx)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             });
             tb_idx += 1;
         }

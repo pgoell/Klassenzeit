@@ -192,7 +192,7 @@ proptest! {
         use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
         use solver_core::types::{
             Lesson, Placement, Problem, Room, SchoolClass, Subject, Teacher,
-            TeacherQualification, TimeBlock,
+            TeacherQualification, TimeBlock, TimeBlockKind,
         };
         use uuid::Uuid;
 
@@ -204,6 +204,7 @@ proptest! {
                 id: TimeBlockId(Uuid::from_bytes([100 + pos; 16])),
                 day_of_week: 0,
                 position: pos,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
         let teacher = Teacher {

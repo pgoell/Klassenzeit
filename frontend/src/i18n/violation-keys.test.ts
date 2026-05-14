@@ -10,4 +10,8 @@ describe("violationItemKey", () => {
     expect(violationItemKey("no_free_time_block")).toBe("schedule.violations.noFreeTimeBlock");
     expect(violationItemKey("no_suitable_room")).toBe("schedule.violations.noSuitableRoom");
   });
+
+  it("maps supervision_gap to the supervisionGap key", () => {
+    expect(violationItemKey("supervision_gap")).toBe("schedule.violations.supervisionGap");
+  });
 });

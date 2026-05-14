@@ -372,7 +372,8 @@ mod tests {
     use solver_core::ids::{LessonId, TimeBlockId};
     use solver_core::test_fixtures::grundschule_fixture;
     use solver_core::types::{
-        Lesson, Placement as CorePlacement, RoomSubjectSuitability, SchoolClass, Subject, TimeBlock,
+        Lesson, Placement as CorePlacement, RoomSubjectSuitability, SchoolClass, Subject,
+        TimeBlock, TimeBlockKind,
     };
     use solver_core::types::{Solution as CoreSolution, SolveConfig};
     use solver_core::{solve_with_config, PRODUCTION_ACTIVE_WEIGHTS};
@@ -467,6 +468,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(worst_class_day_spread(&problem, &solution), 0);
     }
@@ -490,6 +492,7 @@ mod tests {
                     id: *id,
                     day_of_week: 0,
                     position: i as u8,
+                    kind: TimeBlockKind::Lesson,
                 })
                 .collect(),
             subjects: vec![Subject {
@@ -543,6 +546,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(total_interior_gaps(&problem, &solution), 1);
     }
@@ -590,16 +594,19 @@ mod tests {
                     id: tb1,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb2,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb3,
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(s1), make_subject(s2), make_subject(s3)],
@@ -652,6 +659,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let ratio = worst_home_room_ratio(&problem, &solution, &home_rooms);
         assert_eq!(ratio, Some(1.0));
@@ -666,6 +674,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(
             worst_home_room_ratio(&problem, &solution, &HashMap::new()),
@@ -682,6 +691,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         assert_eq!(late_period_ratio(&problem, &solution), None);
     }
@@ -704,6 +714,7 @@ mod tests {
                     id: *id,
                     day_of_week: 0,
                     position: i as u8,
+                    kind: TimeBlockKind::Lesson,
                 })
                 .collect(),
             subjects: vec![Subject {
@@ -759,6 +770,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         let ratio = late_period_ratio(&problem, &solution).expect("late ratio");
         assert!((ratio - 2.0 / 3.0).abs() < 1e-9, "got {ratio}");
@@ -782,6 +794,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             subjects: vec![Subject {
                 id: subject_id,
@@ -831,6 +844,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         }
     }
 
@@ -870,11 +884,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(subj_a), make_subject(subj_b)],
@@ -906,6 +922,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -938,11 +955,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![make_subject(subj_a), make_subject(subj_b)],
@@ -995,6 +1014,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -1014,6 +1034,7 @@ mod tests {
                 id: tb_id,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             }],
             subjects: vec![Subject {
                 id: subj_id,
@@ -1052,6 +1073,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }
@@ -1077,11 +1099,13 @@ mod tests {
                     id: tb_a,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_b,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             subjects: vec![Subject {
@@ -1149,6 +1173,7 @@ mod tests {
             soft_score: 0,
             quality_report: QualityReport::default(),
             was_cancelled: false,
+            supervision_assignments: vec![],
         };
         (problem, solution)
     }

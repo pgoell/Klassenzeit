@@ -251,14 +251,14 @@ async def test_patch_time_block_preserves_kind_when_omitted(
 
 
 @pytest.mark.asyncio
-async def test_build_problem_json_excludes_break_time_blocks(
+async def test_build_problem_json_includes_break_time_blocks_with_kind(
     db_session: AsyncSession,
 ) -> None:
-    """build_problem_json must drop kind=break rows from the solver payload.
+    """build_problem_json passes break-kind rows through with `kind=break`.
 
     Fixture lays out 8 TimeBlocks on day 0 in the order L,L,B,L,L,B,L,L
-    (positions 1..8). The solver payload must surface only the 6 LESSON rows
-    and must exclude positions 3 and 6.
+    (positions 1..8). The solver payload surfaces all 8 rows; break rows carry
+    `"kind": "break"` so solver-core's supervision pass can iterate them.
     """
     subject = Subject(name=f"Subj-{uuid.uuid4().hex[:8]}", short_name="S1", color="chart-1")
     db_session.add(subject)
@@ -326,11 +326,12 @@ async def test_build_problem_json_excludes_break_time_blocks(
 
     problem_json, _, _ = await solver_io.build_problem_json(db_session, cls.id)
     payload = json.loads(problem_json)
-    payload_positions = {(tb["day_of_week"], tb["position"]) for tb in payload["time_blocks"]}
-    # 8 rows inserted, 6 LESSON + 2 BREAK; expect only the 6 LESSON rows.
-    assert len(payload["time_blocks"]) == 6, payload["time_blocks"]
-    assert (0, 3) not in payload_positions  # break position must be absent
-    assert (0, 6) not in payload_positions
+    by_position = {(tb["day_of_week"], tb["position"]): tb for tb in payload["time_blocks"]}
+    assert len(payload["time_blocks"]) == 8, payload["time_blocks"]
+    assert by_position[(0, 3)]["kind"] == "break"
+    assert by_position[(0, 6)]["kind"] == "break"
+    assert by_position[(0, 1)]["kind"] == "lesson"
+    assert by_position[(0, 7)]["kind"] == "lesson"
 
 
 @pytest.mark.asyncio

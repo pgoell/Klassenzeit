@@ -29,10 +29,12 @@ add new `kind` literals if a future integration test or admin endpoint
 needs to report on them.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
+
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,27 @@ class QualityIssue:
     day_of_week: int | None = None
     subject_id: UUID | None = None
     detail: dict[str, object] = field(default_factory=dict)
+
+
+def build_lesson_ordinal_map(
+    time_blocks: Sequence[TimeBlock],
+) -> dict[tuple[int, int], int]:
+    """Map ``(day_of_week, raw position)`` to 1-based lesson ordinal per day.
+
+    Skips break-kind rows. Production callers wrap raw ``Placement.position``
+    via this map before invoking quality predicates so phantom interior gaps
+    at break slots do not surface.
+    """
+    rows = sorted(
+        (tb for tb in time_blocks if tb.kind == TimeBlockKind.LESSON),
+        key=lambda tb: (tb.day_of_week, tb.position),
+    )
+    ordinals: dict[tuple[int, int], int] = {}
+    per_day: dict[int, int] = {}
+    for tb in rows:
+        per_day[tb.day_of_week] = per_day.get(tb.day_of_week, 0) + 1
+        ordinals[(tb.day_of_week, tb.position)] = per_day[tb.day_of_week]
+    return ordinals
 
 
 def check_room_hop(placements: list[Placement]) -> Iterable[QualityIssue]:

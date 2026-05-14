@@ -15,7 +15,7 @@ use proptest::prelude::*;
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
 use solver_core::types::{
     ConstraintWeights, Lesson, Problem, Room, SchoolClass, Solution, SolveConfig, Subject, Teacher,
-    TeacherQualification, TimeBlock,
+    TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::{solve_with_config, PRODUCTION_ACTIVE_WEIGHTS};
 use std::collections::HashMap;
@@ -100,6 +100,7 @@ prop_compose! {
                     id: TimeBlockId(teacher_uniformity_uuid_from(2000 + tb_idx)),
                     day_of_week: d,
                     position: p,
+                    kind: TimeBlockKind::Lesson,
                 });
                 tb_idx += 1;
             }

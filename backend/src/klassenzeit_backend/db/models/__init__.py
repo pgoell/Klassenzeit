@@ -15,6 +15,7 @@ from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.session import UserSession
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.supervision_assignment import SupervisionAssignment
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherAvailability, TeacherQualification
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
@@ -31,6 +32,7 @@ __all__ = [
     "Stundentafel",
     "StundentafelEntry",
     "Subject",
+    "SupervisionAssignment",
     "Teacher",
     "TeacherAvailability",
     "TeacherQualification",

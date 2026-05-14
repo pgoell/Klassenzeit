@@ -16,6 +16,7 @@ use crate::index::Indexed;
 use crate::score::{gap_count, gap_count_after_insert, gap_count_after_remove};
 use crate::types::{
     ConstraintWeights, Lesson, Placement, Problem, SolveConfig, SolveStats, Subject, TimeBlock,
+    TimeBlockKind,
 };
 
 /// Length of the LAHC cost-history list. Burke & Bykov 2008 reports the
@@ -115,9 +116,14 @@ pub(crate) fn run(
             .or_default()
             .insert(q.teacher_id);
     }
+    // Kempe destination lookup. Filtered to lesson-kind so the seed window
+    // verification and the chain neighbour window verification in
+    // `kempe_build_chain` abort cleanly when any destination position is a
+    // break slot (lessons must never land on Hofpause TBs).
     let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
         .time_blocks
         .iter()
+        .filter(|tb| tb.kind == TimeBlockKind::Lesson)
         .map(|tb| ((tb.day_of_week, tb.position), tb.id))
         .collect();
     let subject_lookup: HashMap<SubjectId, &Subject> =
@@ -136,7 +142,13 @@ pub(crate) fn run(
 
     // R&R needs the same precomputed orderings the greedy uses. Recompute
     // them here so lahc::run does not depend on solve.rs's local state.
-    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len()).collect();
+    // Break-kind time blocks are excluded for the same reason as in
+    // `solve_with_config_stats_inner`: R&R recreate calls `try_place_block`
+    // which iterates `tb_order` to enumerate candidate windows; a break slot
+    // is never a valid lesson destination.
+    let mut tb_order: Vec<usize> = (0..problem.time_blocks.len())
+        .filter(|&i| problem.time_blocks[i].kind == TimeBlockKind::Lesson)
+        .collect();
     tb_order.sort_unstable_by_key(|&i| {
         let tb = &problem.time_blocks[i];
         (tb.day_of_week, tb.position, tb.id.0)
@@ -400,6 +412,12 @@ fn try_change_move(
     if new_tb.id == old_tb.id {
         return false;
     }
+    // Lessons must never land on a Hofpause slot. The two random_range draws
+    // for placement_idx / new_tb_idx are already consumed in `run`, so the
+    // determinism RNG-budget invariant (lahc_property.rs) holds.
+    if new_tb.kind != TimeBlockKind::Lesson {
+        return false;
+    }
 
     let class_ids: &[SchoolClassId] = &lesson.school_class_ids;
     // Item 68: teacher comes from the placement's recorded `teacher_id`
@@ -640,7 +658,24 @@ fn try_change_move(
         state,
     );
     state.search_score_slice = new_score;
-    state.canonical_score = new_canonical;
+    // Item 3 (supervision spread): `score_solution` includes the
+    // supervision contribution but the Change-move delta arithmetic above
+    // does not, so the delta-predicted `new_canonical` drifts from the
+    // true score by `weights.supervision_spread * (new_spread -
+    // old_spread)` whenever an accepted move alters the supervision
+    // adjacency surface. Recompute the canonical score from the full
+    // scorer post-apply so the per-iteration `debug_assert_eq!` invariant
+    // at the LAHC iteration tail holds. R&R and Kempe accept paths
+    // already recompute via `score_solution` (see `rr_attempt` and
+    // `kempe_apply_block` finalisation); Change is the only delta-only
+    // path. Cost: one supervision pass per accept; accepts are 1-3
+    // orders of magnitude rarer than proposals so the hot-path budget
+    // is unaffected. The accept criterion above still compares the
+    // delta-predicted `new_canonical` against the pre-move
+    // `state.canonical_score`; supervision is intentionally not
+    // delta-tracked per the supervision-objective design doc ("full
+    // rescore at Kempe + finalization captures supervision cost").
+    state.canonical_score = crate::score::score_solution(problem, placements, weights);
     true
 }
 
@@ -3265,6 +3300,7 @@ fn running_slice_from_placements(
 mod tests {
     use super::*;
     use crate::ids::SubjectId;
+    use crate::types::TimeBlockKind;
     use uuid::Uuid;
 
     fn lahc_uuid(n: u8) -> Uuid {
@@ -3286,6 +3322,7 @@ mod tests {
             id: TimeBlockId(lahc_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
 
         let lesson = Lesson {
@@ -3345,11 +3382,13 @@ mod tests {
             id: TimeBlockId(lahc_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let tb_b = TimeBlock {
             id: TimeBlockId(lahc_uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         };
 
         let lesson_a_obj = Lesson {
@@ -3402,11 +3441,13 @@ mod tests {
             id: TimeBlockId(lahc_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let tb_b = TimeBlock {
             id: TimeBlockId(lahc_uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         };
 
         let lesson = Lesson {
@@ -3513,6 +3554,7 @@ mod tests {
                 id: TimeBlockId(lahc_uuid(10 + i)),
                 day_of_week: 0,
                 position: i,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
         let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
@@ -3637,11 +3679,13 @@ mod tests {
             id: TimeBlockId(lahc_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let new_tb = TimeBlock {
             id: TimeBlockId(lahc_uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         };
         let old_room = RoomId(lahc_uuid(30));
         let new_room = RoomId(lahc_uuid(31));
@@ -3716,11 +3760,13 @@ mod tests {
                     id: tb_zero,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_one,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -3835,21 +3881,25 @@ mod tests {
                     id: tb_zero,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_one,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_two,
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_three,
                     day_of_week: 0,
                     position: 3,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -3982,21 +4032,25 @@ mod tests {
                     id: tb_zero,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_one,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_two,
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_three,
                     day_of_week: 0,
                     position: 3,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -4152,6 +4206,7 @@ mod tests {
                 id: new_tb,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![],
             rooms: vec![crate::types::Room { id: old_room }],
@@ -4192,6 +4247,7 @@ mod tests {
                 id: new_tb,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![],
             rooms: vec![
@@ -4235,6 +4291,7 @@ mod tests {
                 id: new_tb,
                 day_of_week: 0,
                 position: 1,
+                kind: TimeBlockKind::Lesson,
             }],
             teachers: vec![],
             rooms: vec![crate::types::Room { id: old_room }],
@@ -4294,6 +4351,7 @@ mod tests {
                 id: TimeBlockId(lahc_uuid(10 + p as u8)),
                 day_of_week: 0,
                 position: p as u8,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
 
@@ -4536,6 +4594,7 @@ mod tests {
                     id,
                     day_of_week: d,
                     position: p,
+                    kind: TimeBlockKind::Lesson,
                 });
                 tb_ids.push(id);
                 next += 1;
@@ -4942,21 +5001,25 @@ mod tests {
                     id: tb_d0_p0,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d0_p1,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p0,
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p1,
                     day_of_week: 1,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -5158,11 +5221,13 @@ mod tests {
                 id: tb_d0,
                 day_of_week: 0,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
             TimeBlock {
                 id: tb_d1,
                 day_of_week: 1,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             },
         ];
 
@@ -5282,21 +5347,25 @@ mod tests {
                     id: tb_d0_p0,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d0_p1,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p0,
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p1,
                     day_of_week: 1,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -5543,21 +5612,25 @@ mod tests {
                     id: tb_d0_p0,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d0_p1,
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p0,
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p1,
                     day_of_week: 1,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -5874,12 +5947,14 @@ mod tests {
                 id: TimeBlockId(lahc_uuid(100 + p)),
                 day_of_week: 0,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             })
             .collect();
         time_blocks_v.push(TimeBlock {
             id: TimeBlockId(lahc_uuid(200)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let tb_d0_p4 = TimeBlockId(lahc_uuid(104));
         let problem = Problem {
@@ -6003,11 +6078,13 @@ mod tests {
                     id: tb_d0_p0,
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: tb_d1_p0,
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![

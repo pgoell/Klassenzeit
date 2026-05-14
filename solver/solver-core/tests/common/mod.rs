@@ -4,7 +4,7 @@ use solver_core::{
     ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId},
     types::{
         Lesson, Problem, Room, RoomSubjectSuitability, SchoolClass, Subject, Teacher,
-        TeacherQualification, TimeBlock,
+        TeacherQualification, TimeBlock, TimeBlockKind,
     },
 };
 use uuid::Uuid;
@@ -38,6 +38,7 @@ pub fn feasible_problem(
             id: TimeBlockId(common_uuid(200 + i)),
             day_of_week: i / 5,
             position: i % 5,
+            kind: TimeBlockKind::Lesson,
         })
         .collect();
 

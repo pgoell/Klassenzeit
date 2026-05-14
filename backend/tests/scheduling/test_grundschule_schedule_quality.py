@@ -28,11 +28,12 @@ from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.user import User
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
+from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.main import app
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
     QualityIssue,
+    build_lesson_ordinal_map,
     check_class_day_balance,
     check_class_teacher_subject_share,
     check_day_length,
@@ -78,7 +79,8 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
             .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
         )
     ).all()
-    lesson_ordinal_by_day_pos = await _build_lesson_ordinal_map(db)
+    time_blocks = (await db.execute(select(TimeBlock))).scalars().all()
+    lesson_ordinal_by_day_pos = build_lesson_ordinal_map(time_blocks)
     return [
         Placement(
             class_id=row.school_class_id,
@@ -91,30 +93,6 @@ async def _load_placements(db: AsyncSession) -> list[Placement]:
         )
         for row in rows
     ]
-
-
-async def _build_lesson_ordinal_map(db: AsyncSession) -> dict[tuple[int, int], int]:
-    """Map ``(day_of_week, raw position)`` to the 1-based lesson ordinal.
-
-    Iterates LESSON-kind TimeBlocks ordered by ``(day_of_week, position)``
-    and assigns an ordinal per day. Break rows are absent from the map;
-    the solver never places lessons on break slots (see
-    ``solver_io.build_problem_json`` filter), so any Placement lookup is
-    guaranteed to hit a lesson row.
-    """
-    rows = (
-        await db.execute(
-            select(TimeBlock.day_of_week, TimeBlock.position)
-            .where(TimeBlock.kind == TimeBlockKind.LESSON)
-            .order_by(TimeBlock.day_of_week, TimeBlock.position)
-        )
-    ).all()
-    ordinals: dict[tuple[int, int], int] = {}
-    per_day_counter: dict[int, int] = {}
-    for row in rows:
-        per_day_counter[row.day_of_week] = per_day_counter.get(row.day_of_week, 0) + 1
-        ordinals[(row.day_of_week, row.position)] = per_day_counter[row.day_of_week]
-    return ordinals
 
 
 async def _load_class_teacher_lookup_grundschule(

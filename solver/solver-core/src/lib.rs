@@ -12,6 +12,7 @@ pub mod progress;
 pub mod quality;
 pub mod score;
 pub mod solve;
+pub mod supervision;
 #[cfg(feature = "fixtures")]
 pub mod test_fixtures;
 #[cfg(feature = "solver-trace")]
@@ -33,6 +34,7 @@ pub use score::score_solution;
 pub use solve::{solve, solve_with_config, solve_with_config_stats, solve_with_progress};
 pub use types::{
     ConstraintWeights, Lesson, Placement, Problem, Room, RoomBlockedTime, RoomSubjectSuitability,
-    SchoolClass, Solution, SolveConfig, SolveStats, Subject, Teacher, TeacherBlockedTime,
-    TeacherQualification, TimeBlock, Violation, ViolationKind, PRODUCTION_ACTIVE_WEIGHTS,
+    SchoolClass, Solution, SolveConfig, SolveStats, Subject, SupervisionAssignment, Teacher,
+    TeacherBlockedTime, TeacherQualification, TimeBlock, TimeBlockKind, Violation, ViolationKind,
+    PRODUCTION_ACTIVE_WEIGHTS,
 };

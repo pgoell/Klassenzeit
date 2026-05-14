@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use solver_core::{
     solve_with_config, Lesson, LessonId, Problem, Room, RoomId, SchoolClass, SchoolClassId,
     SolveConfig, Subject, SubjectId, Teacher, TeacherId, TeacherQualification, TimeBlock,
-    TimeBlockId, PRODUCTION_ACTIVE_WEIGHTS,
+    TimeBlockId, TimeBlockKind, PRODUCTION_ACTIVE_WEIGHTS,
 };
 use uuid::Uuid;
 
@@ -46,6 +46,7 @@ fn pinned_problem_with_n_candidates(num_candidates: u8, pin_idx: u8) -> Problem 
             id: tb_id,
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         }],
         teachers,
         rooms: vec![Room { id: room_id }],

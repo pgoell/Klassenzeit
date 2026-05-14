@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use solver_core::{
     score_solution, solve_with_config, ConstraintWeights, Lesson, LessonId, Placement, Problem,
     Room, RoomId, SchoolClass, SchoolClassId, SolveConfig, Subject, SubjectId, Teacher, TeacherId,
-    TeacherQualification, TimeBlock, TimeBlockId, PRODUCTION_ACTIVE_WEIGHTS,
+    TeacherQualification, TimeBlock, TimeBlockId, TimeBlockKind, PRODUCTION_ACTIVE_WEIGHTS,
 };
 use uuid::Uuid;
 
@@ -29,6 +29,7 @@ prop_compose! {
                 id: TimeBlockId(id_from(u32::from(d) * 100 + u32::from(p) + 1000)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             })
         }).collect();
 
@@ -144,7 +145,7 @@ proptest! {
         let room_id = RoomId(Uuid::from_u128(0xEE));
         let tb_id = TimeBlockId(Uuid::from_u128(0xFF));
         let problem = Problem {
-            time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position }],
+            time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position, kind: TimeBlockKind::Lesson }],
             teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10, reserve_hours_per_week: 0 }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
@@ -197,7 +198,7 @@ proptest! {
         let room_id = RoomId(Uuid::from_u128(0xEE));
         let tb_id = TimeBlockId(Uuid::from_u128(0xFF));
         let problem = Problem {
-            time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position }],
+            time_blocks: vec![TimeBlock { id: tb_id, day_of_week: 0, position, kind: TimeBlockKind::Lesson }],
             teachers: vec![Teacher { id: teacher_id, max_hours_per_week: 10, reserve_hours_per_week: 0 }],
             rooms: vec![Room { id: room_id }],
             subjects: vec![Subject {
@@ -254,6 +255,7 @@ fn build_class_day_balance_problem() -> Problem {
                 id: TimeBlockId(id_from(u32::from(d) * 100 + u32::from(p) + 1000)),
                 day_of_week: d,
                 position: p,
+                kind: TimeBlockKind::Lesson,
             })
         })
         .collect();

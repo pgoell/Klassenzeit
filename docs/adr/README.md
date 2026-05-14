@@ -64,3 +64,4 @@ sections, and add the new entry to the index below.
 | 0038 | [Per-backend solver deadline configuration](0038-per-backend-solver-deadline.md) | Accepted |
 | 0039 | [Live solve progress beacon, polling, soft-cancel best-so-far](0039-live-solve-progress-beacon.md) | Accepted |
 | 0040 | [TimeBlock.kind for break slots](0040-timeblock-kind-for-break-slots.md) | Accepted |
+| 0041 | [Supervision rota for Hofpausen](0041-supervision-rota-for-hofpausen.md) | Accepted |

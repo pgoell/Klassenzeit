@@ -28,6 +28,7 @@ pub fn score_solution(
         && weights.prefer_class_teacher == 0
         && weights.max_per_class_spread == 0
         && weights.max_per_class_interior_gaps == 0
+        && weights.supervision_spread == 0
     {
         return 0;
     }
@@ -167,6 +168,13 @@ pub fn score_solution(
         }
     }
 
+    let supervision_score =
+        weights
+            .supervision_spread
+            .saturating_mul(crate::supervision::compute_supervision_spread(
+                problem, placements,
+            ));
+
     weights
         .class_gap
         .saturating_mul(class_gaps)
@@ -189,6 +197,7 @@ pub fn score_solution(
                 .prefer_class_teacher
                 .saturating_mul(prefer_class_teacher_misses),
         )
+        .saturating_add(supervision_score)
 }
 
 /// Worst per-class daily-load spread:
@@ -666,7 +675,7 @@ mod tests {
     use crate::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
     use crate::types::{
         Lesson, Placement, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
-        TimeBlock,
+        TimeBlock, TimeBlockKind,
     };
     use uuid::Uuid;
 
@@ -681,16 +690,19 @@ mod tests {
                     id: TimeBlockId(score_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(12)),
                     day_of_week: 0,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -819,6 +831,7 @@ mod tests {
             id: TimeBlockId(score_uuid(13)),
             day_of_week: 1,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         });
         let weights = ConstraintWeights {
             class_gap: 5,
@@ -892,6 +905,7 @@ mod tests {
             id: TimeBlockId(score_uuid(10)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         };
         let weights = ConstraintWeights {
             prefer_early_period: 5,
@@ -920,6 +934,7 @@ mod tests {
                 id: TimeBlockId(score_uuid(10)),
                 day_of_week: 0,
                 position: pos,
+                kind: TimeBlockKind::Lesson,
             };
             assert_eq!(
                 subject_preference_score(&subject, &tb, 6, &weights),
@@ -946,11 +961,13 @@ mod tests {
             id: TimeBlockId(score_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let tb_nonzero = TimeBlock {
             id: TimeBlockId(score_uuid(11)),
             day_of_week: 0,
             position: 1,
+            kind: TimeBlockKind::Lesson,
         };
         assert_eq!(subject_preference_score(&subject, &tb_zero, 1, &weights), 9);
         assert_eq!(
@@ -977,11 +994,13 @@ mod tests {
             id: TimeBlockId(score_uuid(11)),
             day_of_week: 0,
             position: 4,
+            kind: TimeBlockKind::Lesson,
         };
         let tb_non_max = TimeBlock {
             id: TimeBlockId(score_uuid(10)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         };
         assert_eq!(subject_preference_score(&subject, &tb_max, 4, &weights), 11);
         assert_eq!(
@@ -1001,11 +1020,13 @@ mod tests {
                     id: TimeBlockId(score_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -1108,6 +1129,7 @@ mod tests {
             prefer_class_teacher: 0,
             max_per_class_spread: 0,
             max_per_class_interior_gaps: 0,
+            supervision_spread: 0,
         };
         // Subject in three_block_one_class_problem has both flags false (default
         // after task 1.1's literal updates). The new axes contribute 0; total
@@ -1306,11 +1328,13 @@ mod tests {
             id: TimeBlockId(score_uuid(10)),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let tb_two = TimeBlock {
             id: TimeBlockId(score_uuid(11)),
             day_of_week: 0,
             position: 2,
+            kind: TimeBlockKind::Lesson,
         };
         // Position 0: prefer_early contributes 0, avoid_first contributes 5; total 5.
         assert_eq!(subject_preference_score(&subject, &tb_zero, 2, &weights), 5);
@@ -1328,6 +1352,7 @@ mod tests {
             id: TimeBlockId(uuid::Uuid::nil()),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         };
         let mk = |w: u32| Subject {
             id: SubjectId(uuid::Uuid::nil()),
@@ -1353,6 +1378,7 @@ mod tests {
             id: TimeBlockId(uuid::Uuid::nil()),
             day_of_week: 0,
             position: 0,
+            kind: TimeBlockKind::Lesson,
         };
         let mk = |w: u32| Subject {
             id: SubjectId(uuid::Uuid::nil()),
@@ -1377,6 +1403,7 @@ mod tests {
             id: TimeBlockId(uuid::Uuid::nil()),
             day_of_week: 0,
             position: 6,
+            kind: TimeBlockKind::Lesson,
         };
         let mk = |w: u32| Subject {
             id: SubjectId(uuid::Uuid::nil()),
@@ -1412,6 +1439,7 @@ mod tests {
                 id: TimeBlockId(score_uuid(10)),
                 day_of_week: 0,
                 position: pos,
+                kind: TimeBlockKind::Lesson,
             };
             assert_eq!(
                 subject_preference_score(&mk_subject(1), &tb, 5, &weights),
@@ -1440,26 +1468,31 @@ mod tests {
                     id: TimeBlockId(score_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(12)),
                     day_of_week: 1,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(13)),
                     day_of_week: 1,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(14)),
                     day_of_week: 1,
                     position: 2,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![Teacher {
@@ -1522,6 +1555,7 @@ mod tests {
                 id: TimeBlockId(score_uuid(20 + day)),
                 day_of_week: day,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             });
         }
         let weights = ConstraintWeights {
@@ -1541,17 +1575,20 @@ mod tests {
                 id: TimeBlockId(score_uuid(20 + day)),
                 day_of_week: day,
                 position: 0,
+                kind: TimeBlockKind::Lesson,
             });
         }
         p.time_blocks.push(TimeBlock {
             id: TimeBlockId(score_uuid(13)),
             day_of_week: 0,
             position: 3,
+            kind: TimeBlockKind::Lesson,
         });
         p.time_blocks.push(TimeBlock {
             id: TimeBlockId(score_uuid(14)),
             day_of_week: 0,
             position: 4,
+            kind: TimeBlockKind::Lesson,
         });
         let weights = ConstraintWeights {
             class_day_balance: 5,
@@ -1702,11 +1739,13 @@ mod tests {
                     id: TimeBlockId(score_uuid(10)),
                     day_of_week: 0,
                     position: 0,
+                    kind: TimeBlockKind::Lesson,
                 },
                 TimeBlock {
                     id: TimeBlockId(score_uuid(11)),
                     day_of_week: 0,
                     position: 1,
+                    kind: TimeBlockKind::Lesson,
                 },
             ],
             teachers: vec![
@@ -1858,6 +1897,7 @@ mod tests {
                     id: TimeBlockId(score_uuid(100 + day * 10 + pos)),
                     day_of_week: day,
                     position: pos,
+                    kind: TimeBlockKind::Lesson,
                 });
             }
         }

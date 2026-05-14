@@ -396,6 +396,9 @@
       "teacherBody": "Select a teacher above to see their weekly placements.",
       "roomBody": "Select a room above to see its weekly placements."
     },
+    "supervision": {
+      "label": "Supervision"
+    },
     "loadError": "Failed to load schedule.",
     "retry": "Retry",
     "stats": {
@@ -414,7 +417,8 @@
       "pinnedConflict": "A pinned placement was malformed and dropped: {{reason}}.",
       "subjectDailyHourCapExceeded": "{{subject}} (hour {{hour}}): exceeds the per-day cap for this subject.",
       "classDailyLessonCapExceeded": "{{subject}} (hour {{hour}}): exceeds the per-day cap for this class.",
-      "classSubjectTeacherSplit": "{{subject}} (hour {{hour}}): different teachers were assigned to this class for the same subject."
+      "classSubjectTeacherSplit": "{{subject}} (hour {{hour}}): different teachers were assigned to this class for the same subject.",
+      "supervisionGap": "Supervision: no eligible supervisor available for a Hofpause slot."
     },
     "cellDeletedLesson": "(deleted lesson)"
   },
