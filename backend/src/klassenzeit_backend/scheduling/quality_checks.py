@@ -34,12 +34,24 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 
 
 @dataclass(frozen=True)
 class Placement:
-    """One placed lesson-hour, normalised for predicate evaluation."""
+    """A single scheduled lesson, projected for quality-check predicates.
+
+    ``position`` is the lesson ordinal within the day (1-indexed; breaks
+    skipped) as produced by ``build_lesson_ordinal_map``. ``time_block_position``
+    is the raw ``TimeBlock.position`` so cell-emitting predicates can address
+    the same coordinate the frontend grid uses.
+    """
 
     class_id: UUID
     day: int
@@ -48,6 +60,7 @@ class Placement:
     lesson_id: UUID
     time_block_id: UUID
     position: int
+    time_block_position: int
 
 
 @dataclass(frozen=True)
@@ -87,6 +100,51 @@ def build_lesson_ordinal_map(
         per_day[tb.day_of_week] = per_day.get(tb.day_of_week, 0) + 1
         ordinals[(tb.day_of_week, tb.position)] = per_day[tb.day_of_week]
     return ordinals
+
+
+async def load_placements(db: AsyncSession) -> list[Placement]:
+    """Project persisted ScheduledLesson rows into Placement records.
+
+    A lesson can serve multiple classes via lesson_school_classes; each
+    membership produces its own Placement so per-class predicates see
+    every class the lesson lands in.
+
+    ``Placement.position`` is the lesson ordinal within the day (1 = first
+    lesson slot, 2 = second, ...); ``Placement.time_block_position`` is the
+    raw ``TimeBlock.position``. Break rows occupy raw positions but not
+    ordinal positions.
+    """
+    rows = (
+        await db.execute(
+            select(
+                ScheduledLesson.lesson_id,
+                ScheduledLesson.time_block_id,
+                ScheduledLesson.room_id,
+                Lesson.subject_id,
+                LessonSchoolClass.school_class_id,
+                TimeBlock.day_of_week,
+                TimeBlock.position,
+            )
+            .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+            .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
+            .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
+        )
+    ).all()
+    time_blocks = (await db.execute(select(TimeBlock))).scalars().all()
+    lesson_ordinal_by_day_pos = build_lesson_ordinal_map(time_blocks)
+    return [
+        Placement(
+            class_id=row.school_class_id,
+            day=row.day_of_week,
+            subject_id=row.subject_id,
+            room_id=row.room_id,
+            lesson_id=row.lesson_id,
+            time_block_id=row.time_block_id,
+            position=lesson_ordinal_by_day_pos[(row.day_of_week, row.position)],
+            time_block_position=row.position,
+        )
+        for row in rows
+    ]
 
 
 def check_room_hop(placements: list[Placement]) -> Iterable[QualityIssue]:

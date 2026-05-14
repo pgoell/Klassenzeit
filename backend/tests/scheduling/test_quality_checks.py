@@ -43,6 +43,7 @@ def _placement(
         lesson_id=lesson_id or uuid.uuid4(),
         time_block_id=time_block_id or uuid.uuid4(),
         position=position,
+        time_block_position=position,
     )
 
 
@@ -497,3 +498,19 @@ def test_build_lesson_ordinal_map_skips_break_rows() -> None:
     ]
     ordinals = build_lesson_ordinal_map(blocks)
     assert ordinals == {(0, 1): 1, (0, 2): 2, (0, 4): 3}
+
+
+def test_placement_carries_time_block_position() -> None:
+    """Placement now exposes the raw TimeBlock.position alongside the ordinal."""
+    placement = Placement(
+        class_id=uuid.uuid4(),
+        day=1,
+        subject_id=uuid.uuid4(),
+        room_id=uuid.uuid4(),
+        lesson_id=uuid.uuid4(),
+        time_block_id=uuid.uuid4(),
+        position=2,
+        time_block_position=4,
+    )
+    assert placement.position == 2
+    assert placement.time_block_position == 4

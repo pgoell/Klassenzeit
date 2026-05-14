@@ -22,24 +22,21 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.db.models.lesson import Lesson
-from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.user import User
-from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.main import app
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
     QualityIssue,
-    build_lesson_ordinal_map,
     check_class_day_balance,
     check_class_teacher_subject_share,
     check_day_length,
     check_home_room_ratio,
     check_interior_gaps,
     check_room_hop,
+    load_placements,
 )
 from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 
@@ -47,52 +44,6 @@ CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
 LoginFn = Callable[[str, str], Awaitable[None]]
 
 MIN_KLASSENLEHRER_SHARE: float = 0.5
-
-
-async def _load_placements(db: AsyncSession) -> list[Placement]:
-    """Project persisted ScheduledLesson rows into Placement records.
-
-    A lesson can serve multiple classes via lesson_school_classes; each
-    membership produces its own Placement so per-class predicates see
-    every class the lesson lands in.
-
-    ``Placement.position`` is the **lesson ordinal** within the day (1 =
-    first lesson slot, 2 = second, ...), not the raw ``TimeBlock.position``.
-    Break rows occupy ordinal positions in the seed (Hofpause at raw
-    positions 3 and 6); the quality predicates here measure lesson-sequence
-    properties (interior gaps, day length), so projecting onto lesson
-    ordinals is what the bar means.
-    """
-    rows = (
-        await db.execute(
-            select(
-                ScheduledLesson.lesson_id,
-                ScheduledLesson.time_block_id,
-                ScheduledLesson.room_id,
-                Lesson.subject_id,
-                LessonSchoolClass.school_class_id,
-                TimeBlock.day_of_week,
-                TimeBlock.position,
-            )
-            .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
-            .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
-            .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
-        )
-    ).all()
-    time_blocks = (await db.execute(select(TimeBlock))).scalars().all()
-    lesson_ordinal_by_day_pos = build_lesson_ordinal_map(time_blocks)
-    return [
-        Placement(
-            class_id=row.school_class_id,
-            day=row.day_of_week,
-            subject_id=row.subject_id,
-            room_id=row.room_id,
-            lesson_id=row.lesson_id,
-            time_block_id=row.time_block_id,
-            position=lesson_ordinal_by_day_pos[(row.day_of_week, row.position)],
-        )
-        for row in rows
-    ]
 
 
 async def _load_class_teacher_lookup_grundschule(
@@ -172,7 +123,7 @@ async def test_grundschule_schedule_meets_quality_bar(
         body = sched_resp.json()
         assert body["violations"] == [], (school_class.name, body["violations"])
 
-    placements = await _load_placements(db_session)
+    placements = await load_placements(db_session)
     assert placements, "expected persisted placements after solving every class"
 
     home_rooms: dict[UUID, UUID] = {
