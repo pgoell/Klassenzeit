@@ -5,14 +5,17 @@ inputs. No DB, no fixtures, just UUID-keyed dicts and lists.
 """
 
 import dataclasses
+import datetime as dt
 import uuid
 from uuid import UUID
 
 import pytest
 
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
     QualityIssue,
+    build_lesson_ordinal_map,
     check_class_day_balance,
     check_class_teacher_subject_share,
     check_day_length,
@@ -445,3 +448,52 @@ def test_check_class_teacher_subject_share_skips_classes_without_klassenlehrer()
         )
     )
     assert issues == [], "c2 has no Klassenlehrer set, must not yield issues; c1's pair matches"
+
+
+# ---------------------------------------------------------------------------
+# build_lesson_ordinal_map
+# ---------------------------------------------------------------------------
+
+
+def test_build_lesson_ordinal_map_skips_break_rows() -> None:
+    ws_id = uuid.uuid4()
+    blocks = [
+        TimeBlock(
+            id=uuid.uuid4(),
+            week_scheme_id=ws_id,
+            day_of_week=0,
+            position=1,
+            start_time=dt.time(8, 0),
+            end_time=dt.time(8, 45),
+            kind=TimeBlockKind.LESSON,
+        ),
+        TimeBlock(
+            id=uuid.uuid4(),
+            week_scheme_id=ws_id,
+            day_of_week=0,
+            position=2,
+            start_time=dt.time(8, 45),
+            end_time=dt.time(9, 30),
+            kind=TimeBlockKind.LESSON,
+        ),
+        TimeBlock(
+            id=uuid.uuid4(),
+            week_scheme_id=ws_id,
+            day_of_week=0,
+            position=3,
+            start_time=dt.time(9, 30),
+            end_time=dt.time(9, 50),
+            kind=TimeBlockKind.BREAK,
+        ),
+        TimeBlock(
+            id=uuid.uuid4(),
+            week_scheme_id=ws_id,
+            day_of_week=0,
+            position=4,
+            start_time=dt.time(9, 50),
+            end_time=dt.time(10, 35),
+            kind=TimeBlockKind.LESSON,
+        ),
+    ]
+    ordinals = build_lesson_ordinal_map(blocks)
+    assert ordinals == {(0, 1): 1, (0, 2): 2, (0, 4): 3}
