@@ -31,7 +31,7 @@ from klassenzeit_backend.db.models.teacher import (
     TeacherAvailability,
     TeacherQualification,
 )
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
+from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.scheduling.schemas.schedule import (
     ClassScheduleSummary,
     PlacementResponse,
@@ -211,7 +211,6 @@ async def build_problem_json(
             await db.execute(
                 select(TimeBlock).where(
                     TimeBlock.week_scheme_id == requested_class.week_scheme_id,
-                    TimeBlock.kind == TimeBlockKind.LESSON,
                 )
             )
         )
@@ -362,7 +361,12 @@ async def build_problem_json(
 
     problem = {
         "time_blocks": [
-            {"id": str(tb.id), "day_of_week": tb.day_of_week, "position": tb.position}
+            {
+                "id": str(tb.id),
+                "day_of_week": tb.day_of_week,
+                "position": tb.position,
+                "kind": tb.kind.value,
+            }
             for tb in time_blocks
         ],
         "teachers": [

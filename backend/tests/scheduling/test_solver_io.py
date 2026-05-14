@@ -38,6 +38,7 @@ from klassenzeit_backend.scheduling.solver_io import (
     read_schedule_for_teacher,
     run_solve,
 )
+from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 from tests.scheduling.conftest import SeededClassWithPlacements
 
 # Type aliases matching the factory fixtures defined in conftest.py
@@ -255,6 +256,32 @@ async def test_build_problem_json_returns_populated_shape(
         "room_blocked_times": 0,
         "room_subject_suitabilities": 0,
     }
+
+
+async def test_build_problem_json_includes_break_time_blocks(
+    db_session: AsyncSession,
+) -> None:
+    """Break-kind TimeBlocks must flow through to the solver-core wire format.
+
+    The einzügig Grundschule seed carries 10 break-kind TimeBlocks (positions
+    3 and 6 across 5 days). After the supervision pass lands these rows must
+    appear in the emitted ``time_blocks`` array with ``"kind": "break"`` so
+    solver-core can compute supervision assignments against them.
+    """
+    await seed_demo_grundschule(db_session)
+    await db_session.flush()
+
+    cls = (
+        await db_session.execute(select(SchoolClass).where(SchoolClass.name == "1a"))
+    ).scalar_one()
+
+    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem = json.loads(problem_json)
+
+    kinds = [tb["kind"] for tb in problem["time_blocks"]]
+    assert "lesson" in kinds
+    assert "break" in kinds
+    assert kinds.count("break") == 10
 
 
 async def test_build_problem_json_emits_teacher_reserve_hours_per_week(
