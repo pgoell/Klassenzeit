@@ -34,6 +34,7 @@ function TeacherAvailabilityGridLoaded({ teacher }: { teacher: TeacherDetail }) 
   const { t } = useTranslation();
   const schemes = useWeekSchemes();
   const save = useSaveTeacherAvailability();
+  const workingDays = teacher.working_days ?? null;
 
   const [statuses, setStatuses] = useState<Map<string, TeacherAvailabilityStatus>>(() => {
     const map = new Map<string, TeacherAvailabilityStatus>();
@@ -85,6 +86,7 @@ function TeacherAvailabilityGridLoaded({ teacher }: { teacher: TeacherDetail }) 
             schemeName={scheme.name}
             statuses={statuses}
             onSetStatus={setTeacherAvailabilityStatus}
+            workingDays={workingDays}
           />
         ))
       )}
@@ -102,11 +104,13 @@ function TeacherAvailabilitySchemeSection({
   schemeName,
   statuses,
   onSetStatus,
+  workingDays,
 }: {
   schemeId: string;
   schemeName: string;
   statuses: Map<string, TeacherAvailabilityStatus>;
   onSetStatus: (blockId: string, next: TeacherAvailabilityStatus) => void;
+  workingDays: number[] | null;
 }) {
   const { t } = useTranslation();
   const detail = useWeekSchemeDetail(schemeId);
@@ -133,11 +137,18 @@ function TeacherAvailabilitySchemeSection({
         <thead>
           <tr>
             <th className="w-16 p-1 text-left font-medium">{t("common.position")}</th>
-            {days.map((d) => (
-              <th key={d} className="p-1 text-left font-medium">
-                {t(dayShortKey(d))}
-              </th>
-            ))}
+            {days.map((d) => {
+              const isOffDay = workingDays !== null && !workingDays.includes(d);
+              return (
+                <th
+                  key={d}
+                  data-off-day={isOffDay ? "true" : undefined}
+                  className={cn("p-1 text-left font-medium", isOffDay && "opacity-40")}
+                >
+                  {t(dayShortKey(d))}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -146,11 +157,16 @@ function TeacherAvailabilitySchemeSection({
               <td className="p-1 font-mono">{p}</td>
               {days.map((d) => {
                 const block = byKey.get(`${d}-${p}`);
+                const isOffDay = workingDays !== null && !workingDays.includes(d);
                 if (!block) return <td key={d} className="p-1" aria-hidden="true" />;
                 const current = statuses.get(block.id) ?? "available";
                 const dayName = t(dayLongKey(d));
                 return (
-                  <td key={d} className="p-1">
+                  <td
+                    key={d}
+                    data-off-day={isOffDay ? "true" : undefined}
+                    className={cn("p-1", isOffDay && "opacity-40")}
+                  >
                     <div className="flex gap-0.5">
                       {TEACHER_AVAILABILITY_STATUSES.map((status) => {
                         const isActive = current === status;

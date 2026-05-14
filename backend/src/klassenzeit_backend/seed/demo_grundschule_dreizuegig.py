@@ -475,6 +475,34 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             )
     await session.flush()
 
+    # One Teilzeit teacher (Mo/Di/Mi only). Qualifications overlap the
+    # grades 1/2 Klassenlehrer pool (D/M/SU/KU) so that the existing
+    # _TEACHER_ASSIGNMENTS_DREIZUEGIG pin map stays feasible: this teacher
+    # is in the candidate pool but no Lesson pins them, so the solver
+    # only reaches for them when their three days fit. max_hours_per_week
+    # 14 keeps the weekly load under 5h/day across the three Arbeitstage.
+    # Not registered as class_teacher_id on any SchoolClass because
+    # Klassenlehrer need full-week presence.
+    teilzeit_teacher = Teacher(
+        first_name="Tina",
+        last_name="Zander",
+        short_code="TZD",
+        max_hours_per_week=14,
+        is_active=True,
+        working_days=[0, 1, 2],
+    )
+    session.add(teilzeit_teacher)
+    await session.flush()
+    teachers_by_short["TZD"] = teilzeit_teacher
+    for subject_short in ("D", "M", "SU", "KU"):
+        session.add(
+            TeacherQualification(
+                teacher_id=teilzeit_teacher.id,
+                subject_id=subjects_by_short[subject_short].id,
+            )
+        )
+    await session.flush()
+
     for room_spec in _ROOMS_DREIZUEGIG:
         room = Room(
             name=room_spec.name,

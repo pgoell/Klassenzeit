@@ -245,3 +245,100 @@ describe("TeacherFormDialog reserve_hours_per_week", () => {
     expect(screen.queryByText(/leaves no teaching capacity/i)).not.toBeInTheDocument();
   });
 });
+
+describe("TeacherFormDialog working_days picker", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  test("submits working_days as a sorted array when boxes are checked", async () => {
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+    let captured: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:3000/api/teachers", async ({ request }) => {
+        captured = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            ...captured,
+            is_active: true,
+            reserve_hours_per_week: 0,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    render(
+      wrapTeacherDialog(<TeacherFormDialog open onOpenChange={() => {}} submitLabel="Create" />),
+    );
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/^first name$/i), "Dana");
+    await user.type(screen.getByLabelText(/^last name$/i), "Teilzeit");
+    await user.type(screen.getByLabelText(/^short code$/i), "DTZ");
+    await user.click(screen.getByLabelText("Mon"));
+    await user.click(screen.getByLabelText("Tue"));
+    await user.click(screen.getByLabelText("Wed"));
+    await user.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured).toMatchObject({ working_days: [0, 1, 2] });
+  });
+
+  test("submits working_days as null when no boxes are checked", async () => {
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+    let captured: Record<string, unknown> | null = null;
+    server.use(
+      http.post("http://localhost:3000/api/teachers", async ({ request }) => {
+        captured = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            ...captured,
+            is_active: true,
+            reserve_hours_per_week: 0,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+
+    render(
+      wrapTeacherDialog(<TeacherFormDialog open onOpenChange={() => {}} submitLabel="Create" />),
+    );
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/^first name$/i), "Anna");
+    await user.type(screen.getByLabelText(/^last name$/i), "Vollzeit");
+    await user.type(screen.getByLabelText(/^short code$/i), "AV");
+    await user.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured).toMatchObject({ working_days: null });
+  });
+
+  test("seeds the picker from an existing teacher's working_days on edit", async () => {
+    stubTeacherSubresources(TEACHER_ID);
+    server.use(http.get("http://localhost:3000/api/classes", () => HttpResponse.json([])));
+
+    render(
+      wrapTeacherDialog(
+        <TeacherFormDialog
+          open
+          onOpenChange={() => {}}
+          submitLabel="Save"
+          teacher={{ ...teacherFixture, working_days: [0, 2, 4] }}
+        />,
+      ),
+    );
+
+    expect(await screen.findByLabelText("Mon")).toBeChecked();
+    expect(screen.getByLabelText("Tue")).not.toBeChecked();
+    expect(screen.getByLabelText("Wed")).toBeChecked();
+    expect(screen.getByLabelText("Thu")).not.toBeChecked();
+    expect(screen.getByLabelText("Fri")).toBeChecked();
+  });
+});

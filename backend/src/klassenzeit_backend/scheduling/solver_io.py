@@ -134,11 +134,66 @@ async def _resolve_anchor_class(db: AsyncSession, class_id: UUID | None) -> Scho
     return first
 
 
+def _build_room_blocked_times(
+    rooms: Sequence[Room],
+    time_blocks: Sequence[TimeBlock],
+    room_availabilities: Sequence[RoomAvailability],
+) -> list[dict[str, str]]:
+    """Return one ``(room_id, time_block_id)`` entry per non-whitelisted TimeBlock.
+
+    A room with zero ``RoomAvailability`` rows is universally available; any
+    explicit row flips the room into the must-whitelist regime.
+    """
+    whitelist_by_room: dict[UUID, set[UUID]] = {}
+    for ra in room_availabilities:
+        whitelist_by_room.setdefault(ra.room_id, set()).add(ra.time_block_id)
+    blocked: list[dict[str, str]] = []
+    for room in rooms:
+        whitelist = whitelist_by_room.get(room.id)
+        if whitelist is None:
+            continue
+        for tb in time_blocks:
+            if tb.id not in whitelist:
+                blocked.append({"room_id": str(room.id), "time_block_id": str(tb.id)})
+    return blocked
+
+
+def _extend_blocked_times_for_off_days(
+    teacher_blocked_times: list[dict[str, str]],
+    teachers: Sequence[Teacher],
+    time_blocks: Sequence[TimeBlock],
+) -> None:
+    """Append off-day ``(teacher_id, time_block_id)`` entries for Teilzeit teachers.
+
+    Teachers with ``working_days is None`` are full-time and contribute nothing.
+    Existing explicit-unavailable entries are deduped against so no
+    ``(teacher_id, time_block_id)`` pair is emitted twice. Mutates the list in
+    place to keep the call site (``build_problem_json``) flat.
+    """
+    existing_pairs: set[tuple[str, str]] = {
+        (entry["teacher_id"], entry["time_block_id"]) for entry in teacher_blocked_times
+    }
+    for t in teachers:
+        if t.working_days is None:
+            continue
+        working_set = set(t.working_days)
+        for tb in time_blocks:
+            if tb.day_of_week in working_set:
+                continue
+            pair = (str(t.id), str(tb.id))
+            if pair in existing_pairs:
+                continue
+            existing_pairs.add(pair)
+            teacher_blocked_times.append({"teacher_id": pair[0], "time_block_id": pair[1]})
+
+
 def _candidates_for_lesson(
     lesson: Lesson,
     teacher_qualifications: Sequence[TeacherQualification],
     teacher_availabilities: Sequence[TeacherAvailability],
     class_tb_ids: set[UUID],
+    working_days_by_teacher: dict[UUID, list[int] | None],
+    tb_day_by_id: dict[UUID, int],
 ) -> list[str]:
     """Compute the per-Lesson candidate teacher set (item 64).
 
@@ -148,6 +203,10 @@ def _candidates_for_lesson(
     universally available (matching the no-blocked-times convention used to
     build ``teacher_blocked_times``); any explicit row, available or blocked,
     flips the teacher into the must-overlap-explicitly regime.
+
+    Teilzeit teachers (``working_days`` set) have the candidate-tb set
+    restricted to TimeBlocks whose ``day_of_week`` is in ``working_days``
+    before either rule is applied.
 
     Output is sorted by teacher uuid ascending; the pin (if set and
     qualifying) is moved to the front so the algorithm-phase PR (item 68) can
@@ -163,11 +222,21 @@ def _candidates_for_lesson(
         if a.status == "available":
             available_by_teacher.setdefault(a.teacher_id, set()).add(a.time_block_id)
 
+    def _allowed_tb_ids_for(tid: UUID) -> set[UUID]:
+        wd = working_days_by_teacher.get(tid)
+        if wd is None:
+            return class_tb_ids
+        wd_set = set(wd)
+        return {tb_id for tb_id in class_tb_ids if tb_day_by_id.get(tb_id) in wd_set}
+
     def _has_overlap(tid: UUID) -> bool:
+        allowed = _allowed_tb_ids_for(tid)
+        if not allowed:
+            return False
         if tid not in teachers_with_any_row:
             # No availability rows = universally available (production convention).
             return True
-        return bool(available_by_teacher.get(tid, set()) & class_tb_ids)
+        return bool(available_by_teacher.get(tid, set()) & allowed)
 
     candidates: list[UUID] = sorted(tid for tid in qualified if _has_overlap(tid))
     pin = lesson.teacher_id
@@ -349,18 +418,12 @@ async def build_problem_json(
         if a.status != "available"
     ]
 
-    whitelist_by_room: dict[UUID, set[UUID]] = {}
-    for ra in room_availabilities:
-        whitelist_by_room.setdefault(ra.room_id, set()).add(ra.time_block_id)
-    room_blocked_times: list[dict[str, str]] = []
-    for room in rooms:
-        whitelist = whitelist_by_room.get(room.id)
-        if whitelist is None:
-            # Zero entries means the room is universally available.
-            continue
-        for tb in time_blocks:
-            if tb.id not in whitelist:
-                room_blocked_times.append({"room_id": str(room.id), "time_block_id": str(tb.id)})
+    working_days_by_teacher: dict[UUID, list[int] | None] = {t.id: t.working_days for t in teachers}
+    tb_day_by_id: dict[UUID, int] = {tb.id: tb.day_of_week for tb in time_blocks}
+
+    _extend_blocked_times_for_off_days(teacher_blocked_times, teachers, time_blocks)
+
+    room_blocked_times = _build_room_blocked_times(rooms, time_blocks, room_availabilities)
 
     problem = {
         "time_blocks": [
@@ -411,6 +474,8 @@ async def build_problem_json(
                     teacher_qualifications,
                     teacher_availabilities,
                     time_block_ids,
+                    working_days_by_teacher,
+                    tb_day_by_id,
                 ),
                 "teacher_pin": str(lesson.teacher_id) if lesson.teacher_id else None,
                 "hours_per_week": lesson.hours_per_week,

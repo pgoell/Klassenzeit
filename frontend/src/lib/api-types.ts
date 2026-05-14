@@ -2497,6 +2497,8 @@ export interface components {
              * @default 0
              */
             reserve_hours_per_week: number;
+            /** Working Days */
+            working_days?: number[] | null;
         };
         /**
          * TeacherDetailResponse
@@ -2524,6 +2526,8 @@ export interface components {
             qualifications: components["schemas"]["QualificationResponse"][];
             /** Availability */
             availability: components["schemas"]["TeacherAvailabilityEntry"][];
+            /** Working Days */
+            working_days?: number[] | null;
             /**
              * Created At
              * Format: date-time
@@ -2559,6 +2563,8 @@ export interface components {
             is_active: boolean;
             /** Subject Ids */
             subject_ids?: string[];
+            /** Working Days */
+            working_days?: number[] | null;
             /**
              * Created At
              * Format: date-time
@@ -2585,6 +2591,8 @@ export interface components {
             max_hours_per_week?: number | null;
             /** Reserve Hours Per Week */
             reserve_hours_per_week?: number | null;
+            /** Working Days */
+            working_days?: number[] | null;
         };
         /**
          * TimeBlockCreate

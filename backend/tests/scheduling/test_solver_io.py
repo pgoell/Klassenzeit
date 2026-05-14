@@ -1695,3 +1695,85 @@ async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
     # Other room sees nothing.
     other_rows = await read_schedule_for_room(db_session, other_room.id)
     assert other_rows == []
+
+
+async def test_candidates_for_lesson_excludes_off_days_for_part_time_teacher(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """A teacher with working_days=[0] is not a candidate when class TimeBlocks fall on Tue only."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    await create_time_block(week_scheme_id=scheme.id, day_of_week=1, position=1)
+    await create_room()
+    teacher = await create_teacher(working_days=[0])
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, class_id=cls.id)
+    problem = json.loads(problem_json)
+
+    [lesson_payload] = [le for le in problem["lessons"] if le["id"] == str(lesson.id)]
+    assert str(teacher.id) not in lesson_payload["teacher_candidates"]
+
+
+async def test_teacher_blocked_times_emit_for_off_days(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """working_days=[0, 1]: Wed/Thu/Fri TimeBlocks are in teacher_blocked_times for that teacher."""
+    subject = await create_subject()
+    scheme = await create_week_scheme()
+    for d in range(5):
+        await create_time_block(week_scheme_id=scheme.id, day_of_week=d, position=1)
+    await create_room()
+    teacher = await create_teacher(working_days=[0, 1])
+    tafel = await create_stundentafel()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    lesson = Lesson(
+        subject_id=subject.id,
+        hours_per_week=1,
+        preferred_block_size=1,
+    )
+    db_session.add(lesson)
+    await db_session.flush()
+    db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
+    db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(db_session, class_id=cls.id)
+    problem = json.loads(problem_json)
+
+    blocked_for_teacher = {
+        entry["time_block_id"]
+        for entry in problem["teacher_blocked_times"]
+        if entry["teacher_id"] == str(teacher.id)
+    }
+    tbs_by_day = {tb["day_of_week"]: tb["id"] for tb in problem["time_blocks"]}
+    assert tbs_by_day[2] in blocked_for_teacher
+    assert tbs_by_day[3] in blocked_for_teacher
+    assert tbs_by_day[4] in blocked_for_teacher
+    assert tbs_by_day[0] not in blocked_for_teacher
+    assert tbs_by_day[1] not in blocked_for_teacher

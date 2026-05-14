@@ -25,6 +25,7 @@ import { type Teacher, useCreateTeacher, useDeleteTeacher, useUpdateTeacher } fr
 import { TeacherFormSchema, type TeacherFormValues } from "./schema";
 import { TeacherAvailabilityGrid } from "./teacher-availability-grid";
 import { TeacherQualificationsEditor } from "./teacher-qualifications-editor";
+import { WeekdayPicker } from "./weekday-picker";
 
 interface TeacherFormDialogProps {
   open: boolean;
@@ -48,6 +49,7 @@ export function TeacherFormDialog({
       short_code: teacher?.short_code ?? "",
       max_hours_per_week: teacher?.max_hours_per_week ?? 1,
       reserve_hours_per_week: teacher?.reserve_hours_per_week ?? 0,
+      working_days: teacher?.working_days ?? null,
     },
   });
   const createMutation = useCreateTeacher();
@@ -175,6 +177,18 @@ export function TeacherFormDialog({
                         {t("teachers.fields.reserveExceedsMaxWarning")}
                       </p>
                     )}
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="working_days"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <WeekdayPicker value={field.value} onChange={field.onChange} />
+                  </FormControl>
+                  <FormMessage />
                 </FormItem>
               )}
             />

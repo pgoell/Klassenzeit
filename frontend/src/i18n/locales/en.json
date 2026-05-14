@@ -221,7 +221,9 @@
     },
     "fields": {
       "reserveHoursPerWeek": "Reserve hours / week",
-      "reserveExceedsMaxWarning": "Reserve at or above max hours leaves no teaching capacity"
+      "reserveExceedsMaxWarning": "Reserve at or above max hours leaves no teaching capacity",
+      "workingDays": "Working days",
+      "workingDaysHelper": "Leave empty for full-time."
     },
     "empty": {
       "title": "No teachers on staff",

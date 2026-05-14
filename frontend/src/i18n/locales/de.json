@@ -221,7 +221,9 @@
     },
     "fields": {
       "reserveHoursPerWeek": "Vertretungsreserve / Woche",
-      "reserveExceedsMaxWarning": "Reserve >= Max-Stunden lässt keine Unterrichtskapazität"
+      "reserveExceedsMaxWarning": "Reserve >= Max-Stunden lässt keine Unterrichtskapazität",
+      "workingDays": "Arbeitstage",
+      "workingDaysHelper": "Leer lassen für Vollzeit."
     },
     "empty": {
       "title": "Noch keine Lehrkräfte",

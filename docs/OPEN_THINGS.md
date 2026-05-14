@@ -23,8 +23,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 ### P1 (real Grundschule pain still un-modelled)
 
-4. **Teilzeit-Tage patterns on Teacher.** Part-time teachers are contracted to specific weekdays (e.g. Dana works Mo, Di, Mi). Today this is representable via 15 `teacher_availabilities` rows per off-day, which is verbose and the seed leaves it empty. Add `Teacher.working_days: set[int]` (or a higher-level "weekly pattern" model); the solver consults it before per-block availability. Trigger: a second real Teilzeit teacher enters demo data and the verbose availability grid starts to feel painful.
-
 5. **Soft / tentative pin semantic (UX + solver).** Today's `LessonPin` is binary (`hard` only); a Klassenlehrer wanting "I prefer this placement, but reroute it if you must" has no way to express it. Add `LessonPin.kind: PinKind` (`hard` | `soft`); soft pins enter the LAHC objective as a penalty (new `ConstraintWeights.soft_pin_miss`) rather than a hard constraint. Two badges in the schedule grid (icon variant + tooltip copy). Triggers a new ADR; out of scope until a workflow surfaces a real "preferred-not-required" case.
 
 6. **Quality-issue endpoint + UI surface.** `quality_checks.QualityIssue[]` is returned by `POST /api/classes/{id}/schedule` but not persisted, and `GET /api/classes/{id}/schedule` returns placements only. The schedule view shows violations as a count but no actionable next-step ("3 issues" with no breakdown). Add `GET /api/schedule/quality-issues` (reuses `quality_checks.py`) and a sidebar in the schedule grid that lists the issues with a click-to-highlight gesture on the offending cell. Trigger: any demo where the admin asks "okay, but WHY is this incomplete?".
