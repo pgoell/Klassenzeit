@@ -65,7 +65,15 @@ class Placement:
 
 @dataclass(frozen=True)
 class QualityIssue:
-    """Structured record of a quality-bar violation."""
+    """Structured record of a quality-bar violation.
+
+    ``cells`` is a tuple of ``(day_of_week, time_block_position)`` pairs
+    addressing the offending grid cells the predicate located. Cell-emitting
+    predicates (``room_hop``, ``home_room_miss``, ``day_too_long``,
+    ``class_teacher_subject_share``) populate this sorted ascending by
+    ``(day, time_block_position)``. Class-level predicates (``imbalance``,
+    ``interior_gap``) leave it at the empty default.
+    """
 
     kind: Literal[
         "room_hop",
@@ -79,6 +87,7 @@ class QualityIssue:
     day_of_week: int | None = None
     subject_id: UUID | None = None
     detail: dict[str, object] = field(default_factory=dict)
+    cells: tuple[tuple[int, int], ...] = ()
 
 
 def build_lesson_ordinal_map(
@@ -150,18 +159,24 @@ async def load_placements(db: AsyncSession) -> list[Placement]:
 def check_room_hop(placements: list[Placement]) -> Iterable[QualityIssue]:
     """Yield one issue per `(class, day, subject)` group spanning multiple rooms."""
     grouped: dict[tuple[UUID, int, UUID], set[UUID]] = {}
+    members: dict[tuple[UUID, int, UUID], list[Placement]] = {}
     for placement in placements:
         key = (placement.class_id, placement.day, placement.subject_id)
         grouped.setdefault(key, set()).add(placement.room_id)
+        members.setdefault(key, []).append(placement)
     for (class_id, day, subject_id), rooms in grouped.items():
         if len(rooms) <= 1:
             continue
+        cells = tuple(
+            sorted((p.day, p.time_block_position) for p in members[(class_id, day, subject_id)])
+        )
         yield QualityIssue(
             kind="room_hop",
             school_class_id=class_id,
             day_of_week=day,
             subject_id=subject_id,
             detail={"rooms": [str(r) for r in rooms]},
+            cells=cells,
         )
 
 
@@ -195,6 +210,7 @@ def check_home_room_ratio(
 ) -> Iterable[QualityIssue]:
     """Yield one issue per class whose non-exempt home-room hit rate is below `min_ratio`."""
     counts: dict[UUID, tuple[int, int]] = {}  # class_id -> (hits, total)
+    non_home_by_class: dict[UUID, list[Placement]] = {}
     for placement in placements:
         if placement.subject_id in exempt_subjects:
             continue
@@ -204,16 +220,22 @@ def check_home_room_ratio(
         total += 1
         if placement.room_id == home_rooms[placement.class_id]:
             hits += 1
+        else:
+            non_home_by_class.setdefault(placement.class_id, []).append(placement)
         counts[placement.class_id] = (hits, total)
     for class_id, (hits, total) in counts.items():
         if total == 0:
             continue
         if hits / total >= min_ratio:
             continue
+        cells = tuple(
+            sorted((p.day, p.time_block_position) for p in non_home_by_class.get(class_id, []))
+        )
         yield QualityIssue(
             kind="home_room_miss",
             school_class_id=class_id,
             detail={"hits": hits, "total": total, "min_ratio": min_ratio},
+            cells=cells,
         )
 
 
@@ -254,6 +276,7 @@ def check_day_length(
 ) -> Iterable[QualityIssue]:
     """Yield one issue per `(class, day)` containing a placement past `max_position`."""
     worst: dict[tuple[UUID, int], int] = {}
+    offending: dict[tuple[UUID, int], list[Placement]] = {}
     for placement in placements:
         if placement.position <= max_position:
             continue
@@ -261,12 +284,15 @@ def check_day_length(
         prev = worst.get(key, 0)
         if placement.position > prev:
             worst[key] = placement.position
+        offending.setdefault(key, []).append(placement)
     for (class_id, day), worst_position in worst.items():
+        cells = tuple(sorted((p.day, p.time_block_position) for p in offending[(class_id, day)]))
         yield QualityIssue(
             kind="day_too_long",
             school_class_id=class_id,
             day_of_week=day,
             detail={"max_position": max_position, "worst_position": worst_position},
+            cells=cells,
         )
 
 
@@ -283,6 +309,7 @@ def check_class_teacher_subject_share(
     the offending teacher set.
     """
     by_pair: dict[tuple[UUID, UUID, UUID], set[UUID]] = {}
+    offending_placements: dict[tuple[UUID, UUID, UUID], list[Placement]] = {}
     for placement in placements:
         klassenlehrer = class_teacher_lookup.get(placement.class_id)
         if klassenlehrer is None:
@@ -290,13 +317,20 @@ def check_class_teacher_subject_share(
         teacher = placement_teacher_lookup.get(placement.lesson_id)
         if teacher is None:
             continue
-        by_pair.setdefault((placement.class_id, placement.subject_id, klassenlehrer), set()).add(
-            teacher
-        )
+        pair_key = (placement.class_id, placement.subject_id, klassenlehrer)
+        by_pair.setdefault(pair_key, set()).add(teacher)
+        if teacher != klassenlehrer:
+            offending_placements.setdefault(pair_key, []).append(placement)
     for (class_id, subject_id, klassenlehrer), teachers in by_pair.items():
         if teachers == {klassenlehrer}:
             continue
         offending = sorted(t for t in teachers if t != klassenlehrer)
+        cells = tuple(
+            sorted(
+                (p.day, p.time_block_position)
+                for p in offending_placements.get((class_id, subject_id, klassenlehrer), [])
+            )
+        )
         yield QualityIssue(
             kind="class_teacher_subject_share",
             school_class_id=class_id,
@@ -306,4 +340,5 @@ def check_class_teacher_subject_share(
                 "teachers": [str(t) for t in sorted(teachers)],
                 "offending": [str(t) for t in offending],
             },
+            cells=cells,
         )

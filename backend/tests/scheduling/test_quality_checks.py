@@ -514,3 +514,268 @@ def test_placement_carries_time_block_position() -> None:
     )
     assert placement.position == 2
     assert placement.time_block_position == 4
+
+
+# ---------------------------------------------------------------------------
+# QualityIssue.cells field + per-predicate population
+# ---------------------------------------------------------------------------
+
+
+def test_quality_issue_cells_defaults_to_empty_tuple() -> None:
+    issue = QualityIssue(kind="imbalance", school_class_id=uuid.uuid4(), detail={})
+    assert issue.cells == ()
+
+
+def test_check_room_hop_cells_carries_all_matching_placements() -> None:
+    """room_hop emits one issue per (class, day, subject); cells contains every
+    matching placement sorted ascending by (day, time_block_position)."""
+    class_id = uuid.uuid4()
+    subject_id = uuid.uuid4()
+    room_a = uuid.uuid4()
+    room_b = uuid.uuid4()
+    lesson_id = uuid.uuid4()
+
+    placements = [
+        # Insert in reverse so the predicate must sort.
+        Placement(
+            class_id=class_id,
+            day=1,
+            subject_id=subject_id,
+            room_id=room_b,
+            lesson_id=lesson_id,
+            time_block_id=uuid.uuid4(),
+            position=2,
+            time_block_position=4,
+        ),
+        Placement(
+            class_id=class_id,
+            day=1,
+            subject_id=subject_id,
+            room_id=room_a,
+            lesson_id=lesson_id,
+            time_block_id=uuid.uuid4(),
+            position=1,
+            time_block_position=2,
+        ),
+    ]
+    issues = list(check_room_hop(placements))
+    assert len(issues) == 1
+    assert issues[0].kind == "room_hop"
+    assert issues[0].cells == ((1, 2), (1, 4))
+
+
+def test_check_home_room_ratio_cells_carries_non_home_placements() -> None:
+    """home_room_miss cells include every non-exempt placement that lands
+    outside the class's home room, sorted by (day, time_block_position)."""
+    c1 = uuid.uuid4()
+    home = uuid.uuid4()
+    other = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    sport = uuid.uuid4()  # exempt
+
+    placements = [
+        # Insert in reverse to confirm sorting.
+        Placement(
+            class_id=c1,
+            day=2,
+            subject_id=deutsch,
+            room_id=other,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=1,
+            time_block_position=3,
+        ),
+        Placement(
+            class_id=c1,
+            day=1,
+            subject_id=deutsch,
+            room_id=other,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=2,
+            time_block_position=5,
+        ),
+        # Exempt placement in a non-home room must NOT appear in cells.
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=sport,
+            room_id=other,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=1,
+            time_block_position=1,
+        ),
+        # A placement in the home room must NOT appear in cells.
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=home,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=2,
+            time_block_position=2,
+        ),
+    ]
+    issues = list(
+        check_home_room_ratio(
+            placements,
+            home_rooms={c1: home},
+            min_ratio=0.9,
+            exempt_subjects={sport},
+        )
+    )
+    assert len(issues) == 1
+    assert issues[0].kind == "home_room_miss"
+    assert issues[0].cells == ((1, 5), (2, 3))
+
+
+def test_check_day_length_cells_carries_placements_past_max_position() -> None:
+    """day_too_long cells include every placement with ordinal position past
+    max_position, sorted by (day, time_block_position) and using raw positions."""
+    c1 = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    room = uuid.uuid4()
+    placements = [
+        # ordinal 8 (raw 9), should appear.
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=8,
+            time_block_position=9,
+        ),
+        # ordinal 6 (raw 7) should NOT appear (max_position=7 means past 7).
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=6,
+            time_block_position=7,
+        ),
+        # ordinal 7 should not be in cells (not past max_position=7).
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=7,
+            time_block_position=8,
+        ),
+    ]
+    issues = list(check_day_length(placements, max_position=7))
+    assert len(issues) == 1
+    assert issues[0].kind == "day_too_long"
+    assert issues[0].cells == ((0, 9),)
+
+
+def test_check_day_length_cells_sorted_ascending() -> None:
+    """day_too_long emits one issue per (class, day); each issue's cells are
+    sorted ascending by (day, time_block_position)."""
+    c1 = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    room = uuid.uuid4()
+    placements = [
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=9,
+            time_block_position=11,
+        ),
+        Placement(
+            class_id=c1,
+            day=0,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=uuid.uuid4(),
+            time_block_id=uuid.uuid4(),
+            position=8,
+            time_block_position=9,
+        ),
+    ]
+    issues = list(check_day_length(placements, max_position=7))
+    assert len(issues) == 1
+    assert issues[0].cells == ((0, 9), (0, 11))
+
+
+def test_check_class_teacher_subject_share_cells_carries_offending_placements() -> None:
+    """class_teacher_subject_share cells include every placement for the offending
+    (class, subject) where the teacher is not the class's Klassenlehrer."""
+    c1 = uuid.uuid4()
+    deutsch = uuid.uuid4()
+    room = uuid.uuid4()
+    lesson_a = uuid.uuid4()
+    lesson_b = uuid.uuid4()
+    klassenlehrer = uuid.uuid4()
+    teacher_other_1 = uuid.uuid4()
+    teacher_other_2 = uuid.uuid4()
+    placements = [
+        # Insert in reverse to verify sorting.
+        Placement(
+            class_id=c1,
+            day=2,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=lesson_b,
+            time_block_id=uuid.uuid4(),
+            position=3,
+            time_block_position=4,
+        ),
+        Placement(
+            class_id=c1,
+            day=1,
+            subject_id=deutsch,
+            room_id=room,
+            lesson_id=lesson_a,
+            time_block_id=uuid.uuid4(),
+            position=1,
+            time_block_position=2,
+        ),
+    ]
+    class_teacher_lookup: dict[UUID, UUID | None] = {c1: klassenlehrer}
+    placement_teacher_lookup: dict[UUID, UUID] = {
+        lesson_a: teacher_other_1,
+        lesson_b: teacher_other_2,
+    }
+    issues = list(
+        check_class_teacher_subject_share(
+            placements, class_teacher_lookup, placement_teacher_lookup
+        )
+    )
+    assert len(issues) == 1
+    assert issues[0].kind == "class_teacher_subject_share"
+    assert issues[0].cells == ((1, 2), (2, 4))
+
+
+def test_check_class_day_balance_cells_empty() -> None:
+    """imbalance issues carry an empty cells tuple in v1 (class-level)."""
+    class_id = uuid.uuid4()
+    counts_per_class = {class_id: [2, 5, 5, 5, 5]}  # spread = 3
+    issues = list(check_class_day_balance(counts_per_class, max_spread=2))
+    assert len(issues) == 1
+    assert issues[0].kind == "imbalance"
+    assert issues[0].cells == ()
+
+
+def test_check_interior_gaps_cells_empty() -> None:
+    """interior_gap issues carry an empty cells tuple in v1 (class-level)."""
+    c1 = uuid.uuid4()
+    # day 0: positions 1,2,5  -> 5-1+1-3 = 2 gaps; day 1: 1,4 -> 2 gaps
+    positions = {(c1, 0): [1, 2, 5], (c1, 1): [1, 4]}
+    issues = list(check_interior_gaps(positions, max_gaps_per_class=2))
+    assert len(issues) == 1
+    assert issues[0].kind == "interior_gap"
+    assert issues[0].cells == ()
