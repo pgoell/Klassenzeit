@@ -4,7 +4,7 @@ Mirrors the `solver_core::Solution` wire format, filtered to a single school
 class's lessons by the route handler.
 """
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -61,6 +61,41 @@ class ViolationResponse(BaseModel):
     reason: str | None = None
 
 
+class CellCoord(BaseModel):
+    """A grid coordinate identifying a single schedule cell.
+
+    ``position`` is the raw ``TimeBlock.position`` (matches what the frontend
+    grid uses for keying cells), not the lesson-ordinal projection some
+    predicates work in.
+    """
+
+    day_of_week: int = Field(..., ge=0, le=6)
+    position: int = Field(..., ge=0)
+
+
+class QualityIssueResponse(BaseModel):
+    """One soft-quality issue surfaced by the schedule quality predicates.
+
+    Mirrors ``klassenzeit_backend.scheduling.quality_checks.QualityIssue``;
+    the ``cells`` field is a list (rather than a tuple of tuples) so the
+    wire format is plain JSON arrays of ``CellCoord`` objects.
+    """
+
+    kind: Literal[
+        "room_hop",
+        "imbalance",
+        "home_room_miss",
+        "day_too_long",
+        "interior_gap",
+        "class_teacher_subject_share",
+    ]
+    school_class_id: UUID
+    day_of_week: int | None = None
+    subject_id: UUID | None = None
+    detail: dict[str, Any] = Field(default_factory=dict)
+    cells: list[CellCoord] = Field(default_factory=list)
+
+
 class SupervisionAssignmentResponse(BaseModel):
     """One Hofpause supervision assignment: a teacher covering a break TimeBlock.
 
@@ -94,6 +129,7 @@ class ScheduleResponse(BaseModel):
     quality_report: QualityReportResponse
     was_cancelled: bool = False
     supervision_assignments: list[SupervisionAssignmentResponse] = Field(default_factory=list)
+    quality_issues: list[QualityIssueResponse] = Field(default_factory=list)
 
 
 class ProgressSnapshot(BaseModel):
@@ -130,6 +166,7 @@ class ScheduleReadResponse(BaseModel):
 
     placements: list[PlacementResponse]
     supervision_assignments: list[SupervisionAssignmentResponse] = Field(default_factory=list)
+    quality_issues: list[QualityIssueResponse] = Field(default_factory=list)
 
 
 class ClassScheduleSummary(BaseModel):

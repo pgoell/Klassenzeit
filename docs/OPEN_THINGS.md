@@ -21,10 +21,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 1. **Production-refresh ratification of ADR 0037.** Today's unpinned multi-school cells in `BENCH_RESULTS.md` are smoke-validated at 5s × 1 seed; the production 60s × 20-seed cell shape on unpinned is the missing data point. Re-run `mise run bench:bakeoff -- --teacher-pins on` followed by `-- --teacher-pins off --append` (~10-12h). If `lahc_rr_kempe` regains a soft-score edge at production scale, file ADR 0038-revision; if `lahc_rr` holds, ADR 0037 is ratified. Trigger: opportunistic on a quiet host window. Anchor: item 81.
 
-### P1 (real Grundschule pain still un-modelled)
-
-6. **Quality-issue endpoint + UI surface.** `quality_checks.QualityIssue[]` is returned by `POST /api/classes/{id}/schedule` but not persisted, and `GET /api/classes/{id}/schedule` returns placements only. The schedule view shows violations as a count but no actionable next-step ("3 issues" with no breakdown). Add `GET /api/schedule/quality-issues` (reuses `quality_checks.py`) and a sidebar in the schedule grid that lists the issues with a click-to-highlight gesture on the offending cell. Trigger: any demo where the admin asks "okay, but WHY is this incomplete?".
-
 ### P2 (longer-arc; reopen on trigger)
 
 8. **Schwimmunterricht buffers.** One Doppelstunde Schwimmen per Klasse 3 needs `Room.is_external: bool` + per-Lesson `pre_buffer_minutes`, `post_buffer_minutes` (Hessen Wegezeit ~10-15 min each way). Solver enforces buffer per-class and per-teacher (rooms unaffected). New `ViolationKind::TravelBufferConflict`. Bench: extend dreizügige fixture with the Klasse 3 Schwimmen lesson. Trigger: active sprint promotes this paused program back to active.
@@ -34,6 +30,8 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 10. **Multi-school tenancy.** The schema has no `School` table and no `school_id` on any aggregate root; every authenticated user shares the global pool. Multi-tenancy is a coordinated change: schools table, `school_id` FK on every aggregate + per-school join row, `school_id` on `User` (or membership table), query scoping in every route, seed scripts, E2E tests. Required before customer school #2. Anchor: today's `### Production readiness` first entry.
 
 11. **Production-refresh ratification of `soft_pin_miss` weight (5).** ADR 0042 set the tentative weight at 5, mirroring `prefer_home_room`. A 20-iter production-budget bench (60s × 20 seeds × 4 fixtures, pinned + unpinned cross-section) would confirm the weight does not regress soft-score competitive shape. Trigger: opportunistic on a quiet host window. Anchor: ADR 0042.
+
+82. **`test_grundschule_schedule_meets_quality_bar` spread flake.** Locally ~1/3 of runs fail with `imbalance` on class 2a (typical shape `daily=[2,6,5,4,6], spread=4, max_spread=2`); LAHC under the 5000 ms deadline lands on the high-spread distribution often enough that the test is a coin-flip for the imbalance predicate. Pre-existing on master; surfaced by running the test 3× in a row during the item-6 verification. Fix candidates: (a) bump `solve_deadline_ms` for this single test until the spread distribution lands consistently under 2, (b) pin an LAHC seed for this test, (c) raise `MAX_DAY_LOAD_SPREAD` from 2 to 3 in `quality_checks.py` if a wider spread is the realistic Hessen Grundschule shape, (d) mark the test `pytest.mark.xfail(strict=False)` per the existing CLAUDE.md flake-shipping rule. Trigger: CI red on this test in a green-elsewhere PR, or two consecutive flake hits on master.
 
 ## Backlog
 

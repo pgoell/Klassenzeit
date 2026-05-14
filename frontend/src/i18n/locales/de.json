@@ -427,6 +427,36 @@
       "classSubjectTeacherSplit": "{{subject}} (Stunde {{hour}}): unterschiedliche Lehrkräfte wurden derselben Klasse für dasselbe Fach zugewiesen.",
       "supervisionGap": "Aufsicht: keine aufsichtsberechtigte Lehrkraft für eine Hofpause verfügbar."
     },
+    "qualityIssues": {
+      "title": "Qualitätshinweise",
+      "empty": "Keine Qualitätshinweise gefunden.",
+      "kind": {
+        "room_hop": {
+          "title": "Raumwechsel",
+          "description": "{{subject}} am {{day}} wechselt den Raum."
+        },
+        "imbalance": {
+          "title": "Ungleichmäßige Tageslast",
+          "description": "Tagesspreizung von {{spread}} überschreitet die Schwelle von {{max_spread}}."
+        },
+        "home_room_miss": {
+          "title": "Klassenraum-Anteil zu niedrig",
+          "description": "Nur {{hits}} von {{total}} nicht-ausgenommenen Stunden im Klassenraum (Mindestanteil {{min_ratio}})."
+        },
+        "day_too_long": {
+          "title": "Tag zu lang",
+          "description": "{{day}} hat eine Stunde an Position {{worst_position}} (Maximum {{max_position}})."
+        },
+        "interior_gap": {
+          "title": "Stundenplanlücken",
+          "description": "{{total_gaps}} Lücke(n) überschreiten die Schwelle von {{max_gaps_per_class}}."
+        },
+        "class_teacher_subject_share": {
+          "title": "Klassenlehrer-Anteil",
+          "description": "{{subject}} wird neben dem Klassenlehrer auch von anderen Lehrkräften unterrichtet."
+        }
+      }
+    },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },
   "schoolClasses": {

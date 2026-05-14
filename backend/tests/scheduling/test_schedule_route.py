@@ -324,7 +324,7 @@ async def test_schedule_get_returns_empty_list_for_never_solved_class(
     )
     resp = await client.get(f"/api/classes/{cls.id}/schedule")
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"placements": [], "supervision_assignments": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
 
 
 async def test_schedule_post_then_get_returns_same_placements(
@@ -445,7 +445,7 @@ async def test_schedule_post_for_class_a_does_not_persist_for_class_b(
 
     get_b = await client.get(f"/api/classes/{cls_b.id}/schedule")
     assert get_b.status_code == 200
-    assert get_b.json() == {"placements": [], "supervision_assignments": []}
+    assert get_b.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
 
 
 async def test_read_teacher_schedule_returns_404_for_unknown_teacher(
@@ -470,7 +470,7 @@ async def test_read_teacher_schedule_returns_empty_for_unscheduled_teacher(
     teacher = await create_teacher()
     resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": [], "supervision_assignments": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
 
 
 async def test_read_teacher_schedule_returns_placements_after_solve(
@@ -536,7 +536,7 @@ async def test_read_room_schedule_returns_empty_for_unscheduled_room(
     room = await create_room()
     resp = await client.get(f"/api/rooms/{room.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": [], "supervision_assignments": []}
+    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
 
 
 async def test_read_room_schedule_returns_placements_after_solve(
@@ -792,3 +792,91 @@ async def test_schedule_post_response_carries_quality_report(
         assert sum(qr[map_field].values()) == qr[legacy], (
             f"sum({map_field}.values()) must equal {legacy}"
         )
+
+
+async def test_schedule_post_response_carries_quality_issues(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """POST /api/classes/{id}/schedule response carries a quality_issues list.
+
+    Each entry has the QualityIssueResponse wire shape: kind, school_class_id,
+    day_of_week, subject_id, detail, cells. A tiny one-lesson class produces
+    no quality issues, but the field must still be present as an empty list.
+    """
+    await create_test_user(email="admin@sched-qi-post.com", role="admin")
+    await login_as("admin@sched-qi-post.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-sched-qi-post",
+    )
+    resp = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "quality_issues" in body, "quality_issues must be on the POST wire format"
+    assert isinstance(body["quality_issues"], list)
+    expected_keys = {"kind", "school_class_id", "day_of_week", "subject_id", "detail", "cells"}
+    for issue in body["quality_issues"]:
+        assert set(issue.keys()) == expected_keys, (
+            f"QualityIssueResponse field drift: {set(issue.keys()) ^ expected_keys}"
+        )
+
+
+async def test_schedule_get_response_carries_quality_issues(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """GET /api/classes/{id}/schedule response carries a quality_issues list.
+
+    After persisting one placement via POST, the readback's `quality_issues`
+    field must be present and an empty list (no quality bar breached by a
+    single-lesson class).
+    """
+    await create_test_user(email="admin@sched-qi-get.com", role="admin")
+    await login_as("admin@sched-qi-get.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-sched-qi-get",
+    )
+    post_resp = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post_resp.status_code == 200, post_resp.text
+    get_resp = await client.get(f"/api/classes/{cls.id}/schedule")
+    assert get_resp.status_code == 200, get_resp.text
+    body = get_resp.json()
+    assert "quality_issues" in body, "quality_issues must be on the GET wire format"
+    assert isinstance(body["quality_issues"], list)
+    expected_keys = {"kind", "school_class_id", "day_of_week", "subject_id", "detail", "cells"}
+    for issue in body["quality_issues"]:
+        assert set(issue.keys()) == expected_keys

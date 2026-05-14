@@ -727,6 +727,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classes/{class_id}/quality-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Quality Issues For Class Route
+         * @description Return the soft-quality issues for the given class.
+         *
+         *     Issues are computed on demand from the persisted ScheduledLesson rows;
+         *     no per-solve snapshot is stored. Returns an empty list when the class
+         *     exists but has never been scheduled.
+         *
+         *     Args:
+         *         class_id: UUID path parameter identifying the school class.
+         *         _admin: Injected admin user (enforces authentication).
+         *         db: Injected async database session.
+         *
+         *     Returns:
+         *         ``list[QualityIssueResponse]``; empty when no issues apply.
+         *
+         *     Raises:
+         *         HTTPException: 404 if the class doesn't exist.
+         */
+        get: operations["read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/teachers/{teacher_id}/schedule": {
         parameters: {
             query?: never;
@@ -1567,6 +1602,20 @@ export interface components {
             position: number;
         };
         /**
+         * CellCoord
+         * @description A grid coordinate identifying a single schedule cell.
+         *
+         *     ``position`` is the raw ``TimeBlock.position`` (matches what the frontend
+         *     grid uses for keying cells), not the lesson-ordinal projection some
+         *     predicates work in.
+         */
+        CellCoord: {
+            /** Day Of Week */
+            day_of_week: number;
+            /** Position */
+            position: number;
+        };
+        /**
          * ChangePasswordRequest
          * @description Request body for changing the current user's password.
          */
@@ -1942,6 +1991,36 @@ export interface components {
             subject_ids: string[];
         };
         /**
+         * QualityIssueResponse
+         * @description One soft-quality issue surfaced by the schedule quality predicates.
+         *
+         *     Mirrors ``klassenzeit_backend.scheduling.quality_checks.QualityIssue``;
+         *     the ``cells`` field is a list (rather than a tuple of tuples) so the
+         *     wire format is plain JSON arrays of ``CellCoord`` objects.
+         */
+        QualityIssueResponse: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "room_hop" | "imbalance" | "home_room_miss" | "day_too_long" | "interior_gap" | "class_teacher_subject_share";
+            /**
+             * School Class Id
+             * Format: uuid
+             */
+            school_class_id: string;
+            /** Day Of Week */
+            day_of_week?: number | null;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Detail */
+            detail?: {
+                [key: string]: unknown;
+            };
+            /** Cells */
+            cells?: components["schemas"]["CellCoord"][];
+        };
+        /**
          * QualityReportResponse
          * @description Per-axis cost-vector breakdown of the solver's soft score.
          */
@@ -1990,6 +2069,11 @@ export interface components {
             worst_per_class_spread: number;
             /** Worst Per Class Interior Gaps */
             worst_per_class_interior_gaps: number;
+            /**
+             * Soft Pin Misses
+             * @default 0
+             */
+            soft_pin_misses: number;
         };
         /**
          * ResetPasswordRequest
@@ -2099,6 +2183,8 @@ export interface components {
             placements: components["schemas"]["PlacementResponse"][];
             /** Supervision Assignments */
             supervision_assignments?: components["schemas"]["SupervisionAssignmentResponse"][];
+            /** Quality Issues */
+            quality_issues?: components["schemas"]["QualityIssueResponse"][];
         };
         /**
          * ScheduleResponse
@@ -2132,6 +2218,8 @@ export interface components {
             was_cancelled: boolean;
             /** Supervision Assignments */
             supervision_assignments?: components["schemas"]["SupervisionAssignmentResponse"][];
+            /** Quality Issues */
+            quality_issues?: components["schemas"]["QualityIssueResponse"][];
         };
         /**
          * SchoolClassCreate
@@ -3914,6 +4002,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WholeSchoolScheduleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                class_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityIssueResponse"][];
                 };
             };
             /** @description Validation Error */

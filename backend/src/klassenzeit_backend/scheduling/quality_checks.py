@@ -34,12 +34,26 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from klassenzeit_backend.db.models.lesson import Lesson
+from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school_class import SchoolClass
+from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 
 
 @dataclass(frozen=True)
 class Placement:
-    """One placed lesson-hour, normalised for predicate evaluation."""
+    """A single scheduled lesson, projected for quality-check predicates.
+
+    ``position`` is the lesson ordinal within the day (1-indexed; breaks
+    skipped) as produced by ``build_lesson_ordinal_map``. ``time_block_position``
+    is the raw ``TimeBlock.position`` so cell-emitting predicates can address
+    the same coordinate the frontend grid uses.
+    """
 
     class_id: UUID
     day: int
@@ -48,11 +62,20 @@ class Placement:
     lesson_id: UUID
     time_block_id: UUID
     position: int
+    time_block_position: int
 
 
 @dataclass(frozen=True)
 class QualityIssue:
-    """Structured record of a quality-bar violation."""
+    """Structured record of a quality-bar violation.
+
+    ``cells`` is a tuple of ``(day_of_week, time_block_position)`` pairs
+    addressing the offending grid cells the predicate located. Cell-emitting
+    predicates (``room_hop``, ``home_room_miss``, ``day_too_long``,
+    ``class_teacher_subject_share``) populate this sorted ascending by
+    ``(day, time_block_position)``. Class-level predicates (``imbalance``,
+    ``interior_gap``) leave it at the empty default.
+    """
 
     kind: Literal[
         "room_hop",
@@ -66,6 +89,7 @@ class QualityIssue:
     day_of_week: int | None = None
     subject_id: UUID | None = None
     detail: dict[str, object] = field(default_factory=dict)
+    cells: tuple[tuple[int, int], ...] = ()
 
 
 def build_lesson_ordinal_map(
@@ -89,21 +113,72 @@ def build_lesson_ordinal_map(
     return ordinals
 
 
+async def load_placements(db: AsyncSession) -> list[Placement]:
+    """Project persisted ScheduledLesson rows into Placement records.
+
+    A lesson can serve multiple classes via lesson_school_classes; each
+    membership produces its own Placement so per-class predicates see
+    every class the lesson lands in.
+
+    ``Placement.position`` is the lesson ordinal within the day (1 = first
+    lesson slot, 2 = second, ...); ``Placement.time_block_position`` is the
+    raw ``TimeBlock.position``. Break rows occupy raw positions but not
+    ordinal positions.
+    """
+    rows = (
+        await db.execute(
+            select(
+                ScheduledLesson.lesson_id,
+                ScheduledLesson.time_block_id,
+                ScheduledLesson.room_id,
+                Lesson.subject_id,
+                LessonSchoolClass.school_class_id,
+                TimeBlock.day_of_week,
+                TimeBlock.position,
+            )
+            .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+            .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
+            .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
+        )
+    ).all()
+    time_blocks = (await db.execute(select(TimeBlock))).scalars().all()
+    lesson_ordinal_by_day_pos = build_lesson_ordinal_map(time_blocks)
+    return [
+        Placement(
+            class_id=row.school_class_id,
+            day=row.day_of_week,
+            subject_id=row.subject_id,
+            room_id=row.room_id,
+            lesson_id=row.lesson_id,
+            time_block_id=row.time_block_id,
+            position=lesson_ordinal_by_day_pos[(row.day_of_week, row.position)],
+            time_block_position=row.position,
+        )
+        for row in rows
+    ]
+
+
 def check_room_hop(placements: list[Placement]) -> Iterable[QualityIssue]:
     """Yield one issue per `(class, day, subject)` group spanning multiple rooms."""
     grouped: dict[tuple[UUID, int, UUID], set[UUID]] = {}
+    members: dict[tuple[UUID, int, UUID], list[Placement]] = {}
     for placement in placements:
         key = (placement.class_id, placement.day, placement.subject_id)
         grouped.setdefault(key, set()).add(placement.room_id)
+        members.setdefault(key, []).append(placement)
     for (class_id, day, subject_id), rooms in grouped.items():
         if len(rooms) <= 1:
             continue
+        cells = tuple(
+            sorted((p.day, p.time_block_position) for p in members[(class_id, day, subject_id)])
+        )
         yield QualityIssue(
             kind="room_hop",
             school_class_id=class_id,
             day_of_week=day,
             subject_id=subject_id,
             detail={"rooms": [str(r) for r in rooms]},
+            cells=cells,
         )
 
 
@@ -137,6 +212,7 @@ def check_home_room_ratio(
 ) -> Iterable[QualityIssue]:
     """Yield one issue per class whose non-exempt home-room hit rate is below `min_ratio`."""
     counts: dict[UUID, tuple[int, int]] = {}  # class_id -> (hits, total)
+    non_home_by_class: dict[UUID, list[Placement]] = {}
     for placement in placements:
         if placement.subject_id in exempt_subjects:
             continue
@@ -146,16 +222,22 @@ def check_home_room_ratio(
         total += 1
         if placement.room_id == home_rooms[placement.class_id]:
             hits += 1
+        else:
+            non_home_by_class.setdefault(placement.class_id, []).append(placement)
         counts[placement.class_id] = (hits, total)
     for class_id, (hits, total) in counts.items():
         if total == 0:
             continue
         if hits / total >= min_ratio:
             continue
+        cells = tuple(
+            sorted((p.day, p.time_block_position) for p in non_home_by_class.get(class_id, []))
+        )
         yield QualityIssue(
             kind="home_room_miss",
             school_class_id=class_id,
             detail={"hits": hits, "total": total, "min_ratio": min_ratio},
+            cells=cells,
         )
 
 
@@ -196,6 +278,7 @@ def check_day_length(
 ) -> Iterable[QualityIssue]:
     """Yield one issue per `(class, day)` containing a placement past `max_position`."""
     worst: dict[tuple[UUID, int], int] = {}
+    offending: dict[tuple[UUID, int], list[Placement]] = {}
     for placement in placements:
         if placement.position <= max_position:
             continue
@@ -203,12 +286,15 @@ def check_day_length(
         prev = worst.get(key, 0)
         if placement.position > prev:
             worst[key] = placement.position
+        offending.setdefault(key, []).append(placement)
     for (class_id, day), worst_position in worst.items():
+        cells = tuple(sorted((p.day, p.time_block_position) for p in offending[(class_id, day)]))
         yield QualityIssue(
             kind="day_too_long",
             school_class_id=class_id,
             day_of_week=day,
             detail={"max_position": max_position, "worst_position": worst_position},
+            cells=cells,
         )
 
 
@@ -225,6 +311,7 @@ def check_class_teacher_subject_share(
     the offending teacher set.
     """
     by_pair: dict[tuple[UUID, UUID, UUID], set[UUID]] = {}
+    offending_placements: dict[tuple[UUID, UUID, UUID], list[Placement]] = {}
     for placement in placements:
         klassenlehrer = class_teacher_lookup.get(placement.class_id)
         if klassenlehrer is None:
@@ -232,13 +319,20 @@ def check_class_teacher_subject_share(
         teacher = placement_teacher_lookup.get(placement.lesson_id)
         if teacher is None:
             continue
-        by_pair.setdefault((placement.class_id, placement.subject_id, klassenlehrer), set()).add(
-            teacher
-        )
+        pair_key = (placement.class_id, placement.subject_id, klassenlehrer)
+        by_pair.setdefault(pair_key, set()).add(teacher)
+        if teacher != klassenlehrer:
+            offending_placements.setdefault(pair_key, []).append(placement)
     for (class_id, subject_id, klassenlehrer), teachers in by_pair.items():
         if teachers == {klassenlehrer}:
             continue
         offending = sorted(t for t in teachers if t != klassenlehrer)
+        cells = tuple(
+            sorted(
+                (p.day, p.time_block_position)
+                for p in offending_placements.get((class_id, subject_id, klassenlehrer), [])
+            )
+        )
         yield QualityIssue(
             kind="class_teacher_subject_share",
             school_class_id=class_id,
@@ -248,4 +342,119 @@ def check_class_teacher_subject_share(
                 "teachers": [str(t) for t in sorted(teachers)],
                 "offending": [str(t) for t in offending],
             },
+            cells=cells,
         )
+
+
+MAX_DAY_LOAD_SPREAD: int = 2
+MAX_INTERIOR_GAPS_PER_CLASS: int = 2
+MIN_HOME_ROOM_RATIO: float = 0.6
+MAX_DAY_LENGTH_ORDINAL: int = 7
+MIN_KLASSENLEHRER_SHARE: float = 0.5
+HOME_ROOM_EXEMPT_SHORT_NAMES: frozenset[str] = frozenset({"SP", "KU", "MU"})
+_WEEKDAY_INDEX_MAX: int = 4  # Mon=0..Fri=4; weekend placements skipped.
+
+
+def _counts_per_class(placements: list[Placement]) -> dict[UUID, list[int]]:
+    """Build per-class daily-count lists indexed by day 0..4."""
+    counts: dict[UUID, list[int]] = {}
+    for placement in placements:
+        per_day = counts.setdefault(placement.class_id, [0, 0, 0, 0, 0])
+        if 0 <= placement.day <= _WEEKDAY_INDEX_MAX:
+            per_day[placement.day] += 1
+    return counts
+
+
+def _positions_per_class_day(
+    placements: list[Placement],
+) -> dict[tuple[UUID, int], list[int]]:
+    """Group lesson-ordinal positions by `(class_id, day_of_week)`."""
+    positions: dict[tuple[UUID, int], list[int]] = {}
+    for placement in placements:
+        positions.setdefault((placement.class_id, placement.day), []).append(placement.position)
+    return positions
+
+
+async def _load_class_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID | None]:
+    """Return `{school_class_id: class_teacher_id_or_none}` over every SchoolClass row."""
+    rows = (await db.execute(select(SchoolClass.id, SchoolClass.class_teacher_id))).all()
+    return {row.id: row.class_teacher_id for row in rows}
+
+
+async def _load_placement_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID]:
+    """Return `{lesson_id: teacher_id}` over every persisted ScheduledLesson row."""
+    rows = (await db.execute(select(ScheduledLesson.lesson_id, ScheduledLesson.teacher_id))).all()
+    return {row.lesson_id: row.teacher_id for row in rows if row.teacher_id is not None}
+
+
+async def _load_home_room_lookup(db: AsyncSession) -> dict[UUID, UUID]:
+    """Return `{school_class_id: home_room_id}` for classes whose `home_room_id` is set."""
+    rows = (await db.execute(select(SchoolClass.id, SchoolClass.home_room_id))).all()
+    return {row.id: row.home_room_id for row in rows if row.home_room_id is not None}
+
+
+async def _load_exempt_subjects(db: AsyncSession) -> set[UUID]:
+    """Return the set of Subject IDs whose short_name is in HOME_ROOM_EXEMPT_SHORT_NAMES."""
+    rows = (
+        (
+            await db.execute(
+                select(Subject.id).where(Subject.short_name.in_(HOME_ROOM_EXEMPT_SHORT_NAMES))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return set(rows)
+
+
+async def compute_quality_issues(
+    db: AsyncSession,
+    class_id: UUID,
+) -> list[QualityIssue]:
+    """Run all six quality predicates and return issues filtered to `class_id`.
+
+    Loads placements once via `load_placements`, builds shared lookups,
+    invokes each predicate with the module-level thresholds, concatenates
+    results, and filters by `school_class_id`. Returns `[]` when no
+    schedule exists for the database.
+
+    Each cell-emitting predicate already sorts its cells ascending by
+    `(day, time_block_position)`, so the orchestrator does not re-sort.
+    """
+    placements = await load_placements(db)
+    if not placements:
+        return []
+
+    counts_per_class = _counts_per_class(placements)
+    positions_per_class_day = _positions_per_class_day(placements)
+    home_rooms = await _load_home_room_lookup(db)
+    exempt_subjects = await _load_exempt_subjects(db)
+    class_teacher_lookup = await _load_class_teacher_lookup(db)
+    placement_teacher_lookup = await _load_placement_teacher_lookup(db)
+
+    issues: list[QualityIssue] = []
+    issues.extend(check_room_hop(placements))
+    issues.extend(check_class_day_balance(counts_per_class, max_spread=MAX_DAY_LOAD_SPREAD))
+    issues.extend(
+        check_home_room_ratio(
+            placements,
+            home_rooms=home_rooms,
+            min_ratio=MIN_HOME_ROOM_RATIO,
+            exempt_subjects=exempt_subjects,
+        )
+    )
+    issues.extend(
+        check_interior_gaps(
+            positions_per_class_day,
+            max_gaps_per_class=MAX_INTERIOR_GAPS_PER_CLASS,
+        )
+    )
+    issues.extend(check_day_length(placements, max_position=MAX_DAY_LENGTH_ORDINAL))
+    issues.extend(
+        check_class_teacher_subject_share(
+            placements,
+            class_teacher_lookup=class_teacher_lookup,
+            placement_teacher_lookup=placement_teacher_lookup,
+        )
+    )
+    return [issue for issue in issues if issue.school_class_id == class_id]
