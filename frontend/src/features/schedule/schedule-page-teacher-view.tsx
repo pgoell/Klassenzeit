@@ -49,6 +49,10 @@ export function SchedulePageTeacherView() {
   const blockById = new Map((weekScheme.data?.time_blocks ?? []).map((b) => [b.id, b]));
 
   const placements = schedule.data?.placements ?? [];
+  const supervisionAssignments = schedule.data?.supervision_assignments ?? [];
+  const supervisedTimeBlockIds = new Set(
+    supervisionAssignments.filter((a) => a.teacher_id === teacherId).map((a) => a.time_block_id),
+  );
   const placementCells: ScheduleCell[] = placements
     .map((p): ScheduleCell | undefined => {
       const lesson = lessonById.get(p.lesson_id);
@@ -81,6 +85,7 @@ export function SchedulePageTeacherView() {
       roomName: "",
       timeBlockId: b.id,
       kind: b.kind,
+      isSupervised: supervisedTimeBlockIds.has(b.id),
     }));
   const cells: ScheduleCell[] = [...placementCells, ...breakCells];
 

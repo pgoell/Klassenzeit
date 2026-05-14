@@ -396,6 +396,9 @@
       "teacherBody": "Select a teacher above to see their weekly placements.",
       "roomBody": "Select a room above to see its weekly placements."
     },
+    "supervision": {
+      "label": "Supervision"
+    },
     "loadError": "Failed to load schedule.",
     "retry": "Retry",
     "stats": {

@@ -396,6 +396,9 @@
       "teacherBody": "Lehrkraft oben auswählen, um deren Wochenstunden zu sehen.",
       "roomBody": "Raum oben auswählen, um seine Wochenstunden zu sehen."
     },
+    "supervision": {
+      "label": "Aufsicht"
+    },
     "loadError": "Stundenplan konnte nicht geladen werden.",
     "retry": "Erneut versuchen",
     "stats": {

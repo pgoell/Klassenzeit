@@ -29,6 +29,10 @@ export interface ScheduleCell {
   // Discriminator from `TimeBlockResponse.kind`. When "break", the cell
   // renders a non-bookable variant (no drag, drop, or click affordances).
   kind: "lesson" | "break";
+  // Teacher-week-only: when the current teacher is the assigned Hofpause
+  // supervisor for this break slot, render a supervision badge inside the
+  // break cell. Defaults to false; lesson cells ignore this flag.
+  isSupervised?: boolean;
 }
 
 interface ScheduleGridProps {
@@ -172,6 +176,9 @@ export function ScheduleGrid({
                   data-variant="break"
                 >
                   <span className="text-xs">{t("weekSchemes.timeBlocks.kind.break")}</span>
+                  {cell?.isSupervised && (
+                    <span className="text-xs font-medium">{t("schedule.supervision.label")}</span>
+                  )}
                 </div>
               );
             }
