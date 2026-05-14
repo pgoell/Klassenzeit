@@ -685,6 +685,64 @@ fn try_change_move(
     true
 }
 
+/// Block-aware Change move. n=1 delegates to the existing delta-score path
+/// in `try_change_move_n1`; n>1 uses the full-recompute path. Stub returns
+/// `false` until Task 3 lands the real body. Gated on `#[cfg(test)]` while
+/// the only caller is the test module; Task 5 wires `run` to the helper and
+/// removes the gate.
+///
+/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
+fn try_change_block_move(
+    _problem: &Problem,
+    _idx: &Indexed,
+    _placement_idx: usize,
+    _new_tb_idx: usize,
+    _lesson_lookup: &HashMap<LessonId, &Lesson>,
+    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    _subject_lookup: &HashMap<SubjectId, &Subject>,
+    _home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    _max_position_per_day: &HashMap<u8, u8>,
+    _weights: &ConstraintWeights,
+    _placements: &mut [Placement],
+    _state: &mut crate::solve::GreedyState,
+    _pinned: &HashSet<LessonId>,
+    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    _lahc_list: &[u32],
+    _iter: u64,
+    _tb_by_day_pos: &HashMap<(u8, u8), TimeBlockId>,
+    _room_order: &[usize],
+) -> bool {
+    false
+}
+
+/// Cell-with-cell swap of two n=1 placements. Stub returns `false` until
+/// Task 4 lands the real body. Gated on `#[cfg(test)]` while the only
+/// caller is the test module; Task 5 wires `run` to the helper and removes
+/// the gate.
+///
+/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
+fn try_swap_move(
+    _problem: &Problem,
+    _idx: &Indexed,
+    _placement_idx: usize,
+    _partner_idx: usize,
+    _lesson_lookup: &HashMap<LessonId, &Lesson>,
+    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    _weights: &ConstraintWeights,
+    _placements: &mut [Placement],
+    _state: &mut crate::solve::GreedyState,
+    _pinned: &HashSet<LessonId>,
+    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    _lahc_list: &[u32],
+    _iter: u64,
+) -> bool {
+    false
+}
+
 /// Pick a room for the Change move's destination tb. Prefers reusing
 /// `old_room_id`; falls back to the lowest-id hard-feasible room. When
 /// `lock` is `Some`, only that room is considered. Returns `None` if no
@@ -6273,5 +6331,1692 @@ mod tests {
         );
         assert_eq!(chain_post[&l0], 1);
         assert_eq!(chain_post[&l1], 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // RED tests for `try_change_block_move` and `try_swap_move`.
+    //
+    // These tests cover the move semantics specified in
+    // `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
+    // Task 2 lands them against stub implementations that always return
+    // `false`; acceptance-shape tests FAIL here (RED). Rejection-shape tests
+    // would pass vacuously against the stub, so they are marked `#[ignore]`
+    // and unignored by Task 3 / Task 4 once the real implementations land.
+    // ---------------------------------------------------------------------
+
+    use crate::types::{Room, SchoolClass, Subject, Teacher, TeacherQualification};
+
+    /// Build a `Problem` with `n_days * slots_per_day` lesson-kind TBs, a
+    /// single subject and pre-populated rooms/teachers/classes. Lesson +
+    /// placement seeding is left to the per-test builder.
+    fn block_move_problem(
+        n_days: u8,
+        slots_per_day: u8,
+        rooms: Vec<RoomId>,
+        teachers: Vec<TeacherId>,
+        classes: Vec<SchoolClassId>,
+        subject: SubjectId,
+        lessons: Vec<Lesson>,
+    ) -> Problem {
+        let mut time_blocks = Vec::new();
+        let mut tb_idx: u32 = 0;
+        for d in 0..n_days {
+            for p in 0..slots_per_day {
+                time_blocks.push(TimeBlock {
+                    id: TimeBlockId(lahc_uuid((100 + tb_idx) as u8)),
+                    day_of_week: d,
+                    position: p,
+                    kind: TimeBlockKind::Lesson,
+                });
+                tb_idx += 1;
+            }
+        }
+        let teacher_qualifications: Vec<TeacherQualification> = teachers
+            .iter()
+            .map(|t| TeacherQualification {
+                teacher_id: *t,
+                subject_id: subject,
+            })
+            .collect();
+        Problem {
+            time_blocks,
+            teachers: teachers
+                .iter()
+                .map(|t| Teacher {
+                    id: *t,
+                    max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
+                })
+                .collect(),
+            rooms: rooms.iter().map(|r| Room { id: *r }).collect(),
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: classes
+                .iter()
+                .map(|c| SchoolClass {
+                    id: *c,
+                    home_room_id: None,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                })
+                .collect(),
+            lessons,
+            teacher_qualifications,
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        }
+    }
+
+    /// Look up the TB id at `(day, pos)` in `problem.time_blocks`.
+    fn tb_at(problem: &Problem, day: u8, pos: u8) -> TimeBlockId {
+        problem
+            .time_blocks
+            .iter()
+            .find(|tb| tb.day_of_week == day && tb.position == pos)
+            .expect("tb_at: day/pos not in problem")
+            .id
+    }
+
+    /// Walk problem.time_blocks for the (day_of_week, position) of the TB
+    /// with `tb_id`.
+    fn tb_day_pos(problem: &Problem, tb_id: TimeBlockId) -> (u8, u8) {
+        let tb = problem
+            .time_blocks
+            .iter()
+            .find(|tb| tb.id == tb_id)
+            .expect("tb_day_pos: tb_id not in problem");
+        (tb.day_of_week, tb.position)
+    }
+
+    /// Bundle returned by `block_move_lookups` so the call site can stay
+    /// readable. Mirrors the lookups built at the top of `run`.
+    type BlockMoveLookups<'a> = (
+        HashMap<LessonId, &'a Lesson>,
+        HashMap<TimeBlockId, &'a TimeBlock>,
+        HashMap<SubjectId, &'a Subject>,
+        HashMap<SchoolClassId, Option<RoomId>>,
+        HashMap<u8, u8>,
+        HashMap<(u8, u8), TimeBlockId>,
+        Vec<usize>,
+    );
+
+    /// Build the lookups + auxiliary maps `try_change_block_move` consumes
+    /// from a `&Problem`. Mirrors the lookups built at the top of `run`.
+    fn block_move_lookups(problem: &Problem) -> BlockMoveLookups<'_> {
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let max_position_per_day: HashMap<u8, u8> =
+            problem
+                .time_blocks
+                .iter()
+                .fold(HashMap::new(), |mut acc, tb| {
+                    acc.entry(tb.day_of_week)
+                        .and_modify(|m| *m = (*m).max(tb.position))
+                        .or_insert(tb.position);
+                    acc
+                });
+        let tb_by_day_pos: HashMap<(u8, u8), TimeBlockId> = problem
+            .time_blocks
+            .iter()
+            .filter(|tb| tb.kind == TimeBlockKind::Lesson)
+            .map(|tb| ((tb.day_of_week, tb.position), tb.id))
+            .collect();
+        let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+        (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        )
+    }
+
+    /// Doppelstunde block at `(day=0, pos=0..2)` with one class and one
+    /// teacher and one room; day 1 entirely free. Two-day schedule
+    /// (`n_days=2, slots_per_day=3`).
+    fn block_change_doppelstunde_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+    ) {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room],
+            vec![teacher],
+            vec![class],
+            subject,
+            vec![lesson],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d0_p1 = tb_at(&problem, 0, 1);
+        let placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+                teacher_id: teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d0_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p1));
+        state.locked_room.insert((class, 0, subject), (room, 2));
+        let weights = ConstraintWeights::default();
+        (problem, placements, state, weights)
+    }
+
+    /// Doppelstunde at `(day=0, pos=0..2)`; day 1 has only `pos=0` and
+    /// `pos=1` (no `pos=2`). Used by `rejects_off_day_end`: when an n=2
+    /// block anchors at `(day=1, pos=1)` it needs `pos=2` on day=1, which
+    /// is missing.
+    fn block_change_off_day_end_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+        usize,
+    ) {
+        // Build a problem where day=1 has only 2 positions (not 3). We
+        // can't easily express asymmetric day lengths via
+        // `block_move_problem`; build manually.
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+        let time_blocks = vec![
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(100)),
+                day_of_week: 0,
+                position: 0,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(101)),
+                day_of_week: 0,
+                position: 1,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(102)),
+                day_of_week: 0,
+                position: 2,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(103)),
+                day_of_week: 1,
+                position: 0,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(104)),
+                day_of_week: 1,
+                position: 1,
+                kind: TimeBlockKind::Lesson,
+            },
+        ];
+        let problem = Problem {
+            time_blocks: time_blocks.clone(),
+            teachers: vec![Teacher {
+                id: teacher,
+                max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
+            }],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: None,
+            }],
+            lessons: vec![lesson],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id: teacher,
+                subject_id: subject,
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        let tb_d0_p0 = time_blocks[0].id;
+        let tb_d0_p1 = time_blocks[1].id;
+        let placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+                teacher_id: teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d0_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p1));
+        state.locked_room.insert((class, 0, subject), (room, 2));
+        // new_tb_idx for the anchor at (day=1, pos=1) is index 4 in
+        // `time_blocks`.
+        let bad_anchor_idx = 4;
+        (
+            problem,
+            placements,
+            state,
+            ConstraintWeights::default(),
+            bad_anchor_idx,
+        )
+    }
+
+    /// Doppelstunde at `(day=0, pos=0..2)`; day 1 has a `Break` TB at
+    /// `pos=1` so an anchor at `(day=1, pos=0)` would need `pos=1` which
+    /// is not lesson-kind. `tb_by_day_pos` filters Break out so the
+    /// destination lookup misses.
+    fn block_change_break_in_window_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+        usize,
+    ) {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+        let time_blocks = vec![
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(100)),
+                day_of_week: 0,
+                position: 0,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(101)),
+                day_of_week: 0,
+                position: 1,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(102)),
+                day_of_week: 0,
+                position: 2,
+                kind: TimeBlockKind::Lesson,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(103)),
+                day_of_week: 1,
+                position: 0,
+                kind: TimeBlockKind::Lesson,
+            },
+            // Break slot at (day=1, pos=1).
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(104)),
+                day_of_week: 1,
+                position: 1,
+                kind: TimeBlockKind::Break,
+            },
+            TimeBlock {
+                id: TimeBlockId(lahc_uuid(105)),
+                day_of_week: 1,
+                position: 2,
+                kind: TimeBlockKind::Lesson,
+            },
+        ];
+        let problem = Problem {
+            time_blocks: time_blocks.clone(),
+            teachers: vec![Teacher {
+                id: teacher,
+                max_hours_per_week: 40,
+                reserve_hours_per_week: 0,
+            }],
+            rooms: vec![Room { id: room }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class,
+                home_room_id: None,
+                max_lessons_per_day: None,
+                class_teacher_id: None,
+            }],
+            lessons: vec![lesson],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id: teacher,
+                subject_id: subject,
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        let tb_d0_p0 = time_blocks[0].id;
+        let tb_d0_p1 = time_blocks[1].id;
+        let placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+                teacher_id: teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d0_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p1));
+        state.locked_room.insert((class, 0, subject), (room, 2));
+        // Anchor at (day=1, pos=0): the index in time_blocks is 3. The
+        // window needs pos=0+pos=1; pos=1 on day=1 is a Break TB.
+        let bad_anchor_idx = 3;
+        (
+            problem,
+            placements,
+            state,
+            ConstraintWeights::default(),
+            bad_anchor_idx,
+        )
+    }
+
+    /// Doppelstunde at `(day=0, pos=0..2)` using `room_a`; on day=1 the
+    /// same `room_a` is booked at `(day=1, pos=1)` by an unrelated
+    /// placement. An alternate `room_b` is fully free on day=1. The
+    /// fallback must walk `room_order` and pick `room_b`.
+    fn block_change_alternate_room_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+    ) {
+        let class = SchoolClassId(lahc_uuid(50));
+        let other_class = SchoolClassId(lahc_uuid(51));
+        let teacher = TeacherId(lahc_uuid(20));
+        let other_teacher = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let other_lesson_id = LessonId(lahc_uuid(61));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+        let other_lesson = Lesson {
+            id: other_lesson_id,
+            school_class_ids: vec![other_class],
+            subject_id: subject,
+            teacher_candidates: vec![other_teacher],
+            teacher_pin: Some(other_teacher),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room_a, room_b],
+            vec![teacher, other_teacher],
+            vec![class, other_class],
+            subject,
+            vec![lesson, other_lesson],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d0_p1 = tb_at(&problem, 0, 1);
+        let tb_d1_p1 = tb_at(&problem, 1, 1);
+        let placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p1,
+                room_id: room_a,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id: other_lesson_id,
+                time_block_id: tb_d1_p1,
+                room_id: room_a,
+                teacher_id: other_teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d0_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p1));
+        state.locked_room.insert((class, 0, subject), (room_a, 2));
+        // Other class's blocking placement on day=1, pos=1, room_a.
+        state
+            .class_positions
+            .insert((other_class, 1), vec_part(&[1]));
+        state
+            .teacher_positions
+            .insert((other_teacher, 1), vec_part(&[1]));
+        state.used_teacher.insert((other_teacher, tb_d1_p1));
+        state.used_class.insert((other_class, tb_d1_p1));
+        state.used_room.insert((room_a, tb_d1_p1));
+        state
+            .locked_room
+            .insert((other_class, 1, subject), (room_a, 1));
+        let weights = ConstraintWeights::default();
+        (problem, placements, state, weights)
+    }
+
+    /// Doppelstunde at `(day=0, pos=0..2)`; day 0 has positions 0,1,2; an
+    /// anchor at `(day=0, pos=1)` would lay the block at pos=1+pos=2
+    /// (partial overlap with source at pos=1). The subtract-source
+    /// overlay must treat pos=1 (source TB) as free for the dest check.
+    fn block_change_partial_overlap_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+    ) {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 2,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            1,
+            3,
+            vec![room],
+            vec![teacher],
+            vec![class],
+            subject,
+            vec![lesson],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d0_p1 = tb_at(&problem, 0, 1);
+        let placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p1,
+                room_id: room,
+                teacher_id: teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0, 1]));
+        state
+            .teacher_positions
+            .insert((teacher, 0), vec_part(&[0, 1]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d0_p1));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p1));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p1));
+        state.locked_room.insert((class, 0, subject), (room, 2));
+        let weights = ConstraintWeights::default();
+        (problem, placements, state, weights)
+    }
+
+    /// Single-hour lesson at `(day=0, pos=0)` and a free slot at
+    /// `(day=0, pos=1)`. n=1 path through `try_change_block_move` must
+    /// behave identically to the existing `try_change_move` delta path.
+    fn block_change_n1_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+    ) {
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            1,
+            3,
+            vec![room],
+            vec![teacher],
+            vec![class],
+            subject,
+            vec![lesson],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let placements = vec![Placement {
+            lesson_id,
+            time_block_id: tb_d0_p0,
+            room_id: room,
+            teacher_id: teacher,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class, 0), vec_part(&[0]));
+        state.teacher_positions.insert((teacher, 0), vec_part(&[0]));
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_room.insert((room, tb_d0_p0));
+        state.locked_room.insert((class, 0, subject), (room, 1));
+        let weights = ConstraintWeights::default();
+        (problem, placements, state, weights)
+    }
+
+    /// Two unrelated single-hour lessons: lesson A at `(day=0, pos=0)`,
+    /// lesson B at `(day=1, pos=0)`. Different classes, teachers, rooms.
+    /// Swapping their TBs is feasible.
+    fn swap_two_unrelated_fixture() -> (
+        Problem,
+        Vec<Placement>,
+        crate::solve::GreedyState,
+        ConstraintWeights,
+    ) {
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let lesson_b_obj = Lesson {
+            id: lesson_b,
+            school_class_ids: vec![class_b],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_b],
+            teacher_pin: Some(teacher_b),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room_a, room_b],
+            vec![teacher_a, teacher_b],
+            vec![class_a, class_b],
+            subject,
+            vec![lesson_a_obj, lesson_b_obj],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d1_p0 = tb_at(&problem, 1, 0);
+        let placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d1_p0,
+                room_id: room_b,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.class_positions.insert((class_a, 0), vec_part(&[0]));
+        state.class_positions.insert((class_b, 1), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher_a, 0), vec_part(&[0]));
+        state
+            .teacher_positions
+            .insert((teacher_b, 1), vec_part(&[0]));
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d1_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d1_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d1_p0));
+        state.locked_room.insert((class_a, 0, subject), (room_a, 1));
+        state.locked_room.insert((class_b, 1, subject), (room_b, 1));
+        let weights = ConstraintWeights::default();
+        (problem, placements, state, weights)
+    }
+
+    // -- try_change_block_move unit tests --
+
+    #[test]
+    fn try_change_block_move_moves_doppelstunde_to_free_day() {
+        let (problem, mut placements, mut state, weights) = block_change_doppelstunde_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        // Anchor at (day=1, pos=0). new_tb_idx for this is the position in
+        // problem.time_blocks.
+        let target_tb = tb_at(&problem, 1, 0);
+        let new_tb_idx = problem
+            .time_blocks
+            .iter()
+            .position(|tb| tb.id == target_tb)
+            .unwrap();
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            new_tb_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(accepted, "block-change to free day must accept");
+        let lesson_id = problem.lessons[0].id;
+        let block_placements: Vec<&Placement> = placements
+            .iter()
+            .filter(|p| p.lesson_id == lesson_id)
+            .collect();
+        assert_eq!(block_placements.len(), 2);
+        let positions: Vec<(u8, u8)> = block_placements
+            .iter()
+            .map(|p| tb_day_pos(&problem, p.time_block_id))
+            .collect();
+        for (day, _) in &positions {
+            assert_eq!(*day, 1, "block must land entirely on day 1");
+        }
+        let mut pos_only: Vec<u8> = positions.iter().map(|(_, p)| *p).collect();
+        pos_only.sort_unstable();
+        assert_eq!(pos_only, vec![0, 1]);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_change_block_move_rejects_off_day_end() {
+        let (problem, mut placements, mut state, weights, bad_anchor_idx) =
+            block_change_off_day_end_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let canonical_before = state.canonical_score;
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            bad_anchor_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(!accepted, "off-day-end block move must reject");
+        assert_eq!(placements, placements_before);
+        assert_eq!(state.canonical_score, canonical_before);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_change_block_move_rejects_break_in_window() {
+        let (problem, mut placements, mut state, weights, bad_anchor_idx) =
+            block_change_break_in_window_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let canonical_before = state.canonical_score;
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            bad_anchor_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(!accepted, "break-in-window block move must reject");
+        assert_eq!(placements, placements_before);
+        assert_eq!(state.canonical_score, canonical_before);
+    }
+
+    #[test]
+    fn try_change_block_move_falls_back_to_alternate_room() {
+        let (problem, mut placements, mut state, weights) = block_change_alternate_room_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        // Anchor at (day=1, pos=0): block lays at d1p0+d1p1. room_a is
+        // booked at d1p1 by the other_lesson, so the room_a path is
+        // infeasible; room_b must be chosen.
+        let target_tb = tb_at(&problem, 1, 0);
+        let new_tb_idx = problem
+            .time_blocks
+            .iter()
+            .position(|tb| tb.id == target_tb)
+            .unwrap();
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            new_tb_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(accepted, "block-change must accept with room fallback");
+        let lesson_id = problem.lessons[0].id;
+        let block_placements: Vec<&Placement> = placements
+            .iter()
+            .filter(|p| p.lesson_id == lesson_id)
+            .collect();
+        assert_eq!(block_placements.len(), 2);
+        // Both placements must share the fallback room (room_b).
+        let room_b = RoomId(lahc_uuid(31));
+        for p in &block_placements {
+            assert_eq!(p.room_id, room_b, "fallback room must be room_b");
+        }
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_change_block_move_same_window_rejected() {
+        let (problem, mut placements, mut state, weights) = block_change_doppelstunde_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        // Anchor at the source window itself: (day=0, pos=0).
+        let target_tb = tb_at(&problem, 0, 0);
+        let new_tb_idx = problem
+            .time_blocks
+            .iter()
+            .position(|tb| tb.id == target_tb)
+            .unwrap();
+        let placements_before = placements.clone();
+        let canonical_before = state.canonical_score;
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            new_tb_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(!accepted, "same-window block move must reject as no-op");
+        assert_eq!(placements, placements_before);
+        assert_eq!(state.canonical_score, canonical_before);
+    }
+
+    #[test]
+    fn try_change_block_move_partial_overlap_accepted() {
+        let (problem, mut placements, mut state, weights) = block_change_partial_overlap_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        // Anchor at (day=0, pos=1): source d0p0+d0p1, dest d0p1+d0p2.
+        // Overlap at pos=1; subtract-source overlay must allow this.
+        let target_tb = tb_at(&problem, 0, 1);
+        let new_tb_idx = problem
+            .time_blocks
+            .iter()
+            .position(|tb| tb.id == target_tb)
+            .unwrap();
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            new_tb_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(accepted, "partial-overlap block move must accept");
+        let lesson_id = problem.lessons[0].id;
+        let block_placements: Vec<&Placement> = placements
+            .iter()
+            .filter(|p| p.lesson_id == lesson_id)
+            .collect();
+        let mut positions: Vec<u8> = block_placements
+            .iter()
+            .map(|p| tb_day_pos(&problem, p.time_block_id).1)
+            .collect();
+        positions.sort_unstable();
+        assert_eq!(positions, vec![1, 2], "block must lay at pos=1+pos=2");
+    }
+
+    #[test]
+    fn try_change_block_move_n_equals_1_matches_existing_change() {
+        // The n=1 branch must delegate to the existing delta-score path.
+        // After accepting a move from (day=0, pos=0) to (day=0, pos=1):
+        // - placement is at the new TB
+        // - state.canonical_score and state.search_score_slice are
+        //   consistent with the existing delta path's writes.
+        let (problem, mut placements, mut state, weights) = block_change_n1_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let (
+            lesson_lookup,
+            tb_lookup,
+            subject_lookup,
+            home_room_lookup,
+            max_position_per_day,
+            tb_by_day_pos,
+            room_order,
+        ) = block_move_lookups(&problem);
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let target_tb = tb_at(&problem, 0, 1);
+        let new_tb_idx = problem
+            .time_blocks
+            .iter()
+            .position(|tb| tb.id == target_tb)
+            .unwrap();
+        let accepted = try_change_block_move(
+            &problem,
+            &idx,
+            0,
+            new_tb_idx,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &max_position_per_day,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+            &tb_by_day_pos,
+            &room_order,
+        );
+        assert!(
+            accepted,
+            "n=1 block-change must accept (delegates to delta path)"
+        );
+        assert_eq!(placements[0].time_block_id, target_tb);
+    }
+
+    // -- try_swap_move unit tests --
+
+    #[test]
+    fn try_swap_move_swaps_two_unrelated_cells() {
+        let (problem, mut placements, mut state, weights) = swap_two_unrelated_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let tb_a = placements[0].time_block_id;
+        let tb_b = placements[1].time_block_id;
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(accepted, "two-unrelated-cell swap must accept");
+        assert_eq!(placements[0].time_block_id, tb_b);
+        assert_eq!(placements[1].time_block_id, tb_a);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_swap_move_rejects_same_lesson() {
+        // Two placements that share the same lesson_id (e.g., a
+        // hours_per_week=2 single-block-size lesson with two placements).
+        let class = SchoolClassId(lahc_uuid(50));
+        let teacher = TeacherId(lahc_uuid(20));
+        let subject = SubjectId(lahc_uuid(40));
+        let room = RoomId(lahc_uuid(30));
+        let lesson_id = LessonId(lahc_uuid(60));
+        let lesson = Lesson {
+            id: lesson_id,
+            school_class_ids: vec![class],
+            subject_id: subject,
+            teacher_candidates: vec![teacher],
+            teacher_pin: Some(teacher),
+            hours_per_week: 2,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room],
+            vec![teacher],
+            vec![class],
+            subject,
+            vec![lesson],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d1_p0 = tb_at(&problem, 1, 0);
+        let mut placements = vec![
+            Placement {
+                lesson_id,
+                time_block_id: tb_d0_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+            Placement {
+                lesson_id,
+                time_block_id: tb_d1_p0,
+                room_id: room,
+                teacher_id: teacher,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher, tb_d0_p0));
+        state.used_teacher.insert((teacher, tb_d1_p0));
+        state.used_class.insert((class, tb_d0_p0));
+        state.used_class.insert((class, tb_d1_p0));
+        state.used_room.insert((room, tb_d0_p0));
+        state.used_room.insert((room, tb_d1_p0));
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let weights = ConstraintWeights::default();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(!accepted, "same-lesson swap must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_swap_move_rejects_pinned_partner() {
+        let (problem, mut placements, mut state, weights) = swap_two_unrelated_fixture();
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        // Pin lesson A.
+        let mut pinned: HashSet<LessonId> = HashSet::new();
+        pinned.insert(problem.lessons[0].id);
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(!accepted, "pinned-partner swap must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_swap_move_rejects_group_partner() {
+        // Lesson A is a member of a lesson group; swap must reject.
+        use crate::ids::LessonGroupId;
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let group_id = LessonGroupId(lahc_uuid(70));
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: Some(group_id),
+        };
+        let lesson_b_obj = Lesson {
+            id: lesson_b,
+            school_class_ids: vec![class_b],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_b],
+            teacher_pin: Some(teacher_b),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room_a, room_b],
+            vec![teacher_a, teacher_b],
+            vec![class_a, class_b],
+            subject,
+            vec![lesson_a_obj, lesson_b_obj],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d1_p0 = tb_at(&problem, 1, 0);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d1_p0,
+                room_id: room_b,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d1_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d1_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d1_p0));
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let weights = ConstraintWeights::default();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(!accepted, "group-member swap must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_swap_move_rejects_class_double_book() {
+        // Lesson A at (d0p0, class_a, room_a); lesson B at (d1p0, class_a,
+        // room_b) (same class!); a third placement C at (d1p0, class_a)
+        // already books class_a for the destination TB of A. Post-swap, A
+        // would land at d1p0 alongside C, both in class_a -> reject.
+        //
+        // Build manually because we need a third unrelated placement.
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_c = SchoolClassId(lahc_uuid(52));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let teacher_c = TeacherId(lahc_uuid(22));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let room_c = RoomId(lahc_uuid(32));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let lesson_c = LessonId(lahc_uuid(62));
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let lesson_b_obj = Lesson {
+            id: lesson_b,
+            school_class_ids: vec![class_c],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_b],
+            teacher_pin: Some(teacher_b),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        // Lesson C: class_a, day=1, pos=0. Conflicts with A's swap dest.
+        let lesson_c_obj = Lesson {
+            id: lesson_c,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_c],
+            teacher_pin: Some(teacher_c),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let problem = block_move_problem(
+            2,
+            3,
+            vec![room_a, room_b, room_c],
+            vec![teacher_a, teacher_b, teacher_c],
+            vec![class_a, class_c],
+            subject,
+            vec![lesson_a_obj, lesson_b_obj, lesson_c_obj],
+        );
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d1_p0 = tb_at(&problem, 1, 0);
+        let tb_d1_p1 = tb_at(&problem, 1, 1);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d1_p0,
+                room_id: room_b,
+                teacher_id: teacher_b,
+            },
+            // The blocking class_a placement at tb_d1_p0 would force
+            // double-booking, but we instead place at tb_d1_p1 to keep
+            // pre-swap state legal; lesson C is at the swap destination
+            // for A (tb_d1_p0). Actually wait: we need C at tb_d1_p0,
+            // not tb_d1_p1. Let's reposition.
+            Placement {
+                lesson_id: lesson_c,
+                time_block_id: tb_d1_p1,
+                room_id: room_c,
+                teacher_id: teacher_c,
+            },
+        ];
+        // Pre-state: B is at d1p0 (with class_c). If we swap A and B, A
+        // lands at d1p0; class_a has no other placement there until we
+        // move C. To force a double-book, put another placement of
+        // class_a at d1p0 via lesson_c. We can't do that here without
+        // breaking pre-state legality. Instead, the cleanest construction
+        // is: leave placements as above, but seed state such that
+        // (class_a, tb_d1_p0) is already used by yet another row that
+        // shares no row in `placements`. That's awkward.
+        //
+        // Simpler: keep placements as above and seed state.used_class to
+        // include (class_a, tb_d1_p0) via a phantom row. The real check
+        // only consults state.used_class; the discrepancy is fine for a
+        // RED test against the stub.
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d1_p0));
+        state.used_teacher.insert((teacher_c, tb_d1_p1));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_c, tb_d1_p0));
+        state.used_class.insert((class_a, tb_d1_p1));
+        // Phantom: simulate a third lesson putting class_a at tb_d1_p0
+        // post-swap.
+        state.used_class.insert((class_a, tb_d1_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d1_p0));
+        state.used_room.insert((room_c, tb_d1_p1));
+        let _ = tb_d1_p1;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let weights = ConstraintWeights::default();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        let placements_before = placements.clone();
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(!accepted, "class double-book swap must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
+    fn try_swap_move_rejects_daily_cap_breach() {
+        // Lesson A at (d0p0); lesson B at (d1p0). class_a has
+        // max_lessons_per_day=1 AND already has another lesson at
+        // (d1p1), so the swap would push d1's count to 2 for class_a.
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let teacher_c = TeacherId(lahc_uuid(22));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let room_c = RoomId(lahc_uuid(32));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let lesson_c = LessonId(lahc_uuid(62));
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let lesson_b_obj = Lesson {
+            id: lesson_b,
+            school_class_ids: vec![class_b],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_b],
+            teacher_pin: Some(teacher_b),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let lesson_c_obj = Lesson {
+            id: lesson_c,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_c],
+            teacher_pin: Some(teacher_c),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: None,
+        };
+        let mut problem = block_move_problem(
+            2,
+            3,
+            vec![room_a, room_b, room_c],
+            vec![teacher_a, teacher_b, teacher_c],
+            vec![class_a, class_b],
+            subject,
+            vec![lesson_a_obj, lesson_b_obj, lesson_c_obj],
+        );
+        // Cap class_a to 1 lesson per day.
+        problem.school_classes[0].max_lessons_per_day = Some(1);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d1_p0 = tb_at(&problem, 1, 0);
+        let tb_d1_p1 = tb_at(&problem, 1, 1);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d1_p0,
+                room_id: room_b,
+                teacher_id: teacher_b,
+            },
+            Placement {
+                lesson_id: lesson_c,
+                time_block_id: tb_d1_p1,
+                room_id: room_c,
+                teacher_id: teacher_c,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d1_p0));
+        state.used_teacher.insert((teacher_c, tb_d1_p1));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d1_p0));
+        state.used_class.insert((class_a, tb_d1_p1));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d1_p0));
+        state.used_room.insert((room_c, tb_d1_p1));
+        state.lessons_by_class_day.insert((class_a, 0), 1);
+        state.lessons_by_class_day.insert((class_b, 1), 1);
+        state.lessons_by_class_day.insert((class_a, 1), 1);
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let weights = ConstraintWeights::default();
+        let lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let mut class_max_lessons_per_day: HashMap<SchoolClassId, u8> = HashMap::new();
+        class_max_lessons_per_day.insert(class_a, 1);
+        let placements_before = placements.clone();
+        let accepted = try_swap_move(
+            &problem,
+            &idx,
+            0,
+            1,
+            &lesson_lookup,
+            &tb_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &class_max_lessons_per_day,
+            &lahc_list,
+            0,
+        );
+        assert!(!accepted, "daily-cap-breach swap must reject");
+        assert_eq!(placements, placements_before);
     }
 }

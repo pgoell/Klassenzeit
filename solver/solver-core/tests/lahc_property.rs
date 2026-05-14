@@ -986,3 +986,138 @@ fn lahc_canonical_score_matches_score_solution_under_widened_per_class_axes() {
         "post-solve soft_score must match score_solution under widened axes",
     );
 }
+
+// ---------------------------------------------------------------------
+// RED property tests for block-aware Change + cell-cell Swap moves.
+//
+// These properties become load-bearing once Task 5 wires the new helpers
+// into the LAHC `run` loop. Until then they pass vacuously (FFD emits
+// contiguous blocks and LAHC's current Change skips them; Swap is never
+// invoked so per-class / per-teacher counts are trivially preserved).
+// Authored ahead of the move so a regression that fragments a block or
+// drops a placement during Swap fires on the next test run.
+// ---------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 32,
+        .. ProptestConfig::default()
+    })]
+
+    #[test]
+    fn lahc_block_change_preserves_block_contiguity(p in lahc_small_problem()) {
+        let cfg = SolveConfig {
+            max_iterations: Some(200),
+            seed: 17,
+            weights: lahc_weights(),
+            deadline: Some(Duration::from_secs(60)),
+            ..SolveConfig::default()
+        };
+        let solution = solve_with_config(&p, &cfg).expect("solve");
+        // Group placements by lesson_id; for each lesson with
+        // preferred_block_size > 1, every per-day group must be contiguous.
+        let tb_lookup: HashMap<_, _> =
+            p.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        for lesson in &p.lessons {
+            if lesson.preferred_block_size <= 1 {
+                continue;
+            }
+            let lesson_placements: Vec<_> = solution
+                .placements
+                .iter()
+                .filter(|pl| pl.lesson_id == lesson.id)
+                .collect();
+            let mut by_day: HashMap<u8, Vec<u8>> = HashMap::new();
+            for pl in &lesson_placements {
+                let tb = tb_lookup[&pl.time_block_id];
+                by_day.entry(tb.day_of_week).or_default().push(tb.position);
+            }
+            for (_, mut positions) in by_day {
+                positions.sort_unstable();
+                for w in positions.windows(2) {
+                    prop_assert_eq!(
+                        w[1] - w[0],
+                        1,
+                        "block lesson positions not contiguous on day"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lahc_swap_preserves_placement_count_per_class(p in lahc_small_problem()) {
+        // Baseline: solve with max_iterations = 0 (greedy only, no LAHC iters).
+        let baseline_cfg = SolveConfig {
+            max_iterations: Some(0),
+            seed: 23,
+            weights: lahc_weights(),
+            deadline: Some(Duration::from_secs(60)),
+            ..SolveConfig::default()
+        };
+        let baseline = solve_with_config(&p, &baseline_cfg).expect("baseline solve");
+        let lahc_cfg = SolveConfig {
+            max_iterations: Some(200),
+            seed: 23,
+            weights: lahc_weights(),
+            deadline: Some(Duration::from_secs(60)),
+            ..SolveConfig::default()
+        };
+        let full = solve_with_config(&p, &lahc_cfg).expect("full solve");
+        let lesson_classes: HashMap<_, _> = p
+            .lessons
+            .iter()
+            .map(|l| (l.id, l.school_class_ids.clone()))
+            .collect();
+        let mut count_baseline: HashMap<SchoolClassId, usize> = HashMap::new();
+        let mut count_full: HashMap<SchoolClassId, usize> = HashMap::new();
+        for pl in &baseline.placements {
+            for cid in &lesson_classes[&pl.lesson_id] {
+                *count_baseline.entry(*cid).or_insert(0) += 1;
+            }
+        }
+        for pl in &full.placements {
+            for cid in &lesson_classes[&pl.lesson_id] {
+                *count_full.entry(*cid).or_insert(0) += 1;
+            }
+        }
+        prop_assert_eq!(
+            count_baseline,
+            count_full,
+            "per-class placement count must be invariant across LAHC"
+        );
+    }
+
+    #[test]
+    fn lahc_swap_preserves_placement_count_per_teacher(p in lahc_small_problem()) {
+        let baseline_cfg = SolveConfig {
+            max_iterations: Some(0),
+            seed: 29,
+            weights: lahc_weights(),
+            deadline: Some(Duration::from_secs(60)),
+            ..SolveConfig::default()
+        };
+        let baseline = solve_with_config(&p, &baseline_cfg).expect("baseline solve");
+        let lahc_cfg = SolveConfig {
+            max_iterations: Some(200),
+            seed: 29,
+            weights: lahc_weights(),
+            deadline: Some(Duration::from_secs(60)),
+            ..SolveConfig::default()
+        };
+        let full = solve_with_config(&p, &lahc_cfg).expect("full solve");
+        let mut count_baseline: HashMap<TeacherId, usize> = HashMap::new();
+        let mut count_full: HashMap<TeacherId, usize> = HashMap::new();
+        for pl in &baseline.placements {
+            *count_baseline.entry(pl.teacher_id).or_insert(0) += 1;
+        }
+        for pl in &full.placements {
+            *count_full.entry(pl.teacher_id).or_insert(0) += 1;
+        }
+        prop_assert_eq!(
+            count_baseline,
+            count_full,
+            "per-teacher placement count must be invariant across LAHC"
+        );
+    }
+}
