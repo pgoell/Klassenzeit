@@ -118,6 +118,7 @@ async def test_schedule_all_response_carries_quality_report(
         "weighted_score",
         "worst_per_class_spread",
         "worst_per_class_interior_gaps",
+        "soft_pin_misses",
     }
     assert expected_fields == set(qr.keys()), (
         f"quality_report fields drift from solver-core: "

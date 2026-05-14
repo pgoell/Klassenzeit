@@ -688,6 +688,10 @@ async def collect_pinned_placements(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # Sibling-class placements are immovable on a per-class re-solve
+            # regardless of the row's user-facing pin_kind; emit them as hard
+            # so the solver treats them as fixed.
+            "kind": PinKind.HARD.value,
         }
         for row in rows
     ]
@@ -722,6 +726,8 @@ async def collect_own_class_pins(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # pin_kind is not None by the WHERE filter above.
+            "kind": row.pin_kind.value if row.pin_kind is not None else PinKind.HARD.value,
         }
         for row in rows
     ]
@@ -746,6 +752,8 @@ async def collect_all_pins(
             "time_block_id": str(row.time_block_id),
             "room_id": str(row.room_id),
             "teacher_id": str(row.teacher_id),
+            # pin_kind is not None by the WHERE filter above.
+            "kind": row.pin_kind.value if row.pin_kind is not None else PinKind.HARD.value,
         }
         for row in rows
     ]
