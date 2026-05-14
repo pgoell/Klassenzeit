@@ -1271,29 +1271,601 @@ fn try_change_block_move(
     false
 }
 
-/// Cell-with-cell swap of two n=1 placements. Stub returns `false` until
-/// Task 4 lands the real body. Gated on `#[cfg(test)]` while the only
-/// caller is the test module; Task 5 wires `run` to the helper and removes
-/// the gate.
+/// Cell-with-cell swap of two n=1 placements. Builds a virtual
+/// "subtract the two swap participants" overlay over `state.used_*` for
+/// the feasibility check, then snapshot-apply-recompute-rollback through
+/// `score_solution` + `slice_recompute` on the LAHC accept criterion.
+/// Teachers and rooms stay attached to their lessons; only `time_block_id`
+/// is rewritten on apply.
 ///
-/// See spec `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
+/// Gated on `#[cfg(test)]` while the only caller is the test module; Task 5
+/// wires `run` to the helper and removes the gate. See spec
+/// `/tmp/kz-autopilot/2026-05-14-lahc-block-change-swap-moves-design.md`.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)] // Reason: internal helper, parameters mirror try_change_move
 fn try_swap_move(
-    _problem: &Problem,
-    _idx: &Indexed,
-    _placement_idx: usize,
-    _partner_idx: usize,
-    _lesson_lookup: &HashMap<LessonId, &Lesson>,
-    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
-    _weights: &ConstraintWeights,
-    _placements: &mut [Placement],
-    _state: &mut crate::solve::GreedyState,
-    _pinned: &HashSet<LessonId>,
-    _class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
-    _lahc_list: &[u32],
-    _iter: u64,
+    problem: &Problem,
+    idx: &Indexed,
+    placement_idx: usize,
+    partner_idx: usize,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    weights: &ConstraintWeights,
+    placements: &mut [Placement],
+    state: &mut crate::solve::GreedyState,
+    pinned: &HashSet<LessonId>,
+    class_max_lessons_per_day: &HashMap<SchoolClassId, u8>,
+    lahc_list: &[u32],
+    iter: u64,
 ) -> bool {
+    // Early reject (RNG-budget-safe; the three draws upstream are already
+    // consumed by the call site in Task 5).
+    if placement_idx == partner_idx {
+        return false;
+    }
+    if placement_idx >= placements.len() || partner_idx >= placements.len() {
+        return false;
+    }
+    let p_a = placements[placement_idx].clone();
+    let p_b = placements[partner_idx].clone();
+    if p_a.lesson_id == p_b.lesson_id {
+        return false;
+    }
+    let lesson_a = lesson_lookup[&p_a.lesson_id];
+    let lesson_b = lesson_lookup[&p_b.lesson_id];
+    // Block-block (or block-cell) swap is out of scope; defer to a P2
+    // follow-up per the spec.
+    if lesson_a.preferred_block_size > 1 || lesson_b.preferred_block_size > 1 {
+        return false;
+    }
+    if lesson_a.lesson_group_id.is_some() || lesson_b.lesson_group_id.is_some() {
+        return false;
+    }
+    if pinned.contains(&p_a.lesson_id) || pinned.contains(&p_b.lesson_id) {
+        return false;
+    }
+
+    let tb_a = tb_lookup[&p_a.time_block_id].clone();
+    let tb_b = tb_lookup[&p_b.time_block_id].clone();
+    // Both destination TBs are Lesson-kind by placement invariant; skip the
+    // kind check.
+    let teacher_a = p_a.teacher_id;
+    let teacher_b = p_b.teacher_id;
+    let room_a = p_a.room_id;
+    let room_b = p_b.room_id;
+    let class_ids_a: &[SchoolClassId] = &lesson_a.school_class_ids;
+    let class_ids_b: &[SchoolClassId] = &lesson_b.school_class_ids;
+
+    // Feasibility via subtract-source overlay. The two swap rows
+    // (teacher_a@tb_a, teacher_b@tb_b) are removed before the conflict
+    // check. For teacher_a landing at tb_b: the only entry the overlay
+    // erases at tb_b is (teacher_b, tb_b); so the conflict only goes
+    // away iff teacher_a == teacher_b. Symmetric at tb_a.
+    let teacher_a_at_b_conflict =
+        state.used_teacher.contains(&(teacher_a, tb_b.id)) && teacher_a != teacher_b;
+    let teacher_b_at_a_conflict =
+        state.used_teacher.contains(&(teacher_b, tb_a.id)) && teacher_a != teacher_b;
+    if teacher_a_at_b_conflict || teacher_b_at_a_conflict {
+        return false;
+    }
+    if idx.teacher_blocked(teacher_a, tb_b.id) || idx.teacher_blocked(teacher_b, tb_a.id) {
+        return false;
+    }
+
+    // Class double-booking: for each class in lesson_A.school_class_ids,
+    // check (class, tb_b) ignoring the swap participant (the same class's
+    // own entry at tb_b iff that class is also in lesson_B's classes).
+    for class in class_ids_a {
+        if state.used_class.contains(&(*class, tb_b.id)) && !class_ids_b.contains(class) {
+            return false;
+        }
+    }
+    for class in class_ids_b {
+        if state.used_class.contains(&(*class, tb_a.id)) && !class_ids_a.contains(class) {
+            return false;
+        }
+    }
+
+    // Room double-booking: room_A at tb_B is OK iff (room_A == room_B) or
+    // the entry at (room_A, tb_b) is the one we're removing (i.e.
+    // room_B == room_A). Same shape symmetrically.
+    if idx.room_blocked(room_a, tb_b.id) || idx.room_blocked(room_b, tb_a.id) {
+        return false;
+    }
+    if state.used_room.contains(&(room_a, tb_b.id)) && room_a != room_b {
+        return false;
+    }
+    if state.used_room.contains(&(room_b, tb_a.id)) && room_a != room_b {
+        return false;
+    }
+
+    // Daily caps. Same-day swap leaves all per-day counts unchanged; only
+    // cross-day swap can breach. For each (class, day) touched, compute the
+    // delta with both participants' contributions (deltas partially cancel
+    // when the two lessons share a class).
+    if tb_a.day_of_week != tb_b.day_of_week {
+        let subject_cap_a = problem
+            .subjects
+            .iter()
+            .find(|s| s.id == lesson_a.subject_id)
+            .map(|s| s.max_hours_per_day)
+            .unwrap_or(u8::MAX);
+        let subject_cap_b = problem
+            .subjects
+            .iter()
+            .find(|s| s.id == lesson_b.subject_id)
+            .map(|s| s.max_hours_per_day)
+            .unwrap_or(u8::MAX);
+        // Compute per-(class, day) lessons-count delta from each participant.
+        let mut lessons_delta: HashMap<(SchoolClassId, u8), i32> = HashMap::new();
+        for class in class_ids_a {
+            *lessons_delta.entry((*class, tb_a.day_of_week)).or_insert(0) -= 1;
+            *lessons_delta.entry((*class, tb_b.day_of_week)).or_insert(0) += 1;
+        }
+        for class in class_ids_b {
+            *lessons_delta.entry((*class, tb_b.day_of_week)).or_insert(0) -= 1;
+            *lessons_delta.entry((*class, tb_a.day_of_week)).or_insert(0) += 1;
+        }
+        for ((class, day), delta) in &lessons_delta {
+            if *delta <= 0 {
+                continue;
+            }
+            let cur = state
+                .lessons_by_class_day
+                .get(&(*class, *day))
+                .copied()
+                .unwrap_or(0) as i32;
+            if let Some(cap) = class_max_lessons_per_day.get(class).copied() {
+                if cur + delta > cap as i32 {
+                    return false;
+                }
+            }
+        }
+        // Per-subject-per-class-day cap. Each (class, day, subject) is
+        // distinct between A and B because the participants have distinct
+        // subjects in the general case, but we also handle the shared-class
+        // shared-subject overlap (deltas cancel).
+        let mut hours_delta: HashMap<(SchoolClassId, u8, SubjectId), i32> = HashMap::new();
+        for class in class_ids_a {
+            *hours_delta
+                .entry((*class, tb_a.day_of_week, lesson_a.subject_id))
+                .or_insert(0) -= 1;
+            *hours_delta
+                .entry((*class, tb_b.day_of_week, lesson_a.subject_id))
+                .or_insert(0) += 1;
+        }
+        for class in class_ids_b {
+            *hours_delta
+                .entry((*class, tb_b.day_of_week, lesson_b.subject_id))
+                .or_insert(0) -= 1;
+            *hours_delta
+                .entry((*class, tb_a.day_of_week, lesson_b.subject_id))
+                .or_insert(0) += 1;
+        }
+        for ((class, day, subject), delta) in &hours_delta {
+            if *delta <= 0 {
+                continue;
+            }
+            let cur = state
+                .subject_hours_by_class_day
+                .get(&(*class, *day, *subject))
+                .copied()
+                .unwrap_or(0) as i32;
+            let cap = if *subject == lesson_a.subject_id {
+                subject_cap_a
+            } else {
+                subject_cap_b
+            };
+            if cur + delta > cap as i32 {
+                return false;
+            }
+        }
+    }
+
+    // Snapshot the rows + state-map keys the apply step touches, then
+    // rewrite placements + state in place.
+    let placements_snapshot: [Placement; 2] = [p_a.clone(), p_b.clone()];
+    // class_positions / teacher_positions touched (class, day) and
+    // (teacher, day) keys: the two days, the union of A's + B's classes,
+    // and the two teachers.
+    let touched_days: Vec<u8> = if tb_a.day_of_week == tb_b.day_of_week {
+        vec![tb_a.day_of_week]
+    } else {
+        vec![tb_a.day_of_week, tb_b.day_of_week]
+    };
+    let mut all_classes: Vec<SchoolClassId> = class_ids_a.to_vec();
+    for c in class_ids_b {
+        if !all_classes.contains(c) {
+            all_classes.push(*c);
+        }
+    }
+    let touched_teachers: Vec<TeacherId> = if teacher_a == teacher_b {
+        vec![teacher_a]
+    } else {
+        vec![teacher_a, teacher_b]
+    };
+    let touched_rooms: Vec<RoomId> = if room_a == room_b {
+        vec![room_a]
+    } else {
+        vec![room_a, room_b]
+    };
+    let touched_subjects: Vec<SubjectId> = if lesson_a.subject_id == lesson_b.subject_id {
+        vec![lesson_a.subject_id]
+    } else {
+        vec![lesson_a.subject_id, lesson_b.subject_id]
+    };
+
+    let class_positions_snapshot: HashMap<(SchoolClassId, u8), Vec<u8>> = {
+        let mut m: HashMap<(SchoolClassId, u8), Vec<u8>> = HashMap::new();
+        for class in &all_classes {
+            for day in &touched_days {
+                if let Some(v) = state.class_positions.get(&(*class, *day)) {
+                    m.insert((*class, *day), v.clone());
+                }
+            }
+        }
+        m
+    };
+    let teacher_positions_snapshot: HashMap<(TeacherId, u8), Vec<u8>> = {
+        let mut m: HashMap<(TeacherId, u8), Vec<u8>> = HashMap::new();
+        for teacher in &touched_teachers {
+            for day in &touched_days {
+                if let Some(v) = state.teacher_positions.get(&(*teacher, *day)) {
+                    m.insert((*teacher, *day), v.clone());
+                }
+            }
+        }
+        m
+    };
+    let used_teacher_snapshot: HashSet<(TeacherId, TimeBlockId)> = {
+        let mut s: HashSet<(TeacherId, TimeBlockId)> = HashSet::new();
+        for teacher in &touched_teachers {
+            for tb in [tb_a.id, tb_b.id] {
+                let key = (*teacher, tb);
+                if state.used_teacher.contains(&key) {
+                    s.insert(key);
+                }
+            }
+        }
+        s
+    };
+    let used_class_snapshot: HashSet<(SchoolClassId, TimeBlockId)> = {
+        let mut s: HashSet<(SchoolClassId, TimeBlockId)> = HashSet::new();
+        for class in &all_classes {
+            for tb in [tb_a.id, tb_b.id] {
+                let key = (*class, tb);
+                if state.used_class.contains(&key) {
+                    s.insert(key);
+                }
+            }
+        }
+        s
+    };
+    let used_room_snapshot: HashSet<(RoomId, TimeBlockId)> = {
+        let mut s: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
+        for room in &touched_rooms {
+            for tb in [tb_a.id, tb_b.id] {
+                let key = (*room, tb);
+                if state.used_room.contains(&key) {
+                    s.insert(key);
+                }
+            }
+        }
+        s
+    };
+    let locked_room_snapshot: HashMap<(SchoolClassId, u8, SubjectId), (RoomId, u32)> = {
+        let mut m = HashMap::new();
+        for class in &all_classes {
+            for day in &touched_days {
+                for subject in &touched_subjects {
+                    let key = (*class, *day, *subject);
+                    if let Some(v) = state.locked_room.get(&key).copied() {
+                        m.insert(key, v);
+                    }
+                }
+            }
+        }
+        m
+    };
+    let subject_hours_snapshot: HashMap<(SchoolClassId, u8, SubjectId), u8> = {
+        let mut m = HashMap::new();
+        for class in &all_classes {
+            for day in &touched_days {
+                for subject in &touched_subjects {
+                    let key = (*class, *day, *subject);
+                    if let Some(v) = state.subject_hours_by_class_day.get(&key).copied() {
+                        m.insert(key, v);
+                    }
+                }
+            }
+        }
+        m
+    };
+    let lessons_by_class_day_snapshot: HashMap<(SchoolClassId, u8), u8> = {
+        let mut m = HashMap::new();
+        for class in &all_classes {
+            for day in &touched_days {
+                let key = (*class, *day);
+                if let Some(v) = state.lessons_by_class_day.get(&key).copied() {
+                    m.insert(key, v);
+                }
+            }
+        }
+        m
+    };
+    let canonical_before = state.canonical_score;
+    let search_slice_before = state.search_score_slice;
+
+    // Apply: swap time_block_ids. Teachers and rooms stay attached to
+    // their lessons (the placement rows carry them).
+    placements[placement_idx].time_block_id = tb_b.id;
+    placements[partner_idx].time_block_id = tb_a.id;
+
+    // Rebuild class_positions / teacher_positions from the post-apply
+    // placements view, restricted to the touched (class, day) and
+    // (teacher, day) keys. Keeps the partition shape (sorted, dedup'd)
+    // in lockstep with score_solution's reader.
+    for class in &all_classes {
+        for day in &touched_days {
+            let mut positions: Vec<u8> = Vec::new();
+            for pl in placements.iter() {
+                let l = lesson_lookup[&pl.lesson_id];
+                if !l.school_class_ids.contains(class) {
+                    continue;
+                }
+                let tb = tb_lookup[&pl.time_block_id];
+                if tb.day_of_week == *day {
+                    positions.push(tb.position);
+                }
+            }
+            positions.sort_unstable();
+            positions.dedup();
+            if positions.is_empty() {
+                state.class_positions.remove(&(*class, *day));
+            } else {
+                state.class_positions.insert((*class, *day), positions);
+            }
+        }
+    }
+    for teacher in &touched_teachers {
+        for day in &touched_days {
+            let mut positions: Vec<u8> = Vec::new();
+            for pl in placements.iter() {
+                if pl.teacher_id != *teacher {
+                    continue;
+                }
+                let tb = tb_lookup[&pl.time_block_id];
+                if tb.day_of_week == *day {
+                    positions.push(tb.position);
+                }
+            }
+            positions.sort_unstable();
+            positions.dedup();
+            if positions.is_empty() {
+                state.teacher_positions.remove(&(*teacher, *day));
+            } else {
+                state.teacher_positions.insert((*teacher, *day), positions);
+            }
+        }
+    }
+    // used_teacher / used_class / used_room: remove source entries, add
+    // dest entries. Order matters when A and B share teacher / class / room:
+    // remove both first, then insert both.
+    state.used_teacher.remove(&(teacher_a, tb_a.id));
+    state.used_teacher.remove(&(teacher_b, tb_b.id));
+    state.used_teacher.insert((teacher_a, tb_b.id));
+    state.used_teacher.insert((teacher_b, tb_a.id));
+    for class in class_ids_a {
+        state.used_class.remove(&(*class, tb_a.id));
+    }
+    for class in class_ids_b {
+        state.used_class.remove(&(*class, tb_b.id));
+    }
+    for class in class_ids_a {
+        state.used_class.insert((*class, tb_b.id));
+    }
+    for class in class_ids_b {
+        state.used_class.insert((*class, tb_a.id));
+    }
+    state.used_room.remove(&(room_a, tb_a.id));
+    state.used_room.remove(&(room_b, tb_b.id));
+    state.used_room.insert((room_a, tb_b.id));
+    state.used_room.insert((room_b, tb_a.id));
+
+    // locked_room: drop 1 at (class_a, day_a, subj_a) and (class_b, day_b,
+    // subj_b); add 1 at (class_a, day_b, subj_a) and (class_b, day_a,
+    // subj_b). Room follows the lesson (room_a stays with lesson_a).
+    for class in class_ids_a {
+        let old_key = (*class, tb_a.day_of_week, lesson_a.subject_id);
+        if let Some(entry) = state.locked_room.get_mut(&old_key) {
+            entry.1 = entry.1.saturating_sub(1);
+            if entry.1 == 0 {
+                state.locked_room.remove(&old_key);
+            }
+        }
+        let new_key = (*class, tb_b.day_of_week, lesson_a.subject_id);
+        let entry = state.locked_room.entry(new_key).or_insert((room_a, 0));
+        entry.0 = room_a;
+        entry.1 += 1;
+    }
+    for class in class_ids_b {
+        let old_key = (*class, tb_b.day_of_week, lesson_b.subject_id);
+        if let Some(entry) = state.locked_room.get_mut(&old_key) {
+            entry.1 = entry.1.saturating_sub(1);
+            if entry.1 == 0 {
+                state.locked_room.remove(&old_key);
+            }
+        }
+        let new_key = (*class, tb_a.day_of_week, lesson_b.subject_id);
+        let entry = state.locked_room.entry(new_key).or_insert((room_b, 0));
+        entry.0 = room_b;
+        entry.1 += 1;
+    }
+
+    // subject_hours_by_class_day: -1 at source triple, +1 at dest triple,
+    // per class and per participant.
+    for class in class_ids_a {
+        let old_key = (*class, tb_a.day_of_week, lesson_a.subject_id);
+        if let Some(h) = state.subject_hours_by_class_day.get_mut(&old_key) {
+            *h = h.saturating_sub(1);
+            if *h == 0 {
+                state.subject_hours_by_class_day.remove(&old_key);
+            }
+        }
+        *state
+            .subject_hours_by_class_day
+            .entry((*class, tb_b.day_of_week, lesson_a.subject_id))
+            .or_insert(0) += 1;
+    }
+    for class in class_ids_b {
+        let old_key = (*class, tb_b.day_of_week, lesson_b.subject_id);
+        if let Some(h) = state.subject_hours_by_class_day.get_mut(&old_key) {
+            *h = h.saturating_sub(1);
+            if *h == 0 {
+                state.subject_hours_by_class_day.remove(&old_key);
+            }
+        }
+        *state
+            .subject_hours_by_class_day
+            .entry((*class, tb_a.day_of_week, lesson_b.subject_id))
+            .or_insert(0) += 1;
+    }
+    // lessons_by_class_day: -1 at source day, +1 at dest day per class.
+    for class in class_ids_a {
+        let old_key = (*class, tb_a.day_of_week);
+        if let Some(c) = state.lessons_by_class_day.get_mut(&old_key) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                state.lessons_by_class_day.remove(&old_key);
+            }
+        }
+        *state
+            .lessons_by_class_day
+            .entry((*class, tb_b.day_of_week))
+            .or_insert(0) += 1;
+    }
+    for class in class_ids_b {
+        let old_key = (*class, tb_b.day_of_week);
+        if let Some(c) = state.lessons_by_class_day.get_mut(&old_key) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                state.lessons_by_class_day.remove(&old_key);
+            }
+        }
+        *state
+            .lessons_by_class_day
+            .entry((*class, tb_a.day_of_week))
+            .or_insert(0) += 1;
+    }
+
+    // Recompute scores (full recompute; the multi-class delta under swap
+    // is too tangled for an incremental update).
+    let new_canonical =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
+    let new_slice = crate::score::slice_recompute(problem, placements, weights);
+
+    let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
+    let accept = new_canonical <= state.canonical_score || new_canonical <= prior;
+
+    if accept {
+        state.canonical_score = new_canonical;
+        state.search_score_slice = new_slice;
+        return true;
+    }
+
+    // Reject: restore from snapshot. Placements first, then state maps.
+    placements[placement_idx] = placements_snapshot[0].clone();
+    placements[partner_idx] = placements_snapshot[1].clone();
+    for class in &all_classes {
+        for day in &touched_days {
+            let key = (*class, *day);
+            match class_positions_snapshot.get(&key) {
+                Some(v) => {
+                    state.class_positions.insert(key, v.clone());
+                }
+                None => {
+                    state.class_positions.remove(&key);
+                }
+            }
+        }
+    }
+    for teacher in &touched_teachers {
+        for day in &touched_days {
+            let key = (*teacher, *day);
+            match teacher_positions_snapshot.get(&key) {
+                Some(v) => {
+                    state.teacher_positions.insert(key, v.clone());
+                }
+                None => {
+                    state.teacher_positions.remove(&key);
+                }
+            }
+        }
+    }
+    for teacher in &touched_teachers {
+        for tb in [tb_a.id, tb_b.id] {
+            let key = (*teacher, tb);
+            if used_teacher_snapshot.contains(&key) {
+                state.used_teacher.insert(key);
+            } else {
+                state.used_teacher.remove(&key);
+            }
+        }
+    }
+    for class in &all_classes {
+        for tb in [tb_a.id, tb_b.id] {
+            let key = (*class, tb);
+            if used_class_snapshot.contains(&key) {
+                state.used_class.insert(key);
+            } else {
+                state.used_class.remove(&key);
+            }
+        }
+    }
+    for room in &touched_rooms {
+        for tb in [tb_a.id, tb_b.id] {
+            let key = (*room, tb);
+            if used_room_snapshot.contains(&key) {
+                state.used_room.insert(key);
+            } else {
+                state.used_room.remove(&key);
+            }
+        }
+    }
+    for class in &all_classes {
+        for day in &touched_days {
+            for subject in &touched_subjects {
+                let key = (*class, *day, *subject);
+                match locked_room_snapshot.get(&key).copied() {
+                    Some(v) => {
+                        state.locked_room.insert(key, v);
+                    }
+                    None => {
+                        state.locked_room.remove(&key);
+                    }
+                }
+                match subject_hours_snapshot.get(&key).copied() {
+                    Some(v) => {
+                        state.subject_hours_by_class_day.insert(key, v);
+                    }
+                    None => {
+                        state.subject_hours_by_class_day.remove(&key);
+                    }
+                }
+            }
+            let lkey = (*class, *day);
+            match lessons_by_class_day_snapshot.get(&lkey).copied() {
+                Some(v) => {
+                    state.lessons_by_class_day.insert(lkey, v);
+                }
+                None => {
+                    state.lessons_by_class_day.remove(&lkey);
+                }
+            }
+        }
+    }
+    state.canonical_score = canonical_before;
+    state.search_score_slice = search_slice_before;
     false
 }
 
@@ -8091,7 +8663,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_swap_move_rejects_same_lesson() {
         // Two placements that share the same lesson_id (e.g., a
         // hours_per_week=2 single-block-size lesson with two placements).
@@ -8172,7 +8743,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_swap_move_rejects_pinned_partner() {
         let (problem, mut placements, mut state, weights) = swap_two_unrelated_fixture();
         let idx = crate::index::Indexed::new(&problem);
@@ -8206,7 +8776,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_swap_move_rejects_group_partner() {
         // Lesson A is a member of a lesson group; swap must reject.
         use crate::ids::LessonGroupId;
@@ -8302,7 +8871,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_swap_move_rejects_class_double_book() {
         // Lesson A at (d0p0, class_a, room_a); lesson B at (d1p0, class_a,
         // room_b) (same class!); a third placement C at (d1p0, class_a)
@@ -8447,7 +9015,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Enabled in Task 3/4 once the real implementation lands; against the always-false stub this passes vacuously."]
     fn try_swap_move_rejects_daily_cap_breach() {
         // Lesson A at (d0p0); lesson B at (d1p0). class_a has
         // max_lessons_per_day=1 AND already has another lesson at
