@@ -174,6 +174,7 @@ prop_compose! {
             max_per_class_spread,
             max_per_class_interior_gaps,
             supervision_spread: 0,
+            soft_pin_miss: 0,
         }
     }
 }
@@ -199,7 +200,12 @@ proptest! {
         let placements: &[Placement] = &solution.placements;
 
         let report = quality_report(&problem, placements, &solution.violations, &weights);
-        let expected = score_solution(&problem, placements, &weights);
+        let expected = score_solution(
+            &problem,
+            placements,
+            &weights,
+            &::std::collections::HashSet::new(),
+        );
         prop_assert_eq!(report.weighted_score, expected);
         prop_assert_eq!(
             report.class_gap_hours_by_class.values().copied().sum::<u32>(),

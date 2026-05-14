@@ -110,7 +110,7 @@ proptest! {
     fn solve_soft_score_equals_score_solution(problem in small_problem(), w in weights()) {
         let cfg = SolveConfig { weights: w.clone(), ..SolveConfig::default() };
         let Ok(sol) = solve_with_config(&problem, &cfg) else { return Ok(()) };
-        let recomputed = score_solution(&problem, &sol.placements, &w);
+        let recomputed = score_solution(&problem, &sol.placements, &w, &::std::collections::HashSet::new());
         prop_assert_eq!(sol.soft_score, recomputed);
     }
 
@@ -179,7 +179,7 @@ proptest! {
             ..ConstraintWeights::default()
         };
         prop_assert_eq!(
-            score_solution(&problem, &placements, &weights),
+            score_solution(&problem, &placements, &weights, &::std::collections::HashSet::new()),
             u32::from(position) * weight
         );
     }
@@ -232,7 +232,7 @@ proptest! {
             ..ConstraintWeights::default()
         };
         let expected = if position == 0 { weight } else { 0 };
-        prop_assert_eq!(score_solution(&problem, &placements, &weights), expected);
+        prop_assert_eq!(score_solution(&problem, &placements, &weights, &::std::collections::HashSet::new()), expected);
     }
 }
 
@@ -317,7 +317,12 @@ fn solve_soft_score_under_production_weights_equals_score_solution() {
         ..SolveConfig::default()
     };
     let sol = solve_with_config(&problem, &cfg).expect("solve must succeed on the tiny fixture");
-    let recomputed = score_solution(&problem, &sol.placements, &PRODUCTION_ACTIVE_WEIGHTS);
+    let recomputed = score_solution(
+        &problem,
+        &sol.placements,
+        &PRODUCTION_ACTIVE_WEIGHTS,
+        &::std::collections::HashSet::new(),
+    );
     assert_eq!(
         sol.soft_score, recomputed,
         "Solution.soft_score must equal score_solution(...) under PRODUCTION_ACTIVE_WEIGHTS; \
@@ -357,8 +362,18 @@ fn ffd_greedy_class_day_balance_weight_lowers_post_solve_class_day_balance_cost(
         class_day_balance: 1,
         ..ConstraintWeights::default()
     };
-    let balance_off = score_solution(&problem, &sol_off.placements, &scorer);
-    let balance_on = score_solution(&problem, &sol_on.placements, &scorer);
+    let balance_off = score_solution(
+        &problem,
+        &sol_off.placements,
+        &scorer,
+        &::std::collections::HashSet::new(),
+    );
+    let balance_on = score_solution(
+        &problem,
+        &sol_on.placements,
+        &scorer,
+        &::std::collections::HashSet::new(),
+    );
     assert!(
         balance_on < balance_off,
         "balance-on solve must produce a strictly lower class_day_balance \

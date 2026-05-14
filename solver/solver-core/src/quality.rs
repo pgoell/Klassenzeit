@@ -109,6 +109,12 @@ pub struct QualityReport {
     /// `max over classes of (sum over days of interior_gaps_in_day)`.
     /// Mirrors `score::worst_class_interior_gaps`. Item 57.
     pub worst_per_class_interior_gaps: u32,
+    /// Number of soft pins (`PinKind::Soft` entries on
+    /// `Problem.pinned_placements`) whose `(lesson_id, time_block_id)` does
+    /// not match any placement in `solution.placements`. The
+    /// `weights.soft_pin_miss`-weighted contribution is folded into
+    /// `weighted_score`. ADR 0042 (item 5).
+    pub soft_pin_misses: u32,
 }
 
 /// Build a [`QualityReport`] for a solver result. Pure: depends only on
@@ -351,6 +357,43 @@ pub fn quality_report(
     let supervision_spread_raw =
         crate::supervision::compute_supervision_spread(problem, placements);
 
+    // Soft-pin miss count: walk `problem.pinned_placements` for entries
+    // with `kind == Soft`, dedup as a `HashSet<(LessonId, TimeBlockId)>`,
+    // then count entries not present in the solution's placement keys.
+    // Backend-neutral; CP-SAT consumes via the `quality_report_json`
+    // wire-format read. ADR 0042 (item 5).
+    //
+    // Bad-shape soft pins (unknown lesson / unknown time-block) drop here
+    // identically to `validate_pins`'s soft branch so
+    // `weighted_score == score_solution(...)` stays invariant when the
+    // input has malformed soft pins; the silent-drop contract is the same
+    // on both sides of the solver entry boundary.
+    let valid_lesson_ids: std::collections::HashSet<LessonId> =
+        problem.lessons.iter().map(|l| l.id).collect();
+    let valid_tb_ids: std::collections::HashSet<TimeBlockId> =
+        problem.time_blocks.iter().map(|tb| tb.id).collect();
+    let soft_pinned_blocks: std::collections::HashSet<(LessonId, TimeBlockId)> = problem
+        .pinned_placements
+        .iter()
+        .filter(|pin| pin.kind == crate::types::PinKind::Soft)
+        .filter(|pin| {
+            valid_lesson_ids.contains(&pin.lesson_id) && valid_tb_ids.contains(&pin.time_block_id)
+        })
+        .map(|pin| (pin.lesson_id, pin.time_block_id))
+        .collect();
+    let soft_pin_misses: u32 = if soft_pinned_blocks.is_empty() {
+        0
+    } else {
+        let placement_keys: std::collections::HashSet<(LessonId, TimeBlockId)> = placements
+            .iter()
+            .map(|p| (p.lesson_id, p.time_block_id))
+            .collect();
+        soft_pinned_blocks
+            .iter()
+            .filter(|key| !placement_keys.contains(key))
+            .count() as u32
+    };
+
     let weighted_score = weights
         .class_gap
         .saturating_mul(class_gap_hours)
@@ -372,6 +415,7 @@ pub fn quality_report(
                 .saturating_mul(worst_per_class_interior_gaps),
         )
         .saturating_add(home_room_weighted)
+        .saturating_add(weights.soft_pin_miss.saturating_mul(soft_pin_misses))
         .saturating_add(
             weights
                 .prefer_class_teacher
@@ -402,6 +446,7 @@ pub fn quality_report(
         weighted_score,
         worst_per_class_spread,
         worst_per_class_interior_gaps,
+        soft_pin_misses,
     }
 }
 
@@ -937,7 +982,12 @@ mod tests {
             &solution.violations,
             &weights,
         );
-        let expected = score_solution(&problem, &solution.placements, &weights);
+        let expected = score_solution(
+            &problem,
+            &solution.placements,
+            &weights,
+            &::std::collections::HashSet::new(),
+        );
         assert_eq!(report.weighted_score, expected);
     }
 
@@ -1173,7 +1223,12 @@ mod tests {
         let report = quality_report(&problem, &placements, &[], &weights);
         assert_eq!(
             report.weighted_score,
-            score::score_solution(&problem, &placements, &weights)
+            score::score_solution(
+                &problem,
+                &placements,
+                &weights,
+                &::std::collections::HashSet::new(),
+            )
         );
     }
 }

@@ -331,7 +331,12 @@ pub(crate) fn run(
         #[cfg(debug_assertions)]
         debug_assert_eq!(
             state.canonical_score,
-            crate::score::score_solution(problem, placements, &config.weights),
+            crate::score::score_solution(
+                problem,
+                placements,
+                &config.weights,
+                &state.soft_pinned_blocks,
+            ),
             "LAHC must keep state.canonical_score == score_solution(...) at every iteration tail",
         );
         // Progress beacon write + cancel check. This block consumes no RNG
@@ -675,7 +680,8 @@ fn try_change_move(
     // `state.canonical_score`; supervision is intentionally not
     // delta-tracked per the supervision-objective design doc ("full
     // rescore at Kempe + finalization captures supervision cost").
-    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.canonical_score =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
     true
 }
 
@@ -1306,7 +1312,8 @@ fn rr_attempt(
     let new_slice =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
     state.search_score_slice = new_slice;
-    let new_canonical = crate::score::score_solution(problem, placements, weights);
+    let new_canonical =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
     state.canonical_score = new_canonical;
     let prior = lahc_list[(iter as usize) % LAHC_LIST_LEN];
     // Item 52: R&R accepts on canonical so the move's home_room and
@@ -1778,7 +1785,8 @@ fn rr_rescue_attempt(
     // per-iteration `debug_assert_eq!` invariant at the LAHC loop tail
     // gates correctness; an off-by-something here would fire it
     // immediately under any property or integration test.
-    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.canonical_score =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
     state.search_score_slice =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
     true
@@ -1957,7 +1965,8 @@ fn rr_rescue_group_attempt(
     }
 
     // Accept. Recompute canonical and slice in lockstep.
-    state.canonical_score = crate::score::score_solution(problem, placements, weights);
+    state.canonical_score =
+        crate::score::score_solution(problem, placements, weights, &state.soft_pinned_blocks);
     state.search_score_slice =
         running_slice_from_placements(problem, placements, weights, max_position_per_day);
     true
@@ -4792,6 +4801,7 @@ mod tests {
             class_subject_teacher: s.class_subject_teacher.clone(),
             search_score_slice: s.search_score_slice,
             canonical_score: s.canonical_score,
+            soft_pinned_blocks: s.soft_pinned_blocks.clone(),
         }
     }
 

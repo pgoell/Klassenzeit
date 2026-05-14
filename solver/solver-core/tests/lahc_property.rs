@@ -251,7 +251,7 @@ proptest! {
             seed: 11,
             ..SolveConfig::default()
         }).unwrap();
-        let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+        let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
         prop_assert_eq!(lahc.soft_score, recomputed);
     }
 
@@ -340,7 +340,7 @@ proptest! {
     fn lahc_rr_running_score_matches_recompute_when_feasible(p in lahc_small_problem()) {
         let lahc = solve_with_config(&p, &lahc_rr_cfg(11)).unwrap();
         if lahc.violations.is_empty() {
-            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
             prop_assert_eq!(lahc.soft_score, recomputed);
         }
     }
@@ -398,7 +398,7 @@ proptest! {
     fn lahc_kempe_running_score_matches_recompute_when_feasible(p in lahc_small_problem()) {
         let lahc = solve_with_config(&p, &lahc_kempe_cfg(11)).unwrap();
         if lahc.violations.is_empty() {
-            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights());
+            let recomputed = score_solution(&p, &lahc.placements, &lahc_weights(), &::std::collections::HashSet::new());
             prop_assert_eq!(lahc.soft_score, recomputed);
         }
     }
@@ -466,7 +466,7 @@ proptest! {
             ..SolveConfig::default()
         };
         let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
-        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        let canonical = score_solution(&problem, &solution.placements, &config.weights, &::std::collections::HashSet::new());
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
@@ -501,7 +501,7 @@ proptest! {
         // home_room coverage lives in the fixture builder below.
         let problem = canonical_score_test_problem();
         let (solution, _stats) = solve_with_config_stats(&problem, &config).expect("solve");
-        let canonical = score_solution(&problem, &solution.placements, &config.weights);
+        let canonical = score_solution(&problem, &solution.placements, &config.weights, &::std::collections::HashSet::new());
         prop_assert_eq!(solution.soft_score, canonical);
     }
 
@@ -975,7 +975,12 @@ fn lahc_canonical_score_matches_score_solution_under_widened_per_class_axes() {
     let solution = solve_with_config(&problem, &config)
         .expect("solver should not return Err under production weights on dreizuegig");
 
-    let recomputed = score_solution(&problem, &solution.placements, &weights);
+    let recomputed = score_solution(
+        &problem,
+        &solution.placements,
+        &weights,
+        &::std::collections::HashSet::new(),
+    );
     assert_eq!(
         solution.soft_score, recomputed,
         "post-solve soft_score must match score_solution under widened axes",

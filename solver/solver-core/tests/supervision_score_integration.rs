@@ -212,8 +212,18 @@ fn score_solution_includes_supervision_spread_penalty() {
         ..ConstraintWeights::default()
     };
 
-    let score_on = score_solution(&problem, &placements, &weights_on);
-    let score_off = score_solution(&problem, &placements, &weights_off);
+    let score_on = score_solution(
+        &problem,
+        &placements,
+        &weights_on,
+        &::std::collections::HashSet::new(),
+    );
+    let score_off = score_solution(
+        &problem,
+        &placements,
+        &weights_off,
+        &::std::collections::HashSet::new(),
+    );
 
     assert_eq!(
         score_on - score_off,

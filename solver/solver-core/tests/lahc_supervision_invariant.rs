@@ -142,7 +142,12 @@ fn lahc_canonical_score_invariant_holds_with_break_blocks() {
     // score_solution call. On master (pre-fix) the per-iteration assert
     // panics before this line, so the assert below only runs after the
     // fix lands; treat it as a belt-and-braces check.
-    let recomputed = score_solution(&problem, &solution.placements, &PRODUCTION_ACTIVE_WEIGHTS);
+    let recomputed = score_solution(
+        &problem,
+        &solution.placements,
+        &PRODUCTION_ACTIVE_WEIGHTS,
+        &::std::collections::HashSet::new(),
+    );
     assert_eq!(
         solution.soft_score, recomputed,
         "post-solve soft_score must match score_solution",
