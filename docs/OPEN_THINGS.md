@@ -23,8 +23,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 ### P1 (real Grundschule pain still un-modelled)
 
-5. **Soft / tentative pin semantic (UX + solver).** Today's `LessonPin` is binary (`hard` only); a Klassenlehrer wanting "I prefer this placement, but reroute it if you must" has no way to express it. Add `LessonPin.kind: PinKind` (`hard` | `soft`); soft pins enter the LAHC objective as a penalty (new `ConstraintWeights.soft_pin_miss`) rather than a hard constraint. Two badges in the schedule grid (icon variant + tooltip copy). Triggers a new ADR; out of scope until a workflow surfaces a real "preferred-not-required" case.
-
 6. **Quality-issue endpoint + UI surface.** `quality_checks.QualityIssue[]` is returned by `POST /api/classes/{id}/schedule` but not persisted, and `GET /api/classes/{id}/schedule` returns placements only. The schedule view shows violations as a count but no actionable next-step ("3 issues" with no breakdown). Add `GET /api/schedule/quality-issues` (reuses `quality_checks.py`) and a sidebar in the schedule grid that lists the issues with a click-to-highlight gesture on the offending cell. Trigger: any demo where the admin asks "okay, but WHY is this incomplete?".
 
 ### P2 (longer-arc; reopen on trigger)
@@ -34,6 +32,8 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 9. **Block-aware FFD eligibility, LAHC Change move, and Swap move.** Today `ordering::ffd_order` ranks by `free-teacher-blocks * suitable-rooms`, ignoring contiguity (a length-2 lesson with same eligibility as length-1 is MORE constrained). LAHC's Change move skips block placements entirely; LAHC has no Swap move. Folding contiguity into FFD eligibility requires precomputing per-(teacher, day) free-position runs of length `>= n`; the block-aware Change move and Swap move both need a third RNG draw per iteration (determinism RNG-budget invariant shifts). Trigger: a fixture surfaces a real soft-score gap on block-heavy schedules.
 
 10. **Multi-school tenancy.** The schema has no `School` table and no `school_id` on any aggregate root; every authenticated user shares the global pool. Multi-tenancy is a coordinated change: schools table, `school_id` FK on every aggregate + per-school join row, `school_id` on `User` (or membership table), query scoping in every route, seed scripts, E2E tests. Required before customer school #2. Anchor: today's `### Production readiness` first entry.
+
+11. **Production-refresh ratification of `soft_pin_miss` weight (5).** ADR 0042 set the tentative weight at 5, mirroring `prefer_home_room`. A 20-iter production-budget bench (60s × 20 seeds × 4 fixtures, pinned + unpinned cross-section) would confirm the weight does not regress soft-score competitive shape. Trigger: opportunistic on a quiet host window. Anchor: ADR 0042.
 
 ## Backlog
 
