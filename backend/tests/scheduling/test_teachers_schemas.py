@@ -62,3 +62,57 @@ def test_teacher_update_negative_reserve_rejected() -> None:
     """Negative values fail validation (ge=0) on TeacherUpdate."""
     with pytest.raises(ValidationError):
         TeacherUpdate(reserve_hours_per_week=-1)
+
+
+def test_teacher_create_working_days_none_by_default() -> None:
+    """Omitting working_days leaves it None (full-time)."""
+    t = TeacherCreate(first_name="Dana", last_name="Test", short_code="DT", max_hours_per_week=20)
+    assert t.working_days is None
+
+
+def test_teacher_create_working_days_round_trip() -> None:
+    """Mo/Di/Mi survives validation and normalizes to sorted list."""
+    t = TeacherCreate(
+        first_name="Dana",
+        last_name="Test",
+        short_code="DT",
+        max_hours_per_week=20,
+        working_days={2, 0, 1},
+    )
+    assert t.working_days == [0, 1, 2]
+
+
+def test_teacher_create_working_days_rejects_empty() -> None:
+    """Empty set is meaningless; reject with ValidationError."""
+    with pytest.raises(ValidationError):
+        TeacherCreate(
+            first_name="Dana",
+            last_name="Test",
+            short_code="DT",
+            max_hours_per_week=20,
+            working_days=set(),
+        )
+
+
+def test_teacher_create_working_days_rejects_out_of_range() -> None:
+    """Element 5 (Saturday) fails (weekdays only)."""
+    with pytest.raises(ValidationError):
+        TeacherCreate(
+            first_name="Dana",
+            last_name="Test",
+            short_code="DT",
+            max_hours_per_week=20,
+            working_days={0, 5},
+        )
+
+
+def test_teacher_update_working_days_explicit_null_in_fields_set() -> None:
+    """Explicit None on update lands in model_fields_set so the route can clear."""
+    update = TeacherUpdate(working_days=None)
+    assert "working_days" in update.model_fields_set
+
+
+def test_teacher_update_working_days_omitted_not_in_fields_set() -> None:
+    """Omitted working_days stays out of model_fields_set."""
+    update = TeacherUpdate(first_name="X")
+    assert "working_days" not in update.model_fields_set

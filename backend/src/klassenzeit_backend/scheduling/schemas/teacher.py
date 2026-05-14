@@ -4,7 +4,19 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_VALID_WEEKDAYS: frozenset[int] = frozenset({0, 1, 2, 3, 4})
+
+
+def _validate_working_days(value: set[int] | None) -> list[int] | None:
+    if value is None:
+        return None
+    if not value:
+        raise ValueError("working_days must contain at least one day")
+    if not value <= _VALID_WEEKDAYS:
+        raise ValueError("working_days entries must be in {0, 1, 2, 3, 4}")
+    return sorted(value)
 
 
 class TeacherCreate(BaseModel):
@@ -15,6 +27,12 @@ class TeacherCreate(BaseModel):
     short_code: str
     max_hours_per_week: int = Field(ge=1)
     reserve_hours_per_week: int = Field(default=0, ge=0)
+    working_days: set[int] | None = None
+
+    @field_validator("working_days")
+    @classmethod
+    def _normalize_working_days_create(cls, value: set[int] | None) -> list[int] | None:
+        return _validate_working_days(value)
 
 
 class TeacherUpdate(BaseModel):
@@ -25,6 +43,12 @@ class TeacherUpdate(BaseModel):
     short_code: str | None = None
     max_hours_per_week: int | None = Field(default=None, ge=1)
     reserve_hours_per_week: int | None = Field(default=None, ge=0)
+    working_days: set[int] | None = None
+
+    @field_validator("working_days")
+    @classmethod
+    def _normalize_working_days_update(cls, value: set[int] | None) -> list[int] | None:
+        return _validate_working_days(value)
 
 
 class QualificationResponse(BaseModel):
@@ -55,6 +79,7 @@ class TeacherListResponse(BaseModel):
     reserve_hours_per_week: int
     is_active: bool
     subject_ids: list[uuid.UUID] = Field(default_factory=list)
+    working_days: list[int] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -71,6 +96,7 @@ class TeacherDetailResponse(BaseModel):
     is_active: bool
     qualifications: list[QualificationResponse]
     availability: list[TeacherAvailabilityEntry]
+    working_days: list[int] | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, func
+from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, SmallInteger, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -22,6 +22,7 @@ class Teacher(Base):
     reserve_hours_per_week: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="0"
     )
+    working_days: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
