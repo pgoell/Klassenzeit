@@ -42,6 +42,7 @@ _W_PREFER_CLASS_TEACHER = 5  # item 67: tentative, mirrors _W_PREFER_HOME_ROOM
 # item 57: mirror PRODUCTION_ACTIVE_WEIGHTS per-class worst-case axes
 _W_MAX_PER_CLASS_SPREAD = 10
 _W_MAX_PER_CLASS_INTERIOR_GAPS = 10
+_W_SOFT_PIN_MISS = 5  # ADR 0042: tentative weight, mirrors _W_PREFER_HOME_ROOM
 
 
 class _FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
@@ -165,7 +166,16 @@ def _build_model(
     _emit_lesson_group_co_placement(model, problem, anchor_vars, anchors_for_lesson)
     _emit_pinned_placements(model, problem, anchor_vars, lookups)
 
-    _emit_objective(model, problem, anchor_vars, lookups, t_chosen, class_subject_lessons, y_and_t)
+    _emit_objective(
+        model,
+        problem,
+        anchor_vars,
+        anchors_for_lesson,
+        lookups,
+        t_chosen,
+        class_subject_lessons,
+        y_and_t,
+    )
     meta: dict[str, Any] = {
         "lesson_lookup": lookups["lesson_lookup"],
         "tb_at": lookups["tb_at"],
@@ -623,10 +633,19 @@ def _emit_pinned_placements(
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
     lookups: dict[str, Any],
 ) -> None:
-    """Force y[lesson, day, anchor_pos, room] = 1 per pin; multi-block pins collapse to anchor."""
+    """Force y[lesson, day, anchor_pos, room] = 1 per HARD pin; multi-block pins collapse to anchor.
+
+    Soft pins (`kind == "soft"`, ADR 0042) are aspirational and ride along
+    `_objective_soft_pin_term`; they must NOT be forced here or the model
+    would either pin them verbatim (zero misses by construction) or panic
+    via `_force_infeasible` when the soft pin is incompatible with other
+    constraints. Filter to hard pins (default `kind`) before forcing.
+    """
     tb_pos_lookup = lookups["tb_pos_lookup"]
     pins_by_lesson_day_room: dict[tuple[str, int, str], list[int]] = defaultdict(list)
     for pin in problem.get("pinned_placements", []):
+        if pin.get("kind", "hard") == "soft":
+            continue
         if pin["time_block_id"] not in tb_pos_lookup:
             continue
         d, p = tb_pos_lookup[pin["time_block_id"]]
@@ -1087,6 +1106,67 @@ def _objective_max_per_class_interior_gaps_term(
     return _W_MAX_PER_CLASS_INTERIOR_GAPS * worst_var
 
 
+def _objective_soft_pin_term(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_for_lesson: dict[str, list[AnchorKey]],
+    lookups: dict[str, Any],
+) -> cp_model.LinearExpr | int:
+    """Soft-pin miss term: one per soft pin not covered by any selected anchor.
+
+    Each miss contributes +1 to the minimised objective.
+
+    Mirrors `solver_core::score::score_solution`'s `soft_pin_miss` axis
+    (ADR 0042). Soft pin `(lesson, tb)` is HONORED when at least one selected
+    anchor `(lesson, day_of_tb, start_pos, room)` covers `pos_of_tb` in its
+    N-block window. Anchor coverage is taken from `anchors_for_lesson` and
+    the lesson's `preferred_block_size`; the per-pin presence indicator is
+    the disjunction of those anchor BoolVars.
+
+    A pin whose lesson has no candidate anchor (e.g. orphaned `lesson_id`,
+    or the anchor was pruned by `_create_anchor_vars`) contributes a literal
+    miss of 1 since the pin cannot be honored under any feasible assignment.
+    """
+    tb_pos_lookup = lookups["tb_pos_lookup"]
+    lesson_lookup = lookups["lesson_lookup"]
+    miss_terms: list[cp_model.LinearExpr | int] = []
+    for pin in problem.get("pinned_placements", []):
+        if pin.get("kind", "hard") != "soft":
+            continue
+        if pin["time_block_id"] not in tb_pos_lookup:
+            miss_terms.append(1)
+            continue
+        l_id = pin["lesson_id"]
+        lesson = lesson_lookup.get(l_id)
+        if lesson is None:
+            miss_terms.append(1)
+            continue
+        n = lesson["preferred_block_size"]
+        pin_day, pin_pos = tb_pos_lookup[pin["time_block_id"]]
+        covering_anchors: list[cp_model.IntVar] = []
+        for key in anchors_for_lesson.get(l_id, []):
+            (_l, day, start_pos, _r) = key
+            if day != pin_day:
+                continue
+            if start_pos <= pin_pos < start_pos + n:
+                covering_anchors.append(anchor_vars[key])
+        if not covering_anchors:
+            miss_terms.append(1)
+            continue
+        # `present` is 1 iff at least one covering anchor is selected.
+        # Because class non-overlap forbids two anchors of the same lesson
+        # covering the same (day, position), at most one var in
+        # `covering_anchors` is 1 in any feasible solution, so the sum is a
+        # valid 0-1 presence indicator (no `add_max_equality` needed).
+        miss_var = model.new_bool_var(f"soft_pin_miss[{l_id}_{pin['time_block_id']}]")
+        model.add(miss_var == 1 - cp_model.LinearExpr.sum(covering_anchors))
+        miss_terms.append(miss_var)
+    if not miss_terms:
+        return 0
+    return _W_SOFT_PIN_MISS * cp_model.LinearExpr.sum(miss_terms)
+
+
 def _objective_prefer_class_teacher_term(
     problem: dict[str, Any],
     t_chosen: dict[tuple[str, str], cp_model.IntVar],
@@ -1137,6 +1217,7 @@ def _emit_objective(
     model: cp_model.CpModel,
     problem: dict[str, Any],
     anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_for_lesson: dict[str, list[AnchorKey]],
     lookups: dict[str, Any],
     t_chosen: dict[tuple[str, str], cp_model.IntVar],
     class_subject_lessons: dict[tuple[str, str], list[dict[str, Any]]],
@@ -1144,7 +1225,7 @@ def _emit_objective(
 ) -> None:
     """Build CP-SAT model objective mirroring solver_core::score_solution.
 
-    Eight summands: subject_preference (per-anchor constant coefficient),
+    Nine summands: subject_preference (per-anchor constant coefficient),
     home_room (per-anchor constant coefficient), class_gap (per-(class,
     day, position) channeling), teacher_gap (per-(teacher, day, position)
     channeling on ``y_and_t`` so unchosen candidates do not count as
@@ -1153,11 +1234,12 @@ def _emit_objective(
     soft cost via ``t_chosen``), max_per_class_spread (per-class
     max(daily_count) - min(daily_count), maxed across classes, item 57),
     max_per_class_interior_gaps (per-class summed gap BoolVars, maxed
-    across classes, item 57). The per-(class, day) placement-count
-    IntVars are shared between class_day_balance and max_per_class_spread
-    via ``_build_class_count_per_day``; the per-(class, day, position)
-    gap BoolVars are shared between class_gap and
-    max_per_class_interior_gaps via ``_build_gap_vars_by_entity_day``.
+    across classes, item 57), soft_pin_miss (per-soft-pin presence
+    indicator over covering anchors, ADR 0042). The per-(class, day)
+    placement-count IntVars are shared between class_day_balance and
+    max_per_class_spread via ``_build_class_count_per_day``; the
+    per-(class, day, position) gap BoolVars are shared between class_gap
+    and max_per_class_interior_gaps via ``_build_gap_vars_by_entity_day``.
     """
     summand_subject_pref = _objective_subject_preference_terms(problem, anchor_vars, lookups)
     summand_home_room = _objective_home_room_term(problem, anchor_vars, lookups)
@@ -1187,6 +1269,9 @@ def _emit_objective(
     summand_max_per_class_interior_gaps = _objective_max_per_class_interior_gaps_term(
         model, problem, class_gaps_by_day, lookups
     )
+    summand_soft_pin_miss = _objective_soft_pin_term(
+        model, problem, anchor_vars, anchors_for_lesson, lookups
+    )
     model.minimize(
         summand_subject_pref
         + summand_home_room
@@ -1196,6 +1281,7 @@ def _emit_objective(
         + summand_prefer_class_teacher
         + summand_max_per_class_spread
         + summand_max_per_class_interior_gaps
+        + summand_soft_pin_miss
     )
 
 
