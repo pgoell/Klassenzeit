@@ -499,7 +499,7 @@ def _cpsat_forced_lopsided_spread_problem() -> str:
     score_solution: c[0]=3, c[1]=0, sum=3, D=2.
     scaled = |3*2 - 3| + |0*2 - 3| = 3 + 3 = 6
     quotient = 6 // 2 = 3
-    Total class_day_balance = 5 * 3 = 15.
+    Total class_day_balance = 20 * 3 = 60.
 
     No class_gap (3 contiguous placements, no interior missing). No
     teacher_gap. Only class_day_balance fires.
@@ -542,10 +542,10 @@ def _cpsat_forced_lopsided_spread_problem() -> str:
 
 def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem() -> None:
     """class_day_balance axis: 3 placements on day 0, 0 on day 1.
-    quotient = (|3*2-3| + |0*2-3|) // 2 = 6 // 2 = 3; weighted = 5 * 3 = 15.
+    quotient = (|3*2-3| + |0*2-3|) // 2 = 6 // 2 = 3; weighted = 20 * 3 = 60.
     Item 57 widens the canonical objective with max_per_class_spread (3
     placements on day 0, 0 on days 1-4 → spread=3, weight 10 → 30).
-    Total = 15 + 30 = 45.
+    Total = 60 + 30 = 90.
     """
     problem_json = _cpsat_forced_lopsided_spread_problem()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -553,7 +553,7 @@ def test_cpsat_objective_value_equals_score_solution_on_lopsided_spread_problem(
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    assert out["model_objective_value"] == 45
+    assert out["model_objective_value"] == 90
 
 
 def test_solve_cpsat_placement_carries_teacher_id() -> None:

@@ -37,7 +37,7 @@ _W_AVOID_FIRST_PERIOD = 1
 _W_PREFER_HOME_ROOM = 5
 _W_AVOID_LAST_PERIOD = 1
 _W_PREFER_LATE_PERIOD = 1
-_W_CLASS_DAY_BALANCE = 5
+_W_CLASS_DAY_BALANCE = 20  # ADR 0043: bumped from 5 to clear LAHC day-spread plateau
 _W_PREFER_CLASS_TEACHER = 5  # item 67: tentative, mirrors _W_PREFER_HOME_ROOM
 # item 57: mirror PRODUCTION_ACTIVE_WEIGHTS per-class worst-case axes
 _W_MAX_PER_CLASS_SPREAD = 10
