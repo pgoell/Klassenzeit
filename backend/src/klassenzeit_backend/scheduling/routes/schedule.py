@@ -18,6 +18,7 @@ from klassenzeit_backend.scheduling import solver_io
 from klassenzeit_backend.scheduling.progress import register_progress
 from klassenzeit_backend.scheduling.quality_checks import (
     QualityIssue,
+    compute_quality_attribution_for_class,
     compute_quality_issues,
 )
 from klassenzeit_backend.scheduling.schemas.schedule import (
@@ -212,9 +213,11 @@ async def read_schedule_for_class_route(
     """
     placements = await solver_io.read_schedule_for_class(db, class_id)
     quality_issues = await compute_quality_issues(db, class_id)
+    quality_report = await compute_quality_attribution_for_class(db, class_id)
     return ScheduleReadResponse(
         placements=placements,
         quality_issues=_quality_issues_to_response(quality_issues),
+        quality_report=quality_report,
     )
 
 

@@ -324,7 +324,17 @@ async def test_schedule_get_returns_empty_list_for_never_solved_class(
     )
     resp = await client.get(f"/api/classes/{cls.id}/schedule")
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
+    body = resp.json()
+    assert body["placements"] == []
+    assert body["supervision_assignments"] == []
+    assert body["quality_issues"] == []
+    # Class GET always populates a quality_report, even pre-solve: an
+    # all-zero / empty-map shape mirroring an unscheduled class.
+    assert body["quality_report"] is not None
+    assert body["quality_report"]["class_gap_hours"] == 0
+    assert body["quality_report"]["class_gap_hours_by_class"] == {}
+    assert body["quality_report"]["home_room_misses"] == 0
+    assert body["quality_report"]["home_room_misses_by_class"] == {}
 
 
 async def test_schedule_post_then_get_returns_same_placements(
@@ -445,7 +455,15 @@ async def test_schedule_post_for_class_a_does_not_persist_for_class_b(
 
     get_b = await client.get(f"/api/classes/{cls_b.id}/schedule")
     assert get_b.status_code == 200
-    assert get_b.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
+    body_b = get_b.json()
+    assert body_b["placements"] == []
+    assert body_b["supervision_assignments"] == []
+    assert body_b["quality_issues"] == []
+    # Class GET always populates the report; class B has no placements so
+    # both per-class maps stay empty and the scalars stay 0.
+    assert body_b["quality_report"] is not None
+    assert body_b["quality_report"]["class_gap_hours_by_class"] == {}
+    assert body_b["quality_report"]["home_room_misses_by_class"] == {}
 
 
 async def test_read_teacher_schedule_returns_404_for_unknown_teacher(
@@ -470,7 +488,12 @@ async def test_read_teacher_schedule_returns_empty_for_unscheduled_teacher(
     teacher = await create_teacher()
     resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
+    assert resp.json() == {
+        "placements": [],
+        "supervision_assignments": [],
+        "quality_issues": [],
+        "quality_report": None,
+    }
 
 
 async def test_read_teacher_schedule_returns_placements_after_solve(
@@ -536,7 +559,12 @@ async def test_read_room_schedule_returns_empty_for_unscheduled_room(
     room = await create_room()
     resp = await client.get(f"/api/rooms/{room.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {"placements": [], "supervision_assignments": [], "quality_issues": []}
+    assert resp.json() == {
+        "placements": [],
+        "supervision_assignments": [],
+        "quality_issues": [],
+        "quality_report": None,
+    }
 
 
 async def test_read_room_schedule_returns_placements_after_solve(
@@ -881,3 +909,72 @@ async def test_schedule_get_response_carries_quality_issues(
     expected_keys = {"kind", "school_class_id", "day_of_week", "subject_id", "detail", "cells"}
     for issue in body["quality_issues"]:
         assert set(issue.keys()) == expected_keys
+
+
+async def test_get_schedule_for_class_response_carries_quality_report(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
+    create_teacher,
+    create_stundentafel,
+    create_school_class,
+) -> None:
+    """Class GET surfaces a populated ``quality_report``; non-derivable fields zero."""
+    await create_test_user(email="admin@class-qr.com", role="admin")
+    await login_as("admin@class-qr.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-class-qr",
+    )
+    post = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post.status_code == 200, post.text
+    resp = await client.get(f"/api/classes/{cls.id}/schedule")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["quality_report"] is not None
+    qr = body["quality_report"]
+    assert "class_gap_hours_by_class" in qr
+    assert "home_room_misses_by_class" in qr
+    assert qr["weighted_score"] == 0
+
+
+async def test_get_schedule_for_teacher_response_quality_report_none(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+    create_teacher,
+) -> None:
+    """Teacher GET returns ``quality_report: None`` (resource-scoping)."""
+    await create_test_user(email="admin@teacher-qr-none.com", role="admin")
+    await login_as("admin@teacher-qr-none.com", "testpassword123")
+    teacher = await create_teacher()
+    resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
+    assert resp.status_code == 200
+    assert resp.json()["quality_report"] is None
+
+
+async def test_get_schedule_for_room_response_quality_report_none(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+    create_room,
+) -> None:
+    """Room GET returns ``quality_report: None`` (resource-scoping)."""
+    await create_test_user(email="admin@room-qr-none.com", role="admin")
+    await login_as("admin@room-qr-none.com", "testpassword123")
+    room = await create_room()
+    resp = await client.get(f"/api/rooms/{room.id}/schedule")
+    assert resp.status_code == 200
+    assert resp.json()["quality_report"] is None

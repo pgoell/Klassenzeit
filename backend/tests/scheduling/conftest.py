@@ -735,6 +735,106 @@ async def seeded_two_placements_for_swap(
 
 
 @pytest.fixture
+def seed_placements_for_attribution(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> Callable[..., Awaitable[uuid.UUID]]:
+    """Seed a SchoolClass + placements that exercise gap_hours and home_room_misses.
+
+    Returns an async callable:
+    ``(*, gap_positions_for_a_day, place_one_outside_home_room) -> UUID``.
+
+    Seeds:
+    - one SchoolClass with ``home_room_id`` set to one of two created rooms;
+    - one WeekScheme with TimeBlocks at positions 1, 2, 3 on day_of_week=1 (all
+      ``kind=LESSON``);
+    - two Subjects (both non-exempt from the home-room ratio);
+    - two Lessons + matching ``LessonSchoolClass`` rows;
+    - two ScheduledLesson rows placed at the two requested positions, with the
+      second placement's ``room_id`` toggled between home / non-home per the
+      flag.
+    """
+
+    async def _seed(
+        *,
+        gap_positions_for_a_day: tuple[int, int],
+        place_one_outside_home_room: bool,
+    ) -> uuid.UUID:
+        ws = await create_week_scheme()
+        # Three lesson-kind time blocks at positions 1, 2, 3 on day_of_week=1.
+        tbs = [
+            await create_time_block(
+                week_scheme_id=ws.id,
+                day_of_week=1,
+                position=p,
+                start_time=time(8 + p, 0),
+                end_time=time(8 + p, 45),
+            )
+            for p in (1, 2, 3)
+        ]
+        home_room = await create_room()
+        other_room = await create_room()
+        tafel = await create_stundentafel()
+        cls = await create_school_class(
+            stundentafel_id=tafel.id,
+            week_scheme_id=ws.id,
+            home_room_id=home_room.id,
+        )
+        teacher = await create_teacher()
+        subj_a = await create_subject()
+        subj_b = await create_subject()
+        lesson_a = Lesson(
+            subject_id=subj_a.id,
+            teacher_id=teacher.id,
+            hours_per_week=1,
+            preferred_block_size=1,
+        )
+        lesson_b = Lesson(
+            subject_id=subj_b.id,
+            teacher_id=teacher.id,
+            hours_per_week=1,
+            preferred_block_size=1,
+        )
+        db_session.add_all([lesson_a, lesson_b])
+        await db_session.flush()
+        db_session.add_all(
+            [
+                LessonSchoolClass(lesson_id=lesson_a.id, school_class_id=cls.id),
+                LessonSchoolClass(lesson_id=lesson_b.id, school_class_id=cls.id),
+            ]
+        )
+        await db_session.flush()
+        pos_first, pos_second = gap_positions_for_a_day
+        tb_by_pos = {tb.position: tb for tb in tbs}
+        db_session.add(
+            ScheduledLesson(
+                lesson_id=lesson_a.id,
+                time_block_id=tb_by_pos[pos_first].id,
+                room_id=home_room.id,
+                teacher_id=teacher.id,
+            )
+        )
+        db_session.add(
+            ScheduledLesson(
+                lesson_id=lesson_b.id,
+                time_block_id=tb_by_pos[pos_second].id,
+                room_id=(other_room.id if place_one_outside_home_room else home_room.id),
+                teacher_id=teacher.id,
+            )
+        )
+        await db_session.flush()
+        return cls.id
+
+    return _seed
+
+
+@pytest.fixture
 async def seeded_dreizuegig_with_one_pin(
     db_session: AsyncSession,
     create_subject: CreateSubjectFn,
