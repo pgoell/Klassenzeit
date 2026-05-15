@@ -533,16 +533,20 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
     write_table_header(&mut markdown, render_kempe_chain_col);
 
     let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
-    let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+    let effective_jobs = NonZeroUsize::new(args.jobs.get().min(plan.len()).max(1))
+        .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
+
+    let runner = |spec: &CellSpec| -> Result<CellResult, String> {
         spawn_cell(&exe, spec, args.budget, args.seeds, args.teacher_pins)
     };
     let successes = render_cells_with_specs(
         &plan,
-        &mut runner,
+        runner,
         &mut markdown,
         &mut all_results,
         render_kempe_chain_col,
         args.teacher_pins.teacher_pins_label(),
+        effective_jobs,
     );
 
     if sweep_mode {
@@ -679,28 +683,35 @@ fn log_cell_outcome(
 
 fn render_cells_with_specs<F>(
     plan: &[CellSpec],
-    runner: &mut F,
+    runner: F,
     markdown: &mut String,
     all_results: &mut Vec<(CellSpec, CellResult)>,
     render_kempe_chain_col: bool,
     teacher_pins_label: &str,
+    effective_jobs: NonZeroUsize,
 ) -> usize
 where
-    F: FnMut(&CellSpec) -> Result<CellResult, String>,
+    F: Fn(&CellSpec) -> Result<CellResult, String> + Sync,
 {
-    // Phase A: execute. Log start, run, log done/error, collect.
-    let mut outcomes: Vec<Result<CellResult, String>> = Vec::with_capacity(plan.len());
-    for spec in plan {
-        eprintln!(
-            "cell start: {} / {} teacher_pins={}",
-            spec.fixture,
-            spec.backend.label(),
-            teacher_pins_label,
-        );
-        let outcome = runner(spec);
-        log_cell_outcome(spec, &outcome, teacher_pins_label);
-        outcomes.push(outcome);
-    }
+    // Phase A: execute. Serial path preserves today's exact ordering; the
+    // parallel path is taken only when `effective_jobs > 1`.
+    let outcomes: Vec<Result<CellResult, String>> = if effective_jobs.get() == 1 {
+        let mut acc: Vec<Result<CellResult, String>> = Vec::with_capacity(plan.len());
+        for spec in plan {
+            eprintln!(
+                "cell start: {} / {} teacher_pins={}",
+                spec.fixture,
+                spec.backend.label(),
+                teacher_pins_label,
+            );
+            let outcome = runner(spec);
+            log_cell_outcome(spec, &outcome, teacher_pins_label);
+            acc.push(outcome);
+        }
+        acc
+    } else {
+        run_cells_parallel(plan, &runner, effective_jobs, teacher_pins_label)
+    };
 
     // Phase B: render rows in plan order.
     let mut successes = 0usize;
@@ -729,6 +740,62 @@ where
         }
     }
     successes
+}
+
+fn run_cells_parallel<F>(
+    plan: &[CellSpec],
+    runner: &F,
+    jobs: NonZeroUsize,
+    teacher_pins_label: &str,
+) -> Vec<Result<CellResult, String>>
+where
+    F: Fn(&CellSpec) -> Result<CellResult, String> + Sync,
+{
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+
+    let (tx_work, rx_work) = mpsc::channel::<(usize, CellSpec)>();
+    for (idx, spec) in plan.iter().cloned().enumerate() {
+        tx_work.send((idx, spec)).expect("work channel send");
+    }
+    drop(tx_work);
+    let rx_work = Arc::new(Mutex::new(rx_work));
+
+    let (tx_res, rx_res) = mpsc::channel::<(usize, Result<CellResult, String>)>();
+
+    thread::scope(|scope| {
+        for _ in 0..jobs.get() {
+            let rx_work = Arc::clone(&rx_work);
+            let tx_res = tx_res.clone();
+            scope.spawn(move || loop {
+                let next = {
+                    let guard = rx_work.lock().expect("work mutex poisoned");
+                    guard.recv()
+                };
+                let Ok((idx, spec)) = next else { break };
+                eprintln!(
+                    "cell start: {} / {} teacher_pins={}",
+                    spec.fixture,
+                    spec.backend.label(),
+                    teacher_pins_label,
+                );
+                let outcome = runner(&spec);
+                log_cell_outcome(&spec, &outcome, teacher_pins_label);
+                tx_res.send((idx, outcome)).expect("result channel send");
+            });
+        }
+        drop(tx_res);
+    });
+
+    let mut outcomes: Vec<Option<Result<CellResult, String>>> =
+        (0..plan.len()).map(|_| None).collect();
+    for (idx, outcome) in rx_res {
+        outcomes[idx] = Some(outcome);
+    }
+    outcomes
+        .into_iter()
+        .map(|o| o.expect("missing cell outcome"))
+        .collect()
 }
 
 fn run_cell_child(raw: Vec<String>) -> ExitCode {
@@ -2195,7 +2262,7 @@ mod tests {
             resilience_spec("grundschule", BenchBackend::LahcRr),
             resilience_spec("grundschule", BenchBackend::LahcRrKempe),
         ];
-        let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+        let runner = |spec: &CellSpec| -> Result<CellResult, String> {
             if matches!(spec.backend, BenchBackend::LahcRr) {
                 Err("synthetic-panic: cell exited with non-zero".to_string())
             } else {
@@ -2206,11 +2273,12 @@ mod tests {
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes = render_cells_with_specs(
             &plan,
-            &mut runner,
+            runner,
             &mut markdown,
             &mut all_results,
             false,
             "on",
+            NonZeroUsize::new(1).unwrap(),
         );
         assert_eq!(successes, 2, "two cells should have succeeded");
         assert!(
@@ -2233,18 +2301,19 @@ mod tests {
             resilience_spec("grundschule", BenchBackend::Lahc),
             resilience_spec("grundschule", BenchBackend::LahcRr),
         ];
-        let mut runner = |_spec: &CellSpec| -> Result<CellResult, String> {
+        let runner = |_spec: &CellSpec| -> Result<CellResult, String> {
             Err("everything is on fire".to_string())
         };
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes = render_cells_with_specs(
             &plan,
-            &mut runner,
+            runner,
             &mut markdown,
             &mut all_results,
             false,
             "on",
+            NonZeroUsize::new(1).unwrap(),
         );
         assert_eq!(successes, 0);
         let panic_row_count = markdown.matches("| panic |").count();

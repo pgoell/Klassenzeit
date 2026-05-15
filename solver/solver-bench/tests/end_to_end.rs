@@ -230,3 +230,139 @@ fn supervisor_renders_kempe_chain_column_in_sweep_mode() {
     );
     let _ = std::fs::remove_file(&out);
 }
+
+#[test]
+fn supervisor_runs_cells_concurrently_when_jobs_is_greater_than_one() {
+    // RED gate: under serial execution, every "cell done:" line precedes the
+    // next "cell start:" line. Under --jobs 4 the first "cell done:" line is
+    // preceded by at least 2 "cell start:" lines.
+    let out = unique_outfile("jobs-stderr");
+    let child = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "500ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule,zweizuegig",
+            "--backends",
+            "lahc",
+            "--jobs",
+            "4",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn supervisor");
+    let output = child.wait_with_output().expect("wait supervisor");
+    assert!(output.status.success(), "supervisor exited non-zero");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let mut starts_before_first_done = 0usize;
+    let mut seen_done = false;
+    for line in stderr.lines() {
+        if line.starts_with("cell start:") && !seen_done {
+            starts_before_first_done += 1;
+        }
+        if line.starts_with("cell done:") {
+            seen_done = true;
+        }
+    }
+    assert!(
+        starts_before_first_done >= 2,
+        "expected >= 2 'cell start:' lines before the first 'cell done:' under --jobs 4; saw {starts_before_first_done}. stderr:\n{stderr}",
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn supervisor_parallel_and_serial_agree_on_row_order_and_body() {
+    let serial_out = unique_outfile("agree-serial");
+    let parallel_out = unique_outfile("agree-parallel");
+
+    let common = [
+        "--budget",
+        "200ms",
+        "--seeds",
+        "2",
+        "--fixtures",
+        "grundschule,zweizuegig",
+    ];
+
+    let s_status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args(common)
+        .args([
+            "--jobs",
+            "1",
+            "--out",
+            serial_out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn serial supervisor");
+    assert!(s_status.success(), "serial supervisor exited non-zero");
+
+    let p_status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args(common)
+        .args([
+            "--jobs",
+            "4",
+            "--out",
+            parallel_out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn parallel supervisor");
+    assert!(p_status.success(), "parallel supervisor exited non-zero");
+
+    let serial_body = std::fs::read_to_string(&serial_out).expect("read serial");
+    let parallel_body = std::fs::read_to_string(&parallel_out).expect("read parallel");
+
+    let extract_fixture_order = |body: &str| -> Vec<String> {
+        body.lines()
+            .filter(|l| l.starts_with("| grundschule") || l.starts_with("| zweizuegig"))
+            .map(|l| l.split('|').nth(1).map(str::trim).unwrap_or("").to_string())
+            .collect()
+    };
+    assert_eq!(
+        extract_fixture_order(&serial_body),
+        extract_fixture_order(&parallel_body),
+        "row order differs between serial and parallel runs",
+    );
+
+    let strip_timing = |body: &str| -> String {
+        body.lines()
+            .map(|l| {
+                if l.starts_with('|') {
+                    l.split('|')
+                        .map(|cell| {
+                            let trimmed = cell.trim();
+                            if trimmed.is_empty() {
+                                cell.to_string()
+                            } else if trimmed
+                                .chars()
+                                .all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '/')
+                            {
+                                "<n>".to_string()
+                            } else {
+                                cell.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("|")
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    assert_eq!(
+        strip_timing(&serial_body),
+        strip_timing(&parallel_body),
+        "non-timing body differs between serial and parallel runs",
+    );
+
+    let _ = std::fs::remove_file(&serial_out);
+    let _ = std::fs::remove_file(&parallel_out);
+}
