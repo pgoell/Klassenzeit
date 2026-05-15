@@ -15,8 +15,10 @@ mod quality;
 use std::env;
 use std::fs;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -187,6 +189,7 @@ struct SupervisorArgs {
     kempe_max_chain_values: Option<Vec<u32>>,
     append: bool,
     teacher_pins: TeacherPinsMode,
+    jobs: NonZeroUsize,
 }
 
 fn default_supervisor_args() -> SupervisorArgs {
@@ -201,7 +204,12 @@ fn default_supervisor_args() -> SupervisorArgs {
         kempe_max_chain_values: None,
         append: false,
         teacher_pins: TeacherPinsMode::On,
+        jobs: default_jobs(),
     }
+}
+
+fn default_jobs() -> NonZeroUsize {
+    thread::available_parallelism().unwrap_or_else(|_| NonZeroUsize::new(1).unwrap())
 }
 
 fn parse_u32_csv(label: &str, value: &str) -> Result<Vec<u32>, String> {
@@ -281,6 +289,14 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
             }
             "--append" => {
                 args.append = true;
+            }
+            "--jobs" => {
+                let v = iter.next().ok_or("--jobs needs a value")?;
+                let n: usize = v
+                    .parse()
+                    .map_err(|e| format!("--jobs must be a positive integer: {e}"))?;
+                args.jobs = NonZeroUsize::new(n)
+                    .ok_or_else(|| "--jobs must be greater than zero".to_string())?;
             }
             other => return Err(format!("unknown flag '{other}'")),
         }
