@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.scheduling.quality_checks import (
     compute_quality_attribution_for_class,
+    compute_quality_attribution_for_teacher,
 )
 from klassenzeit_backend.scheduling.schemas.quality_report import QualityReportResponse
 
@@ -21,7 +22,7 @@ async def test_compute_quality_attribution_for_class_returns_per_class_subtotals
     seed_placements_for_attribution,
 ) -> None:
     """Two seeded placements force one interior gap + one home-room miss."""
-    class_id = await seed_placements_for_attribution(
+    class_id, _teacher_id = await seed_placements_for_attribution(
         gap_positions_for_a_day=(1, 3),  # positions 1 + 3 on the same day = 1 gap hour
         place_one_outside_home_room=True,
     )
@@ -38,7 +39,7 @@ async def test_compute_quality_attribution_for_class_skips_zero_entries(
     seed_placements_for_attribution,
 ) -> None:
     """No gaps, all placements in home room: maps are empty per the skip-zero convention."""
-    class_id = await seed_placements_for_attribution(
+    class_id, _teacher_id = await seed_placements_for_attribution(
         gap_positions_for_a_day=(1, 2),  # contiguous, no gap
         place_one_outside_home_room=False,
     )
@@ -58,7 +59,7 @@ async def test_compute_quality_attribution_for_class_zeros_non_derivable_fields(
     Scalar int fields default to 0; ``dict[str, int]`` fields default to
     ``{}``. Documented in the schema docstring.
     """
-    class_id = await seed_placements_for_attribution(
+    class_id, _teacher_id = await seed_placements_for_attribution(
         gap_positions_for_a_day=(1, 3),
         place_one_outside_home_room=False,
     )
@@ -98,3 +99,45 @@ async def test_compute_quality_attribution_for_class_returns_zeros_for_unschedul
     assert report.class_gap_hours_by_class == {}
     assert report.home_room_misses == 0
     assert report.home_room_misses_by_class == {}
+
+
+async def test_compute_quality_attribution_for_teacher_returns_per_teacher_subtotals(
+    db_session: AsyncSession,
+    seed_placements_for_attribution,
+) -> None:
+    """One teacher with two placements at positions 1 and 3 same-day = 1 teacher gap hour."""
+    _class_id, teacher_id = await seed_placements_for_attribution(
+        gap_positions_for_a_day=(1, 3),
+        place_one_outside_home_room=False,
+    )
+    report = await compute_quality_attribution_for_teacher(db_session, teacher_id)
+    assert isinstance(report, QualityReportResponse)
+    assert report.teacher_gap_hours_by_teacher[str(teacher_id)] == 1
+    assert report.teacher_gap_hours == 1
+
+
+async def test_compute_quality_attribution_for_teacher_skips_zero_entries(
+    db_session: AsyncSession,
+    seed_placements_for_attribution,
+) -> None:
+    """Contiguous placements: skip-zero convention drops the key from the map."""
+    _class_id, teacher_id = await seed_placements_for_attribution(
+        gap_positions_for_a_day=(1, 2),
+        place_one_outside_home_room=False,
+    )
+    report = await compute_quality_attribution_for_teacher(db_session, teacher_id)
+    assert report.teacher_gap_hours_by_teacher == {}
+    assert report.teacher_gap_hours == 0
+
+
+async def test_compute_quality_attribution_for_teacher_returns_zeros_for_unscheduled_teacher(
+    db_session: AsyncSession,
+    create_teacher,
+) -> None:
+    """A teacher with no placements yields an all-zero / empty QualityReportResponse."""
+    teacher = await create_teacher()
+    report = await compute_quality_attribution_for_teacher(db_session, teacher.id)
+    assert report.teacher_gap_hours == 0
+    assert report.teacher_gap_hours_by_teacher == {}
+    assert report.class_gap_hours == 0
+    assert report.home_room_misses == 0

@@ -539,3 +539,76 @@ async def compute_quality_attribution_for_class(
         worst_per_class_spread=0,
         worst_per_class_interior_gaps=0,
     )
+
+
+async def compute_quality_attribution_for_teacher(
+    db: AsyncSession,
+    teacher_id: UUID,
+) -> QualityReportResponse:
+    """Recompute per-teacher QualityReport attribution from persisted placements.
+
+    Returns a ``QualityReportResponse`` with one derivable axis populated:
+
+    - ``teacher_gap_hours_by_teacher[teacher_id]`` = sum of interior gaps
+      over this teacher's daily placement-position sets (gap count for one
+      day = ``last - first + 1 - len(unique_positions)``).
+
+    Skip-zero convention: a per-teacher total of 0 omits the key. The
+    matching scalar (``teacher_gap_hours``) equals the sum of the map's
+    values (here: just this teacher's value).
+
+    Implementation reuses ``load_placements`` plus
+    ``_load_placement_teacher_lookup`` (which filters out rows where
+    ``ScheduledLesson.teacher_id is None``); placements without a teacher
+    are excluded by canonical solver-side semantics.
+
+    Per-day positions read ``Placement.position`` (the lesson ordinal,
+    1-indexed via ``build_lesson_ordinal_map``), matching the class-side
+    gap formula and the canonical convention pinned by ``backend/CLAUDE.md``.
+
+    Combined-class lessons (one ScheduledLesson joined to N classes
+    through LessonSchoolClass) produce N Placement rows at the same
+    ``(day, position)``; ``set(positions)`` collapses them so the gap
+    count matches the solver-core canonical computation.
+
+    All other ``QualityReport`` fields default to neutral values: scalar
+    ``int`` to ``0``, ``dict[str, int]`` to ``{}``. Returns an all-zero /
+    empty-map report when the teacher has no placements yet.
+    """
+    placements = await load_placements(db)
+    placement_teacher_lookup = await _load_placement_teacher_lookup(db)
+    placements_for_teacher = [
+        p for p in placements if placement_teacher_lookup.get(p.lesson_id) == teacher_id
+    ]
+
+    positions_per_day: dict[int, list[int]] = {}
+    for p in placements_for_teacher:
+        positions_per_day.setdefault(p.day, []).append(p.position)
+    gap_total = 0
+    for positions in positions_per_day.values():
+        unique = sorted(set(positions))
+        if not unique:
+            continue
+        gap_total += max(0, unique[-1] - unique[0] + 1 - len(unique))
+
+    teacher_id_str = str(teacher_id)
+    return QualityReportResponse(
+        hard_violations=0,
+        unplaced_hours=0,
+        class_gap_hours=0,
+        class_gap_hours_by_class={},
+        teacher_gap_hours=gap_total,
+        teacher_gap_hours_by_teacher={teacher_id_str: gap_total} if gap_total > 0 else {},
+        class_day_balance_cost=0,
+        class_day_balance_cost_by_class={},
+        home_room_misses=0,
+        home_room_misses_by_class={},
+        prefer_early_units=0,
+        avoid_first_units=0,
+        avoid_last_units=0,
+        prefer_late_units=0,
+        prefer_class_teacher_misses=0,
+        weighted_score=0,
+        worst_per_class_spread=0,
+        worst_per_class_interior_gaps=0,
+    )
