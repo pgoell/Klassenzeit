@@ -600,6 +600,67 @@ fn spawn_cell(
     serde_json::from_str(stdout.trim()).map_err(|e| format!("cell JSON: {e}; raw: {stdout}"))
 }
 
+fn log_cell_outcome(
+    spec: &CellSpec,
+    outcome: &Result<CellResult, String>,
+    teacher_pins_label: &str,
+) {
+    match outcome {
+        Ok(cell) => {
+            eprintln!(
+                "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
+                 placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
+                 tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
+                 kl_share_med={} quality_med={}",
+                spec.fixture,
+                spec.backend.label(),
+                teacher_pins_label,
+                cell.feasibility_count,
+                cell.seeds,
+                cell.hard_violations_median,
+                cell.placements_total_median,
+                cell.placements_expected,
+                cell.soft_score_median
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.total_ms_median,
+                cell.peak_kb,
+                cell.time_to_first_feasible_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.time_to_optimal_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.worst_spread_median
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.worst_home_room_ratio_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.total_interior_gaps_median
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.late_period_ratio_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.class_teacher_subject_share_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.quality_pass_count_median
+                    .map(|v| format!("{v}/5"))
+                    .unwrap_or_else(|| "-".to_string()),
+            );
+        }
+        Err(reason) => {
+            eprintln!(
+                "cell error: {} / {}: {reason}",
+                spec.fixture,
+                spec.backend.label()
+            );
+        }
+    }
+}
+
 fn render_cells_with_specs<F>(
     plan: &[CellSpec],
     runner: &mut F,
@@ -611,7 +672,8 @@ fn render_cells_with_specs<F>(
 where
     F: FnMut(&CellSpec) -> Result<CellResult, String>,
 {
-    let mut successes = 0usize;
+    // Phase A: execute. Log start, run, log done/error, collect.
+    let mut outcomes: Vec<Result<CellResult, String>> = Vec::with_capacity(plan.len());
     for spec in plan {
         eprintln!(
             "cell start: {} / {} teacher_pins={}",
@@ -619,51 +681,16 @@ where
             spec.backend.label(),
             teacher_pins_label,
         );
-        match runner(spec) {
+        let outcome = runner(spec);
+        log_cell_outcome(spec, &outcome, teacher_pins_label);
+        outcomes.push(outcome);
+    }
+
+    // Phase B: render rows in plan order.
+    let mut successes = 0usize;
+    for (spec, outcome) in plan.iter().zip(outcomes.into_iter()) {
+        match outcome {
             Ok(cell) => {
-                eprintln!(
-                    "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
-                     placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
-                     tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
-                     kl_share_med={} quality_med={}",
-                    spec.fixture,
-                    spec.backend.label(),
-                    teacher_pins_label,
-                    cell.feasibility_count,
-                    cell.seeds,
-                    cell.hard_violations_median,
-                    cell.placements_total_median,
-                    cell.placements_expected,
-                    cell.soft_score_median
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.total_ms_median,
-                    cell.peak_kb,
-                    cell.time_to_first_feasible_ms_median
-                        .map(|v| format!("{:.0}", v))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.time_to_optimal_ms_median
-                        .map(|v| format!("{:.0}", v))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.worst_spread_median
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.worst_home_room_ratio_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.total_interior_gaps_median
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.late_period_ratio_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.class_teacher_subject_share_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.quality_pass_count_median
-                        .map(|v| format!("{v}/5"))
-                        .unwrap_or_else(|| "-".to_string()),
-                );
                 write_row(
                     markdown,
                     spec.fixture,
@@ -675,11 +702,6 @@ where
                 successes += 1;
             }
             Err(reason) => {
-                eprintln!(
-                    "cell error: {} / {}: {reason}",
-                    spec.fixture,
-                    spec.backend.label()
-                );
                 write_error_row(
                     markdown,
                     spec.fixture,
