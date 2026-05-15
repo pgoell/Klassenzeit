@@ -15,8 +15,10 @@ mod quality;
 use std::env;
 use std::fs;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -187,6 +189,7 @@ struct SupervisorArgs {
     kempe_max_chain_values: Option<Vec<u32>>,
     append: bool,
     teacher_pins: TeacherPinsMode,
+    jobs: NonZeroUsize,
 }
 
 fn default_supervisor_args() -> SupervisorArgs {
@@ -201,7 +204,12 @@ fn default_supervisor_args() -> SupervisorArgs {
         kempe_max_chain_values: None,
         append: false,
         teacher_pins: TeacherPinsMode::On,
+        jobs: default_jobs(),
     }
+}
+
+fn default_jobs() -> NonZeroUsize {
+    thread::available_parallelism().unwrap_or_else(|_| NonZeroUsize::new(1).unwrap())
 }
 
 fn parse_u32_csv(label: &str, value: &str) -> Result<Vec<u32>, String> {
@@ -281,6 +289,14 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
             }
             "--append" => {
                 args.append = true;
+            }
+            "--jobs" => {
+                let v = iter.next().ok_or("--jobs needs a value")?;
+                let n: usize = v
+                    .parse()
+                    .map_err(|e| format!("--jobs must be a positive integer: {e}"))?;
+                args.jobs = NonZeroUsize::new(n)
+                    .ok_or_else(|| "--jobs must be greater than zero".to_string())?;
             }
             other => return Err(format!("unknown flag '{other}'")),
         }
@@ -517,16 +533,20 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
     write_table_header(&mut markdown, render_kempe_chain_col);
 
     let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
-    let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+    let effective_jobs = NonZeroUsize::new(args.jobs.get().min(plan.len()).max(1))
+        .unwrap_or_else(|| NonZeroUsize::new(1).unwrap());
+
+    let runner = |spec: &CellSpec| -> Result<CellResult, String> {
         spawn_cell(&exe, spec, args.budget, args.seeds, args.teacher_pins)
     };
     let successes = render_cells_with_specs(
         &plan,
-        &mut runner,
+        runner,
         &mut markdown,
         &mut all_results,
         render_kempe_chain_col,
         args.teacher_pins.teacher_pins_label(),
+        effective_jobs,
     );
 
     if sweep_mode {
@@ -600,70 +620,104 @@ fn spawn_cell(
     serde_json::from_str(stdout.trim()).map_err(|e| format!("cell JSON: {e}; raw: {stdout}"))
 }
 
+fn log_cell_outcome(
+    spec: &CellSpec,
+    outcome: &Result<CellResult, String>,
+    teacher_pins_label: &str,
+) {
+    match outcome {
+        Ok(cell) => {
+            eprintln!(
+                "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
+                 placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
+                 tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
+                 kl_share_med={} quality_med={}",
+                spec.fixture,
+                spec.backend.label(),
+                teacher_pins_label,
+                cell.feasibility_count,
+                cell.seeds,
+                cell.hard_violations_median,
+                cell.placements_total_median,
+                cell.placements_expected,
+                cell.soft_score_median
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.total_ms_median,
+                cell.peak_kb,
+                cell.time_to_first_feasible_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.time_to_optimal_ms_median
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.worst_spread_median
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.worst_home_room_ratio_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.total_interior_gaps_median
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.late_period_ratio_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.class_teacher_subject_share_median
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "-".to_string()),
+                cell.quality_pass_count_median
+                    .map(|v| format!("{v}/5"))
+                    .unwrap_or_else(|| "-".to_string()),
+            );
+        }
+        Err(reason) => {
+            eprintln!(
+                "cell error: {} / {}: {reason}",
+                spec.fixture,
+                spec.backend.label()
+            );
+        }
+    }
+}
+
 fn render_cells_with_specs<F>(
     plan: &[CellSpec],
-    runner: &mut F,
+    runner: F,
     markdown: &mut String,
     all_results: &mut Vec<(CellSpec, CellResult)>,
     render_kempe_chain_col: bool,
     teacher_pins_label: &str,
+    effective_jobs: NonZeroUsize,
 ) -> usize
 where
-    F: FnMut(&CellSpec) -> Result<CellResult, String>,
+    F: Fn(&CellSpec) -> Result<CellResult, String> + Sync,
 {
+    // Phase A: execute. Serial path preserves today's exact ordering; the
+    // parallel path is taken only when `effective_jobs > 1`.
+    let outcomes: Vec<Result<CellResult, String>> = if effective_jobs.get() == 1 {
+        let mut acc: Vec<Result<CellResult, String>> = Vec::with_capacity(plan.len());
+        for spec in plan {
+            eprintln!(
+                "cell start: {} / {} teacher_pins={}",
+                spec.fixture,
+                spec.backend.label(),
+                teacher_pins_label,
+            );
+            let outcome = runner(spec);
+            log_cell_outcome(spec, &outcome, teacher_pins_label);
+            acc.push(outcome);
+        }
+        acc
+    } else {
+        run_cells_parallel(plan, &runner, effective_jobs, teacher_pins_label)
+    };
+
+    // Phase B: render rows in plan order.
     let mut successes = 0usize;
-    for spec in plan {
-        eprintln!(
-            "cell start: {} / {} teacher_pins={}",
-            spec.fixture,
-            spec.backend.label(),
-            teacher_pins_label,
-        );
-        match runner(spec) {
+    for (spec, outcome) in plan.iter().zip(outcomes.into_iter()) {
+        match outcome {
             Ok(cell) => {
-                eprintln!(
-                    "cell done: {} / {} teacher_pins={} feasibility {}/{} hard_med={} \
-                     placements_med={}/{} soft_med={} total_ms_med={:.0} peak_kb={} ttf_med={} \
-                     tto_med={} worst_spread_med={} worst_home_med={} gaps_med={} late_med={} \
-                     kl_share_med={} quality_med={}",
-                    spec.fixture,
-                    spec.backend.label(),
-                    teacher_pins_label,
-                    cell.feasibility_count,
-                    cell.seeds,
-                    cell.hard_violations_median,
-                    cell.placements_total_median,
-                    cell.placements_expected,
-                    cell.soft_score_median
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.total_ms_median,
-                    cell.peak_kb,
-                    cell.time_to_first_feasible_ms_median
-                        .map(|v| format!("{:.0}", v))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.time_to_optimal_ms_median
-                        .map(|v| format!("{:.0}", v))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.worst_spread_median
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.worst_home_room_ratio_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.total_interior_gaps_median
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.late_period_ratio_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.class_teacher_subject_share_median
-                        .map(|v| format!("{v:.2}"))
-                        .unwrap_or_else(|| "-".to_string()),
-                    cell.quality_pass_count_median
-                        .map(|v| format!("{v}/5"))
-                        .unwrap_or_else(|| "-".to_string()),
-                );
                 write_row(
                     markdown,
                     spec.fixture,
@@ -675,11 +729,6 @@ where
                 successes += 1;
             }
             Err(reason) => {
-                eprintln!(
-                    "cell error: {} / {}: {reason}",
-                    spec.fixture,
-                    spec.backend.label()
-                );
                 write_error_row(
                     markdown,
                     spec.fixture,
@@ -691,6 +740,62 @@ where
         }
     }
     successes
+}
+
+fn run_cells_parallel<F>(
+    plan: &[CellSpec],
+    runner: &F,
+    jobs: NonZeroUsize,
+    teacher_pins_label: &str,
+) -> Vec<Result<CellResult, String>>
+where
+    F: Fn(&CellSpec) -> Result<CellResult, String> + Sync,
+{
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
+
+    let (tx_work, rx_work) = mpsc::channel::<(usize, CellSpec)>();
+    for (idx, spec) in plan.iter().cloned().enumerate() {
+        tx_work.send((idx, spec)).expect("work channel send");
+    }
+    drop(tx_work);
+    let rx_work = Arc::new(Mutex::new(rx_work));
+
+    let (tx_res, rx_res) = mpsc::channel::<(usize, Result<CellResult, String>)>();
+
+    thread::scope(|scope| {
+        for _ in 0..jobs.get() {
+            let rx_work = Arc::clone(&rx_work);
+            let tx_res = tx_res.clone();
+            scope.spawn(move || loop {
+                let next = {
+                    let guard = rx_work.lock().expect("work mutex poisoned");
+                    guard.recv()
+                };
+                let Ok((idx, spec)) = next else { break };
+                eprintln!(
+                    "cell start: {} / {} teacher_pins={}",
+                    spec.fixture,
+                    spec.backend.label(),
+                    teacher_pins_label,
+                );
+                let outcome = runner(&spec);
+                log_cell_outcome(&spec, &outcome, teacher_pins_label);
+                tx_res.send((idx, outcome)).expect("result channel send");
+            });
+        }
+        drop(tx_res);
+    });
+
+    let mut outcomes: Vec<Option<Result<CellResult, String>>> =
+        (0..plan.len()).map(|_| None).collect();
+    for (idx, outcome) in rx_res {
+        outcomes[idx] = Some(outcome);
+    }
+    outcomes
+        .into_iter()
+        .map(|o| o.expect("missing cell outcome"))
+        .collect()
 }
 
 fn run_cell_child(raw: Vec<String>) -> ExitCode {
@@ -946,7 +1051,8 @@ fn tempfile_path(prefix: &str, suffix: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("{prefix}{nanos}{suffix}"))
+    let pid = std::process::id();
+    std::env::temp_dir().join(format!("{prefix}{pid}-{nanos}{suffix}"))
 }
 
 fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64) -> CellResult {
@@ -1286,6 +1392,9 @@ fn write_backend_objectives_section(out: &mut String, backends: &[BenchBackend])
 fn write_title_and_intro(out: &mut String) {
     out.push_str("# Solver bake-off feasibility bench\n\n");
     out.push_str("<!-- Regenerated by `mise run bench:bakeoff`. Do not hand-edit. -->\n\n");
+    out.push_str(
+        "Cells run concurrently by default. The supervisor schedules up to `--jobs N` cell processes in parallel, defaulting to `std::thread::available_parallelism()`. CP-SAT is locked to one internal worker (`num_search_workers = 1`), so cross-cell concurrency does not oversubscribe internal CP-SAT threads. Pass `--jobs 1` to force serial execution.\n\n",
+    );
 }
 
 fn write_table_header(out: &mut String, render_kempe_chain_col: bool) {
@@ -2156,7 +2265,7 @@ mod tests {
             resilience_spec("grundschule", BenchBackend::LahcRr),
             resilience_spec("grundschule", BenchBackend::LahcRrKempe),
         ];
-        let mut runner = |spec: &CellSpec| -> Result<CellResult, String> {
+        let runner = |spec: &CellSpec| -> Result<CellResult, String> {
             if matches!(spec.backend, BenchBackend::LahcRr) {
                 Err("synthetic-panic: cell exited with non-zero".to_string())
             } else {
@@ -2167,11 +2276,12 @@ mod tests {
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes = render_cells_with_specs(
             &plan,
-            &mut runner,
+            runner,
             &mut markdown,
             &mut all_results,
             false,
             "on",
+            NonZeroUsize::new(1).unwrap(),
         );
         assert_eq!(successes, 2, "two cells should have succeeded");
         assert!(
@@ -2194,18 +2304,19 @@ mod tests {
             resilience_spec("grundschule", BenchBackend::Lahc),
             resilience_spec("grundschule", BenchBackend::LahcRr),
         ];
-        let mut runner = |_spec: &CellSpec| -> Result<CellResult, String> {
+        let runner = |_spec: &CellSpec| -> Result<CellResult, String> {
             Err("everything is on fire".to_string())
         };
         let mut markdown = String::new();
         let mut all_results: Vec<(CellSpec, CellResult)> = Vec::new();
         let successes = render_cells_with_specs(
             &plan,
-            &mut runner,
+            runner,
             &mut markdown,
             &mut all_results,
             false,
             "on",
+            NonZeroUsize::new(1).unwrap(),
         );
         assert_eq!(successes, 0);
         let panic_row_count = markdown.matches("| panic |").count();
@@ -2528,6 +2639,17 @@ mod tests {
         assert!(
             phantom.teacher_candidates.is_empty(),
             "unqualified subject must yield empty candidates"
+        );
+    }
+
+    #[test]
+    fn tempfile_path_includes_process_id_for_parallel_safety() {
+        let path = super::tempfile_path("kz-bench-test-", ".json");
+        let s = path.to_string_lossy();
+        let pid = std::process::id().to_string();
+        assert!(
+            s.contains(&pid),
+            "tempfile path missing pid for parallel safety: {s}"
         );
     }
 }

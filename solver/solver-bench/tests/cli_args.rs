@@ -121,3 +121,91 @@ fn cli_args_sweep_mode_appends_pareto_and_recommendation() {
     );
     let _ = std::fs::remove_file(&out);
 }
+
+#[test]
+fn jobs_flag_accepts_positive_integer() {
+    let out = cli_args_outfile("jobs-accepts");
+    let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc",
+            "--jobs",
+            "4",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor");
+    assert!(status.success(), "supervisor failed with --jobs 4");
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn jobs_flag_rejects_zero() {
+    let out = cli_args_outfile("jobs-zero");
+    let output = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--jobs",
+            "0",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .output()
+        .expect("spawn supervisor");
+    assert!(
+        !output.status.success(),
+        "expected nonzero exit on --jobs 0"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--jobs"),
+        "stderr should mention --jobs: {stderr}"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn jobs_flag_rejects_non_integer() {
+    let out = cli_args_outfile("jobs-non-integer");
+    let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--jobs",
+            "abc",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor");
+    assert!(!status.success(), "expected nonzero exit on --jobs abc");
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn jobs_flag_rejects_missing_value() {
+    let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .arg("--jobs")
+        .status()
+        .expect("spawn supervisor");
+    assert!(
+        !status.success(),
+        "expected nonzero exit on --jobs without value"
+    );
+}
