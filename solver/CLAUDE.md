@@ -80,7 +80,7 @@ Crate directory as scope: `feat(solver-core): ...`, `feat(solver-py): ...`, `fea
 | Rust-only edit in one crate | `cargo nextest run -p <crate>` |
 | Rust-only edit, full workspace | `mise run test:rust` |
 | `solver-py` targeted check | `cargo nextest run -p solver-py --no-tests=pass` |
-| `solver-bench` targeted check | `cargo nextest run -p solver-bench --bin solver-bench` plus `--test end_to_end` |
+| `solver-bench` targeted check | `cargo nextest run -p solver-bench` (runs the `solver-bench` bin's unit tests plus every `tests/*.rs` integration target: `end_to_end`, `cli_args`, ...). A bare `--bin solver-bench` skips the integration tests; a single `--test <name>` runs only that file. |
 | PyO3 signature or stub change | above + `uv run pytest solver/solver-py/tests` |
 | Algorithm change | `mise run bench` (criterion vs BASELINE.md) and / or `mise run bench:bakeoff` (feasibility vs BENCH_RESULTS.md) |
 
