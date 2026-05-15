@@ -166,6 +166,8 @@ struct CellResult {
     teacher_gap_hours_median: Option<u32>,
     class_day_balance_cost_median: Option<u32>,
     home_room_misses_median: Option<u32>,
+    soft_pin_misses_median: Option<u32>,
+    supervision_spread_raw_median: Option<u32>,
     prefer_early_units_median: Option<u32>,
     avoid_first_units_median: Option<u32>,
     avoid_last_units_median: Option<u32>,
@@ -973,6 +975,8 @@ fn run_lahc_cell(
         teacher_gap_hours_median,
         class_day_balance_cost_median,
         home_room_misses_median,
+        soft_pin_misses_median,
+        supervision_spread_raw_median,
         prefer_early_units_median,
         avoid_first_units_median,
         avoid_last_units_median,
@@ -1014,6 +1018,8 @@ fn run_lahc_cell(
         teacher_gap_hours_median,
         class_day_balance_cost_median,
         home_room_misses_median,
+        soft_pin_misses_median,
+        supervision_spread_raw_median,
         prefer_early_units_median,
         avoid_first_units_median,
         avoid_last_units_median,
@@ -1176,6 +1182,8 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         teacher_gap_hours_median,
         class_day_balance_cost_median,
         home_room_misses_median,
+        soft_pin_misses_median,
+        supervision_spread_raw_median,
         prefer_early_units_median,
         avoid_first_units_median,
         avoid_last_units_median,
@@ -1217,6 +1225,8 @@ fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64
         teacher_gap_hours_median,
         class_day_balance_cost_median,
         home_room_misses_median,
+        soft_pin_misses_median,
+        supervision_spread_raw_median,
         prefer_early_units_median,
         avoid_first_units_median,
         avoid_last_units_median,
@@ -1301,7 +1311,7 @@ fn aggregate_quality_medians(reports: &[quality::QualityPredicates]) -> QualityM
     )
 }
 
-/// Nine-tuple returned by [`aggregate_component_medians`]: one entry per
+/// Eleven-tuple returned by [`aggregate_component_medians`]: one entry per
 /// `QualityReport` field that does not already have a CellResult median
 /// (`hard_violations` and `weighted_score` are mirrored by the existing
 /// `hard_violations_median` and `soft_score_median`).
@@ -1311,6 +1321,8 @@ type ComponentMedians = (
     Option<u32>, // teacher_gap_hours
     Option<u32>, // class_day_balance_cost
     Option<u32>, // home_room_misses
+    Option<u32>, // soft_pin_misses
+    Option<u32>, // supervision_spread_raw
     Option<u32>, // prefer_early_units
     Option<u32>, // avoid_first_units
     Option<u32>, // avoid_last_units
@@ -1319,7 +1331,9 @@ type ComponentMedians = (
 
 fn aggregate_component_medians(reports: &[quality::QualityReport]) -> ComponentMedians {
     if reports.is_empty() {
-        return (None, None, None, None, None, None, None, None, None);
+        return (
+            None, None, None, None, None, None, None, None, None, None, None,
+        );
     }
     let median = |samples: Vec<u32>| -> Option<u32> {
         if samples.is_empty() {
@@ -1335,6 +1349,8 @@ fn aggregate_component_medians(reports: &[quality::QualityReport]) -> ComponentM
         median(reports.iter().map(|r| r.teacher_gap_hours).collect()),
         median(reports.iter().map(|r| r.class_day_balance_cost).collect()),
         median(reports.iter().map(|r| r.home_room_misses).collect()),
+        median(reports.iter().map(|r| r.soft_pin_misses).collect()),
+        median(reports.iter().map(|r| r.supervision_spread_raw).collect()),
         median(reports.iter().map(|r| r.prefer_early_units).collect()),
         median(reports.iter().map(|r| r.avoid_first_units).collect()),
         median(reports.iter().map(|r| r.avoid_last_units).collect()),
@@ -1400,17 +1416,17 @@ fn write_title_and_intro(out: &mut String) {
 fn write_table_header(out: &mut String, render_kempe_chain_col: bool) {
     if render_kempe_chain_col {
         out.push_str(
-            "| Fixture | Backend | RR_K | Period | Kempe Chain | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
+            "| Fixture | Backend | RR_K | Period | Kempe Chain | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | Soft-pin miss (median) | Supervision spread (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
         );
         out.push_str(
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
         );
     } else {
         out.push_str(
-            "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
+            "| Fixture | Backend | RR_K | Period | Seeds | Feasibility | Hard violations (median) | Placements (median / expected) | Soft score (median, feasible) | Class gap h (median) | Teacher gap h (median) | Home room miss (median) | Day balance (median) | Soft-pin miss (median) | Supervision spread (median) | FFD wall-clock (ms, median) | Total wall-clock (ms, median) | Peak RSS (kB) | Time to first feasible (ms, median) | Time to optimal (ms, median) | Worst spread (median) | Worst home-room ratio (median) | Total interior gaps (median) | Late-period ratio (median) | Klassenlehrer share (median) | Quality (pass / 5) |\n",
         );
         out.push_str(
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
         );
     }
 }
@@ -1439,6 +1455,14 @@ fn write_row(
         None => "-".to_string(),
     };
     let day_balance = match cell.class_day_balance_cost_median {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let soft_pin_miss = match cell.soft_pin_misses_median {
+        Some(v) => v.to_string(),
+        None => "-".to_string(),
+    };
+    let supervision_spread = match cell.supervision_spread_raw_median {
         Some(v) => v.to_string(),
         None => "-".to_string(),
     };
@@ -1488,7 +1512,7 @@ fn write_row(
             None => "-".to_string(),
         };
         out.push_str(&format!(
-            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {kempe_chain_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {kempe_chain_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {soft_pin_miss} | {supervision_spread} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
             backend = backend.label(),
             seeds = cell.seeds,
             n = cell.feasibility_count,
@@ -1498,10 +1522,12 @@ fn write_row(
             ffd = cell.ffd_ms_median,
             total = cell.total_ms_median,
             peak = cell.peak_kb,
+            soft_pin_miss = soft_pin_miss,
+            supervision_spread = supervision_spread,
         ));
     } else {
         out.push_str(&format!(
-            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
+            "| {fixture} | {backend} | {rr_k_col} | {rr_period_col} | {seeds} | {n}/{seeds} | {hard} | {placed}/{expected} | {soft} | {class_gap_h} | {teacher_gap_h} | {home_room_miss} | {day_balance} | {soft_pin_miss} | {supervision_spread} | {ffd:.2} | {total:.0} | {peak} | {ttf} | {tto} | {worst_spread} | {worst_home} | {gaps} | {late} | {class_teacher_share} | {quality} |\n",
             backend = backend.label(),
             seeds = cell.seeds,
             n = cell.feasibility_count,
@@ -1511,6 +1537,8 @@ fn write_row(
             ffd = cell.ffd_ms_median,
             total = cell.total_ms_median,
             peak = cell.peak_kb,
+            soft_pin_miss = soft_pin_miss,
+            supervision_spread = supervision_spread,
         ));
     }
 }
@@ -1524,12 +1552,12 @@ fn write_error_row(
 ) {
     if render_kempe_chain_col {
         out.push_str(&format!(
-            "| {fixture} | {backend} | - | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            "| {fixture} | {backend} | - | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
             backend = backend.label(),
         ));
     } else {
         out.push_str(&format!(
-            "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
+            "| {fixture} | {backend} | - | - | - | panic | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |\n",
             backend = backend.label(),
         ));
     }
@@ -1910,15 +1938,23 @@ mod tests {
     }
 
     #[test]
-    fn write_header_includes_three_new_columns() {
+    fn write_header_includes_per_component_columns() {
         let mut out = String::new();
-        write_table_header(&mut out, false);
-        assert!(out.contains("Peak RSS (kB)"), "missing peak header: {out}");
-        assert!(
-            out.contains("Time to first feasible"),
-            "missing ttf header: {out}"
-        );
-        assert!(out.contains("Time to optimal"), "missing tto header: {out}");
+        write_table_header(&mut out, /* render_kempe_chain_col = */ true);
+        write_table_header(&mut out, /* render_kempe_chain_col = */ false);
+        for col in [
+            "| Class gap h (median) |",
+            "| Teacher gap h (median) |",
+            "| Home room miss (median) |",
+            "| Day balance (median) |",
+            "| Soft-pin miss (median) |",
+            "| Supervision spread (median) |",
+        ] {
+            assert!(
+                out.contains(col),
+                "missing per-component column header {col}: {out}"
+            );
+        }
     }
 
     #[test]
@@ -1946,6 +1982,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: Some(3),
+            supervision_spread_raw_median: Some(7),
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -1965,6 +2003,10 @@ mod tests {
         assert!(out.contains("| 49152 |"), "missing peak: {out}");
         assert!(out.contains("| 0 |"), "missing ttf rounded to 0 ms: {out}");
         assert!(out.contains("| 1500 |"), "missing tto: {out}");
+        assert!(
+            out.contains("| 3 | 7 |"),
+            "soft_pin_miss + supervision_spread missing: {out}"
+        );
     }
 
     #[test]
@@ -1992,6 +2034,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -2033,6 +2077,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -2101,6 +2147,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -2152,6 +2200,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -2234,6 +2284,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
@@ -2365,6 +2417,8 @@ mod tests {
             teacher_gap_hours_median: Some(2),
             class_day_balance_cost_median: Some(3),
             home_room_misses_median: Some(4),
+            soft_pin_misses_median: Some(11),
+            supervision_spread_raw_median: Some(12),
             prefer_early_units_median: Some(5),
             avoid_first_units_median: Some(6),
             avoid_last_units_median: Some(7),
@@ -2387,6 +2441,8 @@ mod tests {
                 teacher_gap_hours: 2,
                 class_day_balance_cost: 3,
                 home_room_misses: 4,
+                soft_pin_misses: 11,
+                supervision_spread_raw: 21,
                 prefer_early_units: 5,
                 avoid_first_units: 6,
                 avoid_last_units: 7,
@@ -2399,6 +2455,8 @@ mod tests {
                 teacher_gap_hours: 4,
                 class_day_balance_cost: 5,
                 home_room_misses: 6,
+                soft_pin_misses: 13,
+                supervision_spread_raw: 23,
                 prefer_early_units: 7,
                 avoid_first_units: 8,
                 avoid_last_units: 9,
@@ -2411,6 +2469,8 @@ mod tests {
                 teacher_gap_hours: 3,
                 class_day_balance_cost: 4,
                 home_room_misses: 5,
+                soft_pin_misses: 12,
+                supervision_spread_raw: 22,
                 prefer_early_units: 6,
                 avoid_first_units: 7,
                 avoid_last_units: 8,
@@ -2425,10 +2485,12 @@ mod tests {
         assert_eq!(medians.2, Some(3)); // teacher_gap_hours
         assert_eq!(medians.3, Some(4)); // class_day_balance_cost
         assert_eq!(medians.4, Some(5)); // home_room_misses
-        assert_eq!(medians.5, Some(6)); // prefer_early_units
-        assert_eq!(medians.6, Some(7)); // avoid_first_units
-        assert_eq!(medians.7, Some(8)); // avoid_last_units
-        assert_eq!(medians.8, Some(9)); // prefer_late_units
+        assert_eq!(medians.5, Some(12)); // soft_pin_misses
+        assert_eq!(medians.6, Some(22)); // supervision_spread_raw
+        assert_eq!(medians.7, Some(6)); // prefer_early_units
+        assert_eq!(medians.8, Some(7)); // avoid_first_units
+        assert_eq!(medians.9, Some(8)); // avoid_last_units
+        assert_eq!(medians.10, Some(9)); // prefer_late_units
     }
 
     #[test]
@@ -2436,7 +2498,7 @@ mod tests {
         let medians = aggregate_component_medians(&[]);
         assert_eq!(
             medians,
-            (None, None, None, None, None, None, None, None, None)
+            (None, None, None, None, None, None, None, None, None, None, None)
         );
     }
 
@@ -2468,6 +2530,8 @@ mod tests {
             teacher_gap_hours_median: None,
             class_day_balance_cost_median: None,
             home_room_misses_median: None,
+            soft_pin_misses_median: None,
+            supervision_spread_raw_median: None,
             prefer_early_units_median: None,
             avoid_first_units_median: None,
             avoid_last_units_median: None,
