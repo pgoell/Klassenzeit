@@ -178,7 +178,7 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     prefer_home_room: 5,
     avoid_last_period: 1,
     prefer_late_period: 1,
-    class_day_balance: 5,
+    class_day_balance: 20, // ADR 0043: bumped from 5 to clear dreizuegig day-spread plateau
     prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
     max_per_class_spread: 10, // item 57: per-class worst-case axis
     max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
@@ -695,7 +695,7 @@ mod tests {
             prefer_home_room: 5,
             avoid_last_period: 1,
             prefer_late_period: 1,
-            class_day_balance: 5,
+            class_day_balance: 20,
             prefer_class_teacher: 5,
             max_per_class_spread: 10,
             max_per_class_interior_gaps: 10,

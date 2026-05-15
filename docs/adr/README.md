@@ -66,3 +66,4 @@ sections, and add the new entry to the index below.
 | 0040 | [TimeBlock.kind for break slots](0040-timeblock-kind-for-break-slots.md) | Accepted |
 | 0041 | [Supervision rota for Hofpausen](0041-supervision-rota-for-hofpausen.md) | Accepted |
 | 0042 | [Soft pin semantic as a canonical-score axis](0042-soft-pin-semantic.md) | Accepted |
+| 0043 | [Bump class_day_balance weight to clear LAHC day-spread bar](0043-class-day-balance-weight-bump.md) | Accepted |

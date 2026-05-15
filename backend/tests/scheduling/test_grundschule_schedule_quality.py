@@ -31,15 +31,6 @@ CreateUserFn = Callable[..., Awaitable[tuple[User, str]]]
 LoginFn = Callable[[str, str], Awaitable[None]]
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "LAHC under the 5000 ms production deadline does not consistently "
-        "land on a daily-load spread <= 2 for class 2a in the demo "
-        "Grundschule seed; the imbalance quality bar misses roughly 1 in 3 "
-        "runs. Tracked in OPEN_THINGS for LAHC tuning follow-up."
-    ),
-)
 async def test_grundschule_schedule_meets_quality_bar(
     db_session: AsyncSession,
     client: AsyncClient,

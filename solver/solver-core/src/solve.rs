@@ -38,21 +38,7 @@ use crate::trace;
 /// [`solve_with_config`] directly.
 pub fn solve(problem: &Problem) -> Result<Solution, Error> {
     let active_default = SolveConfig {
-        weights: ConstraintWeights {
-            class_gap: 10,
-            teacher_gap: 10,
-            prefer_early_period: 1,
-            avoid_first_period: 1,
-            prefer_home_room: 5,
-            avoid_last_period: 1,
-            prefer_late_period: 1,
-            class_day_balance: 5,
-            prefer_class_teacher: 5,
-            max_per_class_spread: 10,
-            max_per_class_interior_gaps: 10,
-            supervision_spread: 5,
-            soft_pin_miss: 5,
-        },
+        weights: crate::PRODUCTION_ACTIVE_WEIGHTS,
         deadline: Some(Duration::from_millis(200)),
         ..SolveConfig::default()
     };
