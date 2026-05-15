@@ -36,7 +36,7 @@ If every quality item is blocked, fall back to the next feature item and note wh
 
 **Commands:** `mise run dev` / `fe:dev` (servers); `mise run test` / `test:py` / `test:rust` / `fe:test` (test:py path filters are repo-root-relative); `mise run e2e` / `e2e:ui` / `e2e:install` (Playwright); `mise run lint` / `fmt`; `mise run check:actions`; `mise run fe:types` (regenerate OpenAPI types); `mise run db:up` / `db:stop` / `db:reset` / `db:migrate`; `mise run bench:tests` (pytest suite vs `.test-duration-budget`).
 
-**OPEN_THINGS sync.** `docs/OPEN_THINGS.html` auto-renders from `.md` via `mise run gen:openthings-html`. Run before staging; pre-commit will regenerate and stage if you forget.
+**OPEN_THINGS sync.** `docs/OPEN_THINGS.html` auto-renders from `.md` via `mise run gen:openthings-html`. The lefthook `openthings-html` entry auto-regen-and-stages only when `OPEN_THINGS.md` is in the *staged* set. The pre-commit `lint` step also runs `check:openthings-html` for every commit, and it fails on drift regardless of which files are staged. When committing an unrelated file while `OPEN_THINGS.md` has unstaged edits, run `mise run gen:openthings-html` first so the working tree's `.md` and `.html` are in sync.
 
 **Flake-loop discipline.** Use `|| true`, not `|| break`, so one failure does not truncate the loop. Count summary lines with `grep -cE "^=+ [0-9]+ (passed|failed|xfailed|xpassed)"`, not failure-output lines. Treat `xpassed` as `passed` for gate logic. Leave coverage enabled; `-p no:cov` errors against the project `--cov-fail-under=80` addopts. Run once with `--runxfail` before closing an item whose narrative names a specific bug shape.
 
