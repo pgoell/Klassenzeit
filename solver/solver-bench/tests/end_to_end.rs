@@ -366,3 +366,78 @@ fn supervisor_parallel_and_serial_agree_on_row_order_and_body() {
     let _ = std::fs::remove_file(&serial_out);
     let _ = std::fs::remove_file(&parallel_out);
 }
+
+#[test]
+fn supervisor_parallel_is_meaningfully_faster_than_serial() {
+    // Skip on machines with too few cores; the test needs at least 4 cells
+    // running in parallel to be reliable.
+    let available = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if available < 4 {
+        eprintln!("skipping: needs >= 4 cores, have {available}");
+        return;
+    }
+
+    let serial_out = unique_outfile("speed-serial");
+    let parallel_out = unique_outfile("speed-parallel");
+
+    let common = [
+        "--budget",
+        "1s",
+        "--seeds",
+        "1",
+        "--fixtures",
+        "grundschule,zweizuegig,dreizuegig,lock_in",
+        "--backends",
+        "lahc",
+    ];
+
+    let t0 = std::time::Instant::now();
+    let s_status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args(common)
+        .args([
+            "--jobs",
+            "1",
+            "--out",
+            serial_out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn serial supervisor");
+    let serial_elapsed = t0.elapsed();
+    assert!(s_status.success());
+
+    // Bail if the serial run was too short for the speedup signal to dominate
+    // process-spawn overhead and CI jitter.
+    if serial_elapsed < std::time::Duration::from_secs(2) {
+        eprintln!("skipping speedup assertion: serial run too short ({serial_elapsed:?})");
+        let _ = std::fs::remove_file(&serial_out);
+        return;
+    }
+
+    let t1 = std::time::Instant::now();
+    let p_status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args(common)
+        .args([
+            "--jobs",
+            "4",
+            "--out",
+            parallel_out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn parallel supervisor");
+    let parallel_elapsed = t1.elapsed();
+    assert!(p_status.success());
+
+    // Conservative: parallel run should be at least 1.5x faster than serial.
+    // With 4 cells, 1s budget each, --jobs 4 should run all four roughly
+    // concurrently, dropping wall clock from ~4s to ~1s. The 1.5x bar
+    // is loose to tolerate process-spawn overhead and CI jitter.
+    assert!(
+        parallel_elapsed.as_secs_f64() * 1.5 < serial_elapsed.as_secs_f64(),
+        "parallel run was not meaningfully faster: serial={serial_elapsed:?} parallel={parallel_elapsed:?}",
+    );
+
+    let _ = std::fs::remove_file(&serial_out);
+    let _ = std::fs::remove_file(&parallel_out);
+}
