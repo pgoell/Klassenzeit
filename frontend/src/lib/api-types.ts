@@ -2074,6 +2074,11 @@ export interface components {
              * @default 0
              */
             soft_pin_misses: number;
+            /**
+             * Supervision Spread Raw
+             * @default 0
+             */
+            supervision_spread_raw: number;
         };
         /**
          * ResetPasswordRequest
