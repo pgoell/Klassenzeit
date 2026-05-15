@@ -40,3 +40,4 @@ class QualityReportResponse(BaseModel):
     worst_per_class_spread: int
     worst_per_class_interior_gaps: int
     soft_pin_misses: int = Field(ge=0, default=0)
+    supervision_spread_raw: int = Field(ge=0, default=0)
