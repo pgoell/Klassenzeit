@@ -12,7 +12,13 @@ import { HttpResponse, http } from "msw";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { Toaster } from "@/components/ui/sonner";
 import i18n from "@/i18n/init";
-import { initialSchoolClasses, initialTeachers, server } from "../../../tests/msw-handlers";
+import type { components } from "@/lib/api-types";
+import {
+  initialSchoolClasses,
+  initialTeachers,
+  qualityReportByClassId,
+  server,
+} from "../../../tests/msw-handlers";
 import { SchedulePageClassView } from "./schedule-page-class-view";
 
 const BASE = "http://localhost:3000";
@@ -408,5 +414,168 @@ describe("SchedulePageClassView quality-issue sidebar", () => {
     if (highlighted) {
       expect(within(highlighted as HTMLElement).getByText("Mathematik")).toBeInTheDocument();
     }
+  });
+});
+
+const EMPTY_QUALITY_REPORT_FIXTURE: components["schemas"]["QualityReportResponse"] = {
+  hard_violations: 0,
+  unplaced_hours: 0,
+  class_gap_hours: 0,
+  class_gap_hours_by_class: {},
+  teacher_gap_hours: 0,
+  teacher_gap_hours_by_teacher: {},
+  class_day_balance_cost: 0,
+  class_day_balance_cost_by_class: {},
+  home_room_misses: 0,
+  home_room_misses_by_class: {},
+  prefer_early_units: 0,
+  avoid_first_units: 0,
+  avoid_last_units: 0,
+  prefer_late_units: 0,
+  prefer_class_teacher_misses: 0,
+  weighted_score: 0,
+  worst_per_class_spread: 0,
+  worst_per_class_interior_gaps: 0,
+  soft_pin_misses: 0,
+  supervision_spread_raw: 0,
+};
+
+describe("SchedulePageClassView quality_report wiring", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterAll(() => {
+    server.resetHandlers();
+  });
+
+  beforeEach(() => {
+    server.use(
+      http.get(`${BASE}/api/lessons`, () =>
+        HttpResponse.json([
+          {
+            id: LESSON_ID,
+            school_classes: [{ id: CLASS_ID, name: "1a" }],
+            subject: { id: SUBJECT_ID, name: "Mathematik", short_name: "MA" },
+            teacher: null,
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: null,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        ]),
+      ),
+      http.get(`${BASE}/api/week-schemes/${SCHEME_ID}`, () =>
+        HttpResponse.json({
+          id: SCHEME_ID,
+          name: "Standardwoche",
+          description: "",
+          time_blocks: [
+            {
+              id: TIME_BLOCK_ID,
+              day_of_week: 1,
+              position: 1,
+              start_time: "08:00",
+              end_time: "08:45",
+            },
+          ],
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+      http.get(`${BASE}/api/classes/${CLASS_ID}/schedule`, () =>
+        HttpResponse.json({
+          placements: [
+            {
+              lesson_id: LESSON_ID,
+              teacher_id: TEACHER.id,
+              time_block_id: TIME_BLOCK_ID,
+              room_id: ROOM_ID,
+              pinned: false,
+            },
+          ],
+          violations: [],
+          quality_issues: [],
+          quality_report: qualityReportByClassId[CLASS_ID] ?? null,
+        }),
+      ),
+      http.post(`${BASE}/api/classes/${CLASS_ID}/schedule`, () =>
+        HttpResponse.json({
+          placements: [
+            {
+              lesson_id: LESSON_ID,
+              teacher_id: TEACHER.id,
+              time_block_id: TIME_BLOCK_ID,
+              room_id: ROOM_ID,
+              pinned: false,
+            },
+          ],
+          violations: [],
+          soft_score: 0,
+          quality_report: qualityReportByClassId[CLASS_ID] ?? EMPTY_QUALITY_REPORT_FIXTURE,
+          was_cancelled: false,
+          supervision_assignments: [],
+          quality_issues: [],
+        }),
+      ),
+      http.get(`${BASE}/api/rooms`, () =>
+        HttpResponse.json([
+          {
+            id: ROOM_ID,
+            name: "R1",
+            short_name: "R1",
+            capacity: 30,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+        ]),
+      ),
+    );
+  });
+
+  test("passes the POST quality_report attribution to the sidebar", async () => {
+    qualityReportByClassId[CLASS_ID] = {
+      ...EMPTY_QUALITY_REPORT_FIXTURE,
+      class_gap_hours_by_class: { [CLASS_ID]: 4 },
+      home_room_misses_by_class: { [CLASS_ID]: 2 },
+    };
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    const generateButton = await screen.findByRole("button", { name: /^Generate schedule$/i });
+    await userEvent.click(generateButton);
+    // Existing placements trigger the confirm-replace banner; click through it.
+    const confirmButton = await screen.findByRole("button", { name: /^Generate anyway$/i });
+    await userEvent.click(confirmButton);
+    expect(await screen.findByText("4 class gap hours")).toBeInTheDocument();
+    expect(screen.getByText("2 home-room misses")).toBeInTheDocument();
+  });
+
+  test("falls back to GET quality_report on initial page load", async () => {
+    qualityReportByClassId[CLASS_ID] = {
+      ...EMPTY_QUALITY_REPORT_FIXTURE,
+      class_gap_hours_by_class: { [CLASS_ID]: 1 },
+      home_room_misses_by_class: {},
+    };
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    expect(await screen.findByText("1 class gap hour")).toBeInTheDocument();
+  });
+
+  test("prefers POST quality_report when both POST and GET are present", async () => {
+    // GET seeds 1 class gap hour; POST will seed 5 (different value to distinguish).
+    qualityReportByClassId[CLASS_ID] = {
+      ...EMPTY_QUALITY_REPORT_FIXTURE,
+      class_gap_hours_by_class: { [CLASS_ID]: 1 },
+    };
+    renderClassView(`/schedule?class=${CLASS_ID}`);
+    expect(await screen.findByText("1 class gap hour")).toBeInTheDocument();
+    qualityReportByClassId[CLASS_ID] = {
+      ...EMPTY_QUALITY_REPORT_FIXTURE,
+      class_gap_hours_by_class: { [CLASS_ID]: 5 },
+    };
+    const generateButton = await screen.findByRole("button", { name: /^Generate schedule$/i });
+    await userEvent.click(generateButton);
+    // Existing placements trigger the confirm-replace banner; click through it.
+    const confirmButton = await screen.findByRole("button", { name: /^Generate anyway$/i });
+    await userEvent.click(confirmButton);
+    expect(await screen.findByText("5 class gap hours")).toBeInTheDocument();
   });
 });

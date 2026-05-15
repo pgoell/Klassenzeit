@@ -20,6 +20,7 @@ import { ScheduleStatus } from "./schedule-status";
 import { ScheduleToolbar } from "./schedule-toolbar";
 
 type QualityIssue = components["schemas"]["QualityIssueResponse"];
+type QualityReport = components["schemas"]["QualityReportResponse"];
 type CellCoord = components["schemas"]["CellCoord"];
 
 const HIGHLIGHT_FADE_MS = 2500;
@@ -45,6 +46,7 @@ export function SchedulePageClassView() {
   const [confirming, setConfirming] = useState(false);
   const [postViolations, setPostViolations] = useState<Violation[] | undefined>();
   const [postQualityIssues, setPostQualityIssues] = useState<QualityIssue[] | undefined>();
+  const [postQualityReport, setPostQualityReport] = useState<QualityReport | undefined>();
   const [highlightedCells, setHighlightedCells] = useState<CellCoord[] | null>(null);
   const fadeTimerRef = useRef<number | null>(null);
 
@@ -52,6 +54,7 @@ export function SchedulePageClassView() {
     setConfirming(false);
     setPostViolations(undefined);
     setPostQualityIssues(undefined);
+    setPostQualityReport(undefined);
     setHighlightedCells(null);
     void navigate({ to: "/schedule", search: { class: id } });
   }
@@ -67,6 +70,7 @@ export function SchedulePageClassView() {
       const result = await generate.mutateAsync(classId);
       setPostViolations(result.violations);
       setPostQualityIssues(result.quality_issues);
+      setPostQualityReport(result.quality_report);
       setConfirming(false);
       toast.success(t("schedule.generate.successToast", { count: result.placements.length }));
     } catch (err) {
@@ -143,6 +147,8 @@ export function SchedulePageClassView() {
   const subjectNameById = new Map((lessons.data ?? []).map((l) => [l.subject.id, l.subject.name]));
   // Prefer the freshly-solved POST issues; fall back to the GET readback.
   const qualityIssues = postQualityIssues ?? schedule.data?.quality_issues ?? [];
+  const qualityReport: QualityReport | null =
+    postQualityReport ?? schedule.data?.quality_report ?? null;
 
   const classLessons = (lessons.data ?? []).filter((l) =>
     l.school_classes.some((c) => c.id === classId),
@@ -255,6 +261,8 @@ export function SchedulePageClassView() {
               issues={qualityIssues}
               onIssueClick={handleIssueClick}
               subjectMap={subjectNameById}
+              qualityReport={qualityReport}
+              classId={classId}
             />
           </div>
         </>
