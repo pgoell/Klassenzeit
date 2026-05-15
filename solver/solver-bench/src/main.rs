@@ -946,7 +946,8 @@ fn tempfile_path(prefix: &str, suffix: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("{prefix}{nanos}{suffix}"))
+    let pid = std::process::id();
+    std::env::temp_dir().join(format!("{prefix}{pid}-{nanos}{suffix}"))
 }
 
 fn run_cpsat_cell(problem: &Problem, expected: u64, budget: Duration, seeds: u64) -> CellResult {
@@ -2528,6 +2529,17 @@ mod tests {
         assert!(
             phantom.teacher_candidates.is_empty(),
             "unqualified subject must yield empty candidates"
+        );
+    }
+
+    #[test]
+    fn tempfile_path_includes_process_id_for_parallel_safety() {
+        let path = super::tempfile_path("kz-bench-test-", ".json");
+        let s = path.to_string_lossy();
+        let pid = std::process::id().to_string();
+        assert!(
+            s.contains(&pid),
+            "tempfile path missing pid for parallel safety: {s}"
         );
     }
 }
