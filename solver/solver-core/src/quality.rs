@@ -115,6 +115,13 @@ pub struct QualityReport {
     /// `weights.soft_pin_miss`-weighted contribution is folded into
     /// `weighted_score`. ADR 0042 (item 5).
     pub soft_pin_misses: u32,
+    /// Raw count of `compute_supervision_spread(problem, placements)`:
+    /// the L1 spread of supervision assignments across teachers with at
+    /// least one Hofpause supervision in the rota. The
+    /// `weights.supervision_spread`-weighted contribution is folded into
+    /// `weighted_score`. ADR 0041 (item 3).
+    #[serde(default)]
+    pub supervision_spread_raw: u32,
 }
 
 /// Build a [`QualityReport`] for a solver result. Pure: depends only on
@@ -447,6 +454,7 @@ pub fn quality_report(
         worst_per_class_spread,
         worst_per_class_interior_gaps,
         soft_pin_misses,
+        supervision_spread_raw,
     }
 }
 
@@ -1230,5 +1238,18 @@ mod tests {
                 &::std::collections::HashSet::new(),
             )
         );
+    }
+
+    #[test]
+    fn quality_report_exposes_supervision_spread_raw_field() {
+        let problem = crate::test_fixtures::grundschule_fixture();
+        let report = quality_report(&problem, &[], &[], &crate::types::PRODUCTION_ACTIVE_WEIGHTS);
+        // Field-exists + wiring test. Empty placements gives a known-zero
+        // compute_supervision_spread return; non-zero coverage is pinned by
+        // solver-core/tests/quality_property.rs::quality_report_weighted_score_matches_score_solution
+        // and the supervision module's own unit tests. This test exists to
+        // prevent a future refactor from silently dropping the field-to-struct
+        // wiring.
+        assert_eq!(report.supervision_spread_raw, 0);
     }
 }
