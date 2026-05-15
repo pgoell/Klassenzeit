@@ -21,7 +21,7 @@ Per profile rule 9 ("Smoke bench validates fixes; production refresh refreshes d
 
 - OPEN_THINGS items 87 (dreizuegig pinned `worst_spread_med = 5`) and 82 (`test_grundschule_schedule_meets_quality_bar` flake) close in this PR.
 - `test_grundschule_schedule_meets_quality_bar` runs without the xfail mark; the integration-test surface gains one more hard gate against soft-cost regressions.
-- CP-SAT objective mirror (`klassenzeit_solver.cpsat`) reads `PRODUCTION_ACTIVE_WEIGHTS` through the PyO3 binding; the new value propagates automatically. CP-SAT dreizuegig 0/20 infeasibility (item 83) is unaffected (search-budget bound, not weight bound).
+- CP-SAT objective mirror (`klassenzeit_solver.cpsat`) hardcodes `_W_CLASS_DAY_BALANCE = 20` in lockstep with the Rust const (the mirror is NOT auto-derived from the PyO3 binding; weight changes touch both sites). CP-SAT dreizuegig 0/20 infeasibility (item 83) is unaffected (search-budget bound, not weight bound).
 - Other axes (notably `home_room_miss`, item 86) may regress slightly; item 86's plateau remains open as a separate axis to revisit when the next production refresh data lands.
 - `solver/solver-core/src/types.rs::production_active_weights_match_legacy_inline_literal` updated in lockstep with the const.
 - `solve()` legacy entry point in `solver-core/src/solve.rs` consolidated against `PRODUCTION_ACTIVE_WEIGHTS` in a tidy-first commit so future weight changes flow through one site.
