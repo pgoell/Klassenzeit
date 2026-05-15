@@ -156,6 +156,38 @@ export const teacherSchedulesByTeacherId: Record<
 export const roomSchedulesByRoomId: Record<string, components["schemas"]["PlacementResponse"][]> =
   {};
 
+// Zero-value QualityReport fixture used as the default `quality_report` on the
+// class POST handler when a test has not seeded a per-class override.
+const EMPTY_QUALITY_REPORT: components["schemas"]["QualityReportResponse"] = {
+  hard_violations: 0,
+  unplaced_hours: 0,
+  class_gap_hours: 0,
+  class_gap_hours_by_class: {},
+  teacher_gap_hours: 0,
+  teacher_gap_hours_by_teacher: {},
+  class_day_balance_cost: 0,
+  class_day_balance_cost_by_class: {},
+  home_room_misses: 0,
+  home_room_misses_by_class: {},
+  prefer_early_units: 0,
+  avoid_first_units: 0,
+  avoid_last_units: 0,
+  prefer_late_units: 0,
+  prefer_class_teacher_misses: 0,
+  weighted_score: 0,
+  worst_per_class_spread: 0,
+  worst_per_class_interior_gaps: 0,
+  soft_pin_misses: 0,
+  supervision_spread_raw: 0,
+};
+
+// Mutable per-test override so individual test cases can seed populated
+// attribution. Keys: classId. Reset to `{}` in `beforeEach` (tests/setup.ts).
+export const qualityReportByClassId: Record<
+  string,
+  components["schemas"]["QualityReportResponse"]
+> = {};
+
 export const initialLessons = [
   {
     id: "55555555-5555-5555-5555-555555555555",
@@ -755,7 +787,12 @@ export const defaultHandlers = [
     if (classId === "deadbeef-dead-beef-dead-beefdeadbeef") {
       return HttpResponse.json({ detail: "Class not found" }, { status: 404 });
     }
-    return HttpResponse.json({ placements: scheduleByClassId[classId] ?? [] });
+    return HttpResponse.json({
+      placements: scheduleByClassId[classId] ?? [],
+      supervision_assignments: [],
+      quality_issues: [],
+      quality_report: qualityReportByClassId[classId] ?? null,
+    });
   }),
   http.get(`${BASE}/api/teachers/:teacher_id/schedule`, ({ params }) => {
     const teacherId = String(params.teacher_id);
@@ -763,7 +800,12 @@ export const defaultHandlers = [
     if (!list) {
       return HttpResponse.json({ detail: "Teacher not found" }, { status: 404 });
     }
-    return HttpResponse.json({ placements: list });
+    return HttpResponse.json({
+      placements: list,
+      supervision_assignments: [],
+      quality_issues: [],
+      quality_report: null,
+    });
   }),
   http.get(`${BASE}/api/rooms/:room_id/schedule`, ({ params }) => {
     const roomId = String(params.room_id);
@@ -771,7 +813,12 @@ export const defaultHandlers = [
     if (!list) {
       return HttpResponse.json({ detail: "Room not found" }, { status: 404 });
     }
-    return HttpResponse.json({ placements: list });
+    return HttpResponse.json({
+      placements: list,
+      supervision_assignments: [],
+      quality_issues: [],
+      quality_report: null,
+    });
   }),
   http.post(`${BASE}/api/classes/:classId/schedule`, ({ params }) => {
     const classId = String(params.classId);
@@ -780,7 +827,15 @@ export const defaultHandlers = [
     }
     const placements = scheduleByClassId[classId] ?? [];
     const violations = violationsByClassId[classId] ?? [];
-    return HttpResponse.json({ placements, violations });
+    return HttpResponse.json({
+      placements,
+      violations,
+      soft_score: 0,
+      quality_report: qualityReportByClassId[classId] ?? EMPTY_QUALITY_REPORT,
+      was_cancelled: false,
+      supervision_assignments: [],
+      quality_issues: [],
+    });
   }),
   http.post(`${BASE}/api/schedule/all`, () => {
     const summaries = Object.entries(scheduleByClassId).map(([classId, placements]) => ({

@@ -93,3 +93,135 @@ describe("QualityIssueSidebar", () => {
     expect(onIssueClick).not.toHaveBeenCalled();
   });
 });
+
+type QualityReport = components["schemas"]["QualityReportResponse"];
+
+function emptyQualityReport(overrides: Partial<QualityReport> = {}): QualityReport {
+  return {
+    hard_violations: 0,
+    unplaced_hours: 0,
+    class_gap_hours: 0,
+    class_gap_hours_by_class: {},
+    teacher_gap_hours: 0,
+    teacher_gap_hours_by_teacher: {},
+    class_day_balance_cost: 0,
+    class_day_balance_cost_by_class: {},
+    home_room_misses: 0,
+    home_room_misses_by_class: {},
+    prefer_early_units: 0,
+    avoid_first_units: 0,
+    avoid_last_units: 0,
+    prefer_late_units: 0,
+    prefer_class_teacher_misses: 0,
+    weighted_score: 0,
+    worst_per_class_spread: 0,
+    worst_per_class_interior_gaps: 0,
+    soft_pin_misses: 0,
+    supervision_spread_raw: 0,
+    ...overrides,
+  };
+}
+
+describe("QualityIssueSidebar metrics section", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("renders the metrics section above issues when attribution is non-zero", () => {
+    const qualityReport = emptyQualityReport({
+      class_gap_hours_by_class: { [CLASS_ID]: 3 },
+      home_room_misses_by_class: { [CLASS_ID]: 2 },
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={qualityReport}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.getByText("Quality metrics")).toBeInTheDocument();
+    expect(screen.getByText("3 class gap hours")).toBeInTheDocument();
+    expect(screen.getByText("2 home-room misses")).toBeInTheDocument();
+  });
+
+  it("omits a row when its attribution value is 0 for this class", () => {
+    const qualityReport = emptyQualityReport({
+      class_gap_hours_by_class: { [CLASS_ID]: 1 },
+      home_room_misses_by_class: {},
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={qualityReport}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.getByText("1 class gap hour")).toBeInTheDocument();
+    expect(screen.queryByText(/home-room miss/i)).not.toBeInTheDocument();
+  });
+
+  it("omits the entire metrics section when all attribution values are 0 for this class", () => {
+    const qualityReport = emptyQualityReport({
+      class_gap_hours_by_class: {},
+      home_room_misses_by_class: {},
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={qualityReport}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.queryByText("Quality metrics")).not.toBeInTheDocument();
+  });
+
+  it("pluralizes classGapHours via i18n (one vs other)", () => {
+    const oneReport = emptyQualityReport({ class_gap_hours_by_class: { [CLASS_ID]: 1 } });
+    const { rerender } = render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={oneReport}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.getByText("1 class gap hour")).toBeInTheDocument();
+    const twoReport = emptyQualityReport({ class_gap_hours_by_class: { [CLASS_ID]: 2 } });
+    rerender(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={twoReport}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.getByText("2 class gap hours")).toBeInTheDocument();
+  });
+
+  it("treats null qualityReport as no metrics section", () => {
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={null}
+          classId={CLASS_ID}
+        />,
+      ),
+    );
+    expect(screen.queryByText("Quality metrics")).not.toBeInTheDocument();
+  });
+});

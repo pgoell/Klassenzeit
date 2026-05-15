@@ -457,6 +457,13 @@
         }
       }
     },
+    "qualityMetrics": {
+      "title": "Qualitätsmetriken",
+      "classGapHours_one": "1 Lückenstunde",
+      "classGapHours_other": "{{count}} Lückenstunden",
+      "homeRoomMisses_one": "1 Klassenraum-Treffer fehlt",
+      "homeRoomMisses_other": "{{count}} Klassenraum-Treffer fehlen"
+    },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },
   "schoolClasses": {

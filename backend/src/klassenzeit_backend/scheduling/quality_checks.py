@@ -43,6 +43,7 @@ from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
+from klassenzeit_backend.scheduling.schemas.quality_report import QualityReportResponse
 
 
 @dataclass(frozen=True)
@@ -458,3 +459,83 @@ async def compute_quality_issues(
         )
     )
     return [issue for issue in issues if issue.school_class_id == class_id]
+
+
+async def compute_quality_attribution_for_class(
+    db: AsyncSession,
+    class_id: UUID,
+) -> QualityReportResponse:
+    """Recompute per-class QualityReport attribution from persisted placements.
+
+    Returns a ``QualityReportResponse`` with two derivable axes populated for
+    ``class_id``:
+
+    - ``class_gap_hours_by_class[class_id]`` = sum of interior gaps over
+      this class's daily placement-position sets (gap count for one day =
+      ``last - first + 1 - len(unique_positions)``).
+    - ``home_room_misses_by_class[class_id]`` = count of non-exempt
+      placements where ``placement.room_id`` differs from the class's
+      ``home_room_id``.
+
+    Skip-zero convention: a per-class total of 0 omits the key. The
+    matching scalar (``class_gap_hours`` / ``home_room_misses``) equals
+    the sum of the map's values.
+
+    All other ``QualityReport`` fields default to neutral values the
+    Pydantic mirror accepts: scalar ``int`` fields to ``0``, ``dict[str,
+    int]`` fields to ``{}``. These are non-derivable from persisted
+    placements (solver weights, soft-pin / supervision-spread inputs not
+    persisted). The POST-time ``ScheduleResponse.quality_report`` from the
+    solver carries authoritative values for those fields; the frontend
+    prefers POST over GET when both are present.
+
+    Returns an all-zero / empty-map report when the class has no
+    placements yet.
+    """
+    placements = await load_placements(db)
+    placements_for_class = [p for p in placements if p.class_id == class_id]
+
+    # Per-day interior-gap accumulator for this class only.
+    positions_per_day: dict[int, list[int]] = {}
+    for p in placements_for_class:
+        positions_per_day.setdefault(p.day, []).append(p.position)
+    gap_total = 0
+    for positions in positions_per_day.values():
+        unique = sorted(set(positions))
+        if not unique:
+            continue
+        gap_total += max(0, unique[-1] - unique[0] + 1 - len(unique))
+
+    # Per-class home-room miss accumulator for this class only.
+    home_rooms = await _load_home_room_lookup(db)
+    exempt = await _load_exempt_subjects(db)
+    home_room_id = home_rooms.get(class_id)
+    miss_total = 0
+    if home_room_id is not None:
+        for p in placements_for_class:
+            if p.subject_id in exempt:
+                continue
+            if p.room_id != home_room_id:
+                miss_total += 1
+
+    class_id_str = str(class_id)
+    return QualityReportResponse(
+        hard_violations=0,
+        unplaced_hours=0,
+        class_gap_hours=gap_total,
+        class_gap_hours_by_class={class_id_str: gap_total} if gap_total > 0 else {},
+        teacher_gap_hours=0,
+        teacher_gap_hours_by_teacher={},
+        class_day_balance_cost=0,
+        class_day_balance_cost_by_class={},
+        home_room_misses=miss_total,
+        home_room_misses_by_class={class_id_str: miss_total} if miss_total > 0 else {},
+        prefer_early_units=0,
+        avoid_first_units=0,
+        avoid_last_units=0,
+        prefer_late_units=0,
+        prefer_class_teacher_misses=0,
+        weighted_score=0,
+        worst_per_class_spread=0,
+        worst_per_class_interior_gaps=0,
+    )
