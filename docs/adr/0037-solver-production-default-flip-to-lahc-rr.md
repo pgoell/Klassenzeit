@@ -95,3 +95,38 @@ The unpinned hard gate gives the same `{lahc_rr, lahc_rr_kempe}` survivor set as
 ## Reversibility
 
 The flip is one line in `backend/src/klassenzeit_backend/core/settings.py:56` plus its matching assertion in `backend/tests/core/test_settings.py:160`. Operators override per-deployment via `KZ_SOLVER_BACKEND` without waiting for an ADR.
+
+## Ratification (2026-05-15 refresh)
+
+The 2026-05-14 to 2026-05-15 production refresh (60s × 20 seeds × 4 fixtures × 5 backends × 2 pin variants) is the first refresh after PR #266 (block-aware LAHC `Change` + `Swap`), which closed the unpinned multi-school feasibility gap for all four LAHC variants. The decision rule re-runs against the refreshed data below and `lahc_rr` holds; this section captures the trace so a future reader of this ADR does not have to re-derive it from `BENCH_RESULTS.md`.
+
+Hard gate is tied. All four LAHC variants pass 20/20 on every fixture in both pin variants; CP-SAT remains rejected on dreizuegig (0/20 pinned and unpinned). The survivor set is the same `{lahc_rr, lahc_rr_kempe}` pair the original decision reasoned over.
+
+Median soft-score across feasible cells, pinned:
+
+| Backend | grundschule | zweizuegig | dreizuegig | lock_in | Sum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| lahc_rr | 32 | 189 | 1155 | 304 | 1680 |
+| lahc_rr_kempe | 32 | 184 | 1141 | 304 | **1661** |
+
+Unpinned:
+
+| Backend | grundschule | zweizuegig | dreizuegig | lock_in | Sum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| lahc_rr | 32 | 239 | 1346 | 315 | 1932 |
+| lahc_rr_kempe | 32 | 236 | 1318 | 323 | **1909** |
+
+`lahc_rr_kempe` edges `lahc_rr` by 19 pinned (-1.13%) and 23 unpinned (-1.19%) on aggregate sum. Per-fixture direction is not consistent: pinned grundschule and lock_in tie; pinned zweizuegig and dreizuegig favour Kempe by 5 and 14 respectively. Unpinned grundschule ties; unpinned zweizuegig and dreizuegig favour Kempe by 3 and 28; unpinned lock_in favours `lahc_rr` by 8 (+2.5%).
+
+Per-component breakdown on the only fixture (dreizuegig) where the LAHC variants exit at non-zero canonical:
+
+- `class_gap_h`, `teacher_gap_h`: 0 across all four pinned fixtures for both backends.
+- `home_room_miss`: pinned dreizuegig `lahc_rr` 138 vs `lahc_rr_kempe` 139 (`lahc_rr` -1).
+- `day_balance`: pinned dreizuegig `lahc_rr` 21 vs `lahc_rr_kempe` 18 (Kempe -3).
+- Quality predicate sets are identical across the four pinned fixtures (`5/5`, `5/5`, `4/5`, `4/5` on both backends).
+
+Stddev tiebreaker on pinned soft-score across fixtures: `lahc_rr_kempe` 430 vs `lahc_rr` 435 (-1.2%). Like the sum delta, this sits inside the bench's documented host-sensitivity noise.
+
+Verdict: `lahc_rr` holds. The 1.1-1.2% aggregate edge to Kempe is inside the noise band; the per-fixture direction is mixed (`lahc_rr` wins lock_in unpinned, Kempe wins multi-school, ties elsewhere); the per-component vectors are mixed (`lahc_rr` -1 on `home_room_miss`, Kempe -3 on `day_balance`, gap-h axes tied at 0); the stddev tiebreaker is also in noise band. `solver/CLAUDE.md`'s production-default reasoning rule asks for a consistent direction across all fixtures from per-component vectors before flipping; the refresh does not satisfy that bar, and flipping the default twice in three days (2026-05-13 to 2026-05-15) on a noise-band signal would be operator-facing churn for no net quality gain.
+
+The reversibility envelope above is unchanged: the next refresh after items 86 / 87 (LAHC dreizuegig tuning) is the natural next point to re-ask the question.
