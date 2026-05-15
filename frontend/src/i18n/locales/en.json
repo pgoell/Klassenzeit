@@ -462,7 +462,9 @@
       "classGapHours_one": "1 class gap hour",
       "classGapHours_other": "{{count}} class gap hours",
       "homeRoomMisses_one": "1 home-room miss",
-      "homeRoomMisses_other": "{{count}} home-room misses"
+      "homeRoomMisses_other": "{{count}} home-room misses",
+      "teacherGapHours_one": "1 teacher gap hour",
+      "teacherGapHours_other": "{{count}} teacher gap hours"
     },
     "cellDeletedLesson": "(deleted lesson)"
   },

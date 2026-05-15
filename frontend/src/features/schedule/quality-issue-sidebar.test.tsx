@@ -138,7 +138,7 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={qualityReport}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
@@ -158,7 +158,7 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={qualityReport}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
@@ -177,7 +177,7 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={qualityReport}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
@@ -192,7 +192,7 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={oneReport}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
@@ -204,7 +204,7 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={twoReport}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
@@ -218,10 +218,70 @@ describe("QualityIssueSidebar metrics section", () => {
           issues={[]}
           onIssueClick={() => {}}
           qualityReport={null}
-          classId={CLASS_ID}
+          scope={{ kind: "class", classId: CLASS_ID }}
         />,
       ),
     );
     expect(screen.queryByText("Quality metrics")).not.toBeInTheDocument();
+  });
+});
+
+const TEACHER_ID = "00000000-0000-0000-0000-000000000003";
+
+describe("QualityIssueSidebar metrics section (teacher scope)", () => {
+  beforeAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("renders teacher_gap_hours via the teacher scope", () => {
+    const qualityReport = emptyQualityReport({
+      teacher_gap_hours_by_teacher: { [TEACHER_ID]: 4 },
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={qualityReport}
+          scope={{ kind: "teacher", teacherId: TEACHER_ID }}
+        />,
+      ),
+    );
+    expect(screen.getByText("Quality metrics")).toBeInTheDocument();
+    expect(screen.getByText("4 teacher gap hours")).toBeInTheDocument();
+  });
+
+  it("omits the section when teacher has no gap hours", () => {
+    const qualityReport = emptyQualityReport({
+      teacher_gap_hours_by_teacher: {},
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={qualityReport}
+          scope={{ kind: "teacher", teacherId: TEACHER_ID }}
+        />,
+      ),
+    );
+    expect(screen.queryByText("Quality metrics")).not.toBeInTheDocument();
+  });
+
+  it("pluralizes teacherGapHours via i18n (one vs other)", () => {
+    const oneReport = emptyQualityReport({
+      teacher_gap_hours_by_teacher: { [TEACHER_ID]: 1 },
+    });
+    render(
+      wrapWithI18n(
+        <QualityIssueSidebar
+          issues={[]}
+          onIssueClick={() => {}}
+          qualityReport={oneReport}
+          scope={{ kind: "teacher", teacherId: TEACHER_ID }}
+        />,
+      ),
+    );
+    expect(screen.getByText("1 teacher gap hour")).toBeInTheDocument();
   });
 });

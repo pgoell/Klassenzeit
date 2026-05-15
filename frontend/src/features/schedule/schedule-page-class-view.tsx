@@ -262,7 +262,7 @@ export function SchedulePageClassView() {
               onIssueClick={handleIssueClick}
               subjectMap={subjectNameById}
               qualityReport={qualityReport}
-              classId={classId}
+              scope={{ kind: "class", classId }}
             />
           </div>
         </>

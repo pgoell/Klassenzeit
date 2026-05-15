@@ -6,6 +6,7 @@ import { useSchoolClasses } from "@/features/school-classes/hooks";
 import { useTeachers } from "@/features/teachers/hooks";
 import { useWeekSchemeDetail } from "@/features/week-schemes/hooks";
 import { useTeacherSchedule } from "./hooks";
+import { QualityIssueSidebar } from "./quality-issue-sidebar";
 import { type ScheduleCell, ScheduleGrid } from "./schedule-grid";
 import { ScheduleToolbar } from "./schedule-toolbar";
 
@@ -105,7 +106,15 @@ export function SchedulePageTeacherView() {
       ) : placements.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("schedule.empty.body")}</p>
       ) : (
-        <ScheduleGrid cells={cells} daysPresent={daysPresent} positions={positions} />
+        <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
+          <ScheduleGrid cells={cells} daysPresent={daysPresent} positions={positions} />
+          <QualityIssueSidebar
+            issues={[]}
+            onIssueClick={() => {}}
+            qualityReport={schedule.data?.quality_report ?? null}
+            scope={{ kind: "teacher", teacherId }}
+          />
+        </div>
       )}
     </div>
   );
