@@ -9,17 +9,12 @@ The 2026-05-12 shipping of items 11 + 79 + 80 closed the multi-school flake-loop
 ## Next up
 
 - `[P1]` Per-class / per-teacher attribution surfacing on the schedule UI (item 59; data axis shipped via item 2).
-- `[P2]` Production-refresh ratification of ADR 0037 (item 81; opportunistic, ~10-12h host window).
 - `[P2]` Non-Timefold third-backend spike (item 56; triggered when Rust LAHC + CP-SAT both plateau).
 - `[Paused]` Schwimmunterricht modelling, resumes after the active sprint closes.
 
 ## Scheduler gaps for the best Grundschule product
 
 Honest list of what is still missing or lackluster, ordered by impact on a real Hessen Grundschule deployment. Pick one off this list when no higher-priority sprint is in flight.
-
-### P0 (next sprint candidates)
-
-1. **Production-refresh ratification of ADR 0037 (2026-05-15 verdict pending decision).** Production refresh ran 2026-05-14 to 2026-05-15 (60s × 20 seeds × 4 fixtures × 5 backends × 2 pin variants). Pinned per-fixture soft-score medians `(grundschule, zweizuegig, dreizuegig, lock_in)`: `lahc_rr = (32, 189, 1155, 304)` vs `lahc_rr_kempe = (32, 184, 1141, 304)`. Unpinned: `lahc_rr = (32, 239, 1346, 315)` vs `lahc_rr_kempe = (32, 236, 1318, 323)`. Fixture split is 2-2 in both pin variants; `lahc_rr_kempe` edges `lahc_rr` by < 3% on multi-school fixtures (zweizuegig, dreizuegig); `lahc_rr` holds on lock_in unpinned by 2.5%. Stddev tiebreaker on pinned soft-score across fixtures: `lahc_rr_kempe` 430 vs `lahc_rr` 435 (1.2% lower variance). PR #266 (block-aware Change + Swap) is the dominant 2026-05-14 driver and closed the unpinned multi-school feasibility gap for all 4 LAHC variants. Closure shape: user picks (a) ratify `lahc_rr` per ADR 0037 (simpler default, ties via spec rule), or (b) revise to `lahc_rr_kempe` per stddev tiebreaker. Both deltas are within bench host-sensitivity noise. Anchor: item 81.
 
 ### P2 (longer-arc; reopen on trigger)
 
@@ -29,7 +24,7 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
 11. **Production-refresh ratification of `soft_pin_miss` weight (5).** ADR 0042 set the tentative weight at 5, mirroring `prefer_home_room`. 2026-05-15 production refresh shows grundschule pinned aggregate soft-scores rose +18 to +45% across all 5 backends vs 2026-05-12 (e.g. `lahc_rr` 22→32, `lahc` 27→32, `cpsat` 22→32). Attribution is confounded: PR #263 (soft-pin, `soft_pin_miss` axis) AND PR #261 (Hofpause supervision rota, `supervision_spread` axis) both landed between the 2026-05-12 baseline and this refresh, so the aggregate "Soft score" column captures multiple new contributions; the bench currently does not render `soft_pin_miss` or `supervision_spread` as standalone columns. Clean closure needs (a) a per-component vector dump for one grundschule cell at `soft_pin_miss_weight = 0` vs `5`, or (b) a `soft_pin_miss` column in BENCH_RESULTS.md before the next refresh. Anchor: ADR 0042.
 
-82. **Quality-bar flake xfail removal.** `test_grundschule_schedule_meets_quality_bar` is `pytest.mark.xfail(strict=False)` today because LAHC under the 5000 ms deadline misses the `MAX_DAY_LOAD_SPREAD <= 2` predicate on class 2a roughly 1 in 3 runs (typical shape `daily=[2,6,5,4,6]`). Remove the marker once a 20-iter production-budget flake-loop on the test reports zero `failed` summary lines (`xfailed` and `xpassed` are not failures). Run `pytest --runxfail` once before removal per the `.claude/CLAUDE.md` discipline. Trigger: opportunistic on the next LAHC tuning pass (anchor: item 81).
+82. **Quality-bar flake xfail removal.** `test_grundschule_schedule_meets_quality_bar` is `pytest.mark.xfail(strict=False)` today because LAHC under the 5000 ms deadline misses the `MAX_DAY_LOAD_SPREAD <= 2` predicate on class 2a roughly 1 in 3 runs (typical shape `daily=[2,6,5,4,6]`). Remove the marker once a 20-iter production-budget flake-loop on the test reports zero `failed` summary lines (`xfailed` and `xpassed` are not failures). Run `pytest --runxfail` once before removal per the `.claude/CLAUDE.md` discipline. Trigger: opportunistic on the next LAHC tuning pass (anchor: item 86).
 
 83. **CP-SAT cannot solve dreizuegig at 60s budget.** 2026-05-15 production refresh confirms CP-SAT pinned + unpinned both return 0/20 feasibility on dreizuegig (median 294 hard violations, 0 placements). Stable across 2026-05-12 and 2026-05-15. CP-SAT distinguishes INFEASIBLE from UNKNOWN by wall-clock per `solver/CLAUDE.md`; 60s × 547MB peak RSS (pinned) and 65s × 2.4GB peak RSS (unpinned, model-fan-out from teacher widening) suggests OR-Tools' CP-SAT search did not find a first-feasible within the budget. Options: (a) widen `solve_deadline_ms` for `cpsat` on dreizuegig-shaped inputs (per ADR 0038 widening shape), (b) model-level reductions (AllDifferentExcept, redundant constraint set, presolve tuning), (c) accept CP-SAT as Grundschule-only and route dreizuegig through LAHC always (matches ADR 0037 production default). Trigger: opportunistic on CP-SAT pass, or when dreizuegig-shaped customer school surfaces with LAHC-quality insufficient. Anchor: ADR 0030.
 
