@@ -8,7 +8,6 @@ The 2026-05-12 shipping of items 11 + 79 + 80 closed the multi-school flake-loop
 
 ## Next up
 
-- `[P1]` Per-teacher attribution surfacing on the Teacher view. Sibling to the per-class surface that landed on 2026-05-15: build a backend orchestrator computing `teacher_gap_hours_by_teacher[teacher_id]` from persisted placements (mirrors `compute_quality_attribution_for_class`), wire it onto the teacher-side `ScheduleReadResponse.quality_report` (today `None` at the teacher route), and render a "Quality metrics" section on the Teacher view analogous to the class view's. Per profile rule 13, filed as a fresh item because the mechanism (teacher-keyed map + new page surface) differs from the class-view ship.
 - `[P2]` Non-Timefold third-backend spike (item 56; triggered when Rust LAHC + CP-SAT both plateau).
 - `[P2]` Day-balance penalty row on the Quality metrics section (`class_day_balance_cost_by_class`). Deferred from the 2026-05-15 per-class attribution ship: the Python recompute path needs a port of solver-core's `score::class_day_balance_cost_for_class` scaled-L1 formula (parity risk versus the authoritative Rust scorer) and a paired UX decision for the unweighted-cost metric, which reads as opaque without a "daily spread" mini-chart or equivalent. Trigger: per-class attribution gets product attention, OR the day-balance axis becomes a customer-school complaint.
 - `[Paused]` Schwimmunterricht modelling, resumes after the active sprint closes.
