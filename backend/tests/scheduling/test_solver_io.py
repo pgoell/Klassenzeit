@@ -17,6 +17,7 @@ from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room, RoomAvailability
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID, School
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.subject import Subject
@@ -214,7 +215,9 @@ async def test_build_problem_json_returns_populated_shape(
     cls = seeded.cls
     lesson = seeded.lesson
 
-    problem_json, class_lesson_ids, counts = await build_problem_json(db_session, cls.id)
+    problem_json, class_lesson_ids, counts = await build_problem_json(
+        db_session, cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
 
     problem = json.loads(problem_json)
     expected_keys = {
@@ -276,7 +279,7 @@ async def test_build_problem_json_includes_break_time_blocks(
         await db_session.execute(select(SchoolClass).where(SchoolClass.name == "1a"))
     ).scalar_one()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     kinds = [tb["kind"] for tb in problem["time_blocks"]]
@@ -315,7 +318,7 @@ async def test_build_problem_json_emits_teacher_reserve_hours_per_week(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     teacher_dicts = problem["teachers"]
@@ -328,7 +331,7 @@ async def test_build_problem_json_raises_404_for_unknown_class(
     db_session: AsyncSession,
 ) -> None:
     with pytest.raises(HTTPException) as excinfo:
-        await build_problem_json(db_session, uuid.uuid4())
+        await build_problem_json(db_session, uuid.uuid4(), school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 404
 
 
@@ -360,7 +363,7 @@ async def test_build_problem_json_raises_422_when_week_scheme_has_no_time_blocks
     await db_session.flush()
 
     with pytest.raises(HTTPException) as excinfo:
-        await build_problem_json(db_session, cls.id)
+        await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 422
     assert "time_blocks" in excinfo.value.detail.lower()
 
@@ -392,7 +395,7 @@ async def test_build_problem_json_raises_422_when_rooms_table_empty(
     await db_session.flush()
 
     with pytest.raises(HTTPException) as excinfo:
-        await build_problem_json(db_session, cls.id)
+        await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 422
     assert "rooms" in excinfo.value.detail.lower()
 
@@ -439,7 +442,7 @@ async def test_build_problem_json_raises_422_on_mixed_week_schemes(
     await db_session.flush()
 
     with pytest.raises(HTTPException) as excinfo:
-        await build_problem_json(db_session, cls_a.id)
+        await build_problem_json(db_session, cls_a.id, school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 422
     assert "week_scheme" in excinfo.value.detail
 
@@ -473,7 +476,7 @@ async def test_build_problem_json_transforms_teacher_availability_status_blocked
     )
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     assert len(problem["teacher_blocked_times"]) == 1
@@ -513,7 +516,7 @@ async def test_build_problem_json_teacher_availability_available_is_not_blocked(
     )
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     assert problem["teacher_blocked_times"] == []
@@ -562,7 +565,7 @@ async def test_build_problem_json_transforms_room_availability_whitelist(
     db_session.add(RoomAvailability(room_id=room.id, time_block_id=block_p1.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     blocked = problem["room_blocked_times"]
@@ -595,7 +598,7 @@ async def test_build_problem_json_room_without_whitelist_is_unblocked(
     )
     cls = seeded.cls
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     assert problem["room_blocked_times"] == []
@@ -667,7 +670,9 @@ async def test_build_problem_json_emits_subject_preference_flags(
     seeded.subject.avoid_first_period = 0
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
 
     matched = next(s for s in problem["subjects"] if s["id"] == str(seeded.subject.id))
@@ -791,7 +796,7 @@ async def test_build_problem_json_includes_preferred_block_size(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
 
     assert len(problem["lessons"]) == 1
@@ -853,7 +858,9 @@ async def test_build_problem_json_emits_school_class_ids_array_for_multi_class_l
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, class_lesson_ids, _ = await build_problem_json(db_session, cls_a.id)
+    problem_json, class_lesson_ids, _ = await build_problem_json(
+        db_session, cls_a.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
 
     assert len(problem["lessons"]) == 1
@@ -885,7 +892,9 @@ async def test_build_problem_json_emits_null_lesson_group_id_when_unset(
         create_stundentafel=create_stundentafel,
         create_school_class=create_school_class,
     )
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
     assert problem["lessons"][0]["lesson_group_id"] is None
 
@@ -924,7 +933,7 @@ async def test_build_problem_json_emits_home_room_id_per_school_class(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(cls.id))
     assert sc_entry["home_room_id"] == str(home_room.id)
@@ -954,7 +963,9 @@ async def test_build_problem_json_emits_subject_max_hours_per_day(
     seeded.subject.max_hours_per_day = 3
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
 
     matched = next(s for s in problem["subjects"] if s["id"] == str(seeded.subject.id))
@@ -985,7 +996,9 @@ async def test_build_problem_json_emits_school_class_max_lessons_per_day_when_se
     seeded.cls.max_lessons_per_day = 4
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["max_lessons_per_day"] == 4
@@ -1012,7 +1025,9 @@ async def test_build_problem_json_emits_null_max_lessons_per_day_when_class_has_
         create_stundentafel=create_stundentafel,
         create_school_class=create_school_class,
     )
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["max_lessons_per_day"] is None
@@ -1063,7 +1078,9 @@ async def test_run_solve_honors_subject_daily_hour_cap(
     db_session.add(LessonSchoolClass(lesson_id=lesson.id, school_class_id=cls.id))
     await db_session.flush()
 
-    problem_json, _, counts = await build_problem_json(db_session, cls.id)
+    problem_json, _, counts = await build_problem_json(
+        db_session, cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     solution = await run_solve(problem_json, cls.id, counts, deadline_ms=0)
 
     placements = solution["placements"]
@@ -1098,7 +1115,9 @@ async def test_build_problem_json_emits_null_home_room_id_when_class_has_no_home
         create_stundentafel=create_stundentafel,
         create_school_class=create_school_class,
     )
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["home_room_id"] is None
@@ -1128,7 +1147,9 @@ async def test_build_problem_json_emits_class_teacher_id_when_set(
     seeded.cls.class_teacher_id = seeded.teacher.id
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["class_teacher_id"] == str(seeded.teacher.id)
@@ -1155,7 +1176,9 @@ async def test_build_problem_json_emits_null_class_teacher_id_when_unset(
         create_stundentafel=create_stundentafel,
         create_school_class=create_school_class,
     )
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     sc_entry = next(c for c in payload["school_classes"] if c["id"] == str(seeded.cls.id))
     assert sc_entry["class_teacher_id"] is None
@@ -1264,7 +1287,9 @@ async def test_build_problem_json_threads_pinned_placements_into_wire_format(
         }
     ]
 
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id, pinned_placements=pins)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID, pinned_placements=pins
+    )
     parsed = json.loads(problem_json)
 
     assert parsed["pinned_placements"] == pins
@@ -1291,7 +1316,9 @@ async def test_build_problem_json_omits_pinned_placements_defaults_to_empty_list
         create_stundentafel=create_stundentafel,
         create_school_class=create_school_class,
     )
-    problem_json, _, _ = await build_problem_json(db_session, seeded.cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     parsed = json.loads(problem_json)
     assert parsed["pinned_placements"] == []
 
@@ -1335,7 +1362,7 @@ async def test_build_problem_json_includes_null_teacher_lessons(
     )
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
     [emitted_lesson] = [item for item in problem["lessons"] if item["id"] == str(lesson.id)]
     assert emitted_lesson["teacher_pin"] is None
@@ -1386,7 +1413,7 @@ async def test_build_problem_json_emits_teacher_candidates_and_pin(
     )
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await build_problem_json(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     problem = json.loads(problem_json)
     [emitted_lesson] = [item for item in problem["lessons"] if item["id"] == str(lesson.id)]
     assert "teacher_candidates" in emitted_lesson
@@ -1726,7 +1753,9 @@ async def test_candidates_for_lesson_excludes_off_days_for_part_time_teacher(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, class_id=cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, class_id=cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
 
     [lesson_payload] = [le for le in problem["lessons"] if le["id"] == str(lesson.id)]
@@ -1763,7 +1792,9 @@ async def test_teacher_blocked_times_emit_for_off_days(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await build_problem_json(db_session, class_id=cls.id)
+    problem_json, _, _ = await build_problem_json(
+        db_session, class_id=cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     problem = json.loads(problem_json)
 
     blocked_for_teacher = {
@@ -1777,3 +1808,40 @@ async def test_teacher_blocked_times_emit_for_off_days(
     assert tbs_by_day[4] in blocked_for_teacher
     assert tbs_by_day[0] not in blocked_for_teacher
     assert tbs_by_day[1] not in blocked_for_teacher
+
+
+async def test_build_problem_json_scopes_rooms_by_school_id(
+    db_session: AsyncSession,
+    create_subject: CreateSubjectFn,
+    create_week_scheme: CreateWeekSchemeFn,
+    create_time_block: CreateTimeBlockFn,
+    create_room: CreateRoomFn,
+    create_teacher: CreateTeacherFn,
+    create_stundentafel: CreateStundentafelFn,
+    create_school_class: CreateSchoolClassFn,
+) -> None:
+    """build_problem_json must include only rooms from the supplied school."""
+    seeded = await _seed_minimal_school(
+        db_session,
+        create_subject=create_subject,
+        create_week_scheme=create_week_scheme,
+        create_time_block=create_time_block,
+        create_room=create_room,
+        create_teacher=create_teacher,
+        create_stundentafel=create_stundentafel,
+        create_school_class=create_school_class,
+    )
+    other_school = School(name="Other School Solver", short_name="OSS")
+    db_session.add(other_school)
+    await db_session.flush()
+    room_in_other = Room(name="Other School Room", short_name="OSR", school_id=other_school.id)
+    db_session.add(room_in_other)
+    await db_session.flush()
+
+    problem_json, _, _ = await build_problem_json(
+        db_session, seeded.cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
+    problem = json.loads(problem_json)
+    room_ids = {r["id"] for r in problem["rooms"]}
+    assert str(seeded.room.id) in room_ids
+    assert str(room_in_other.id) not in room_ids

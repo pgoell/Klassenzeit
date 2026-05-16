@@ -27,7 +27,6 @@ class User(Base):
         ForeignKey("schools.id"),
         nullable=False,
         index=True,
-        server_default=text("'00000000-0000-0000-0000-000000000001'::uuid"),
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

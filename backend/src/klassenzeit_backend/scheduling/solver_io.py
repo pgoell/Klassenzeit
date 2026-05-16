@@ -251,6 +251,7 @@ async def build_problem_json(
     db: AsyncSession,
     class_id: UUID | None = None,
     *,
+    school_id: UUID,
     pinned_placements: list[dict[str, str]] | None = None,
 ) -> tuple[str, set[UUID], dict[str, int]]:
     """Load the school-wide solver input and serialize it to JSON.
@@ -327,7 +328,7 @@ async def build_problem_json(
             ),
         )
 
-    rooms = (await db.execute(select(Room))).scalars().all()
+    rooms = (await db.execute(select(Room).where(Room.school_id == school_id))).scalars().all()
     if not rooms:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

@@ -64,7 +64,11 @@ def upgrade() -> None:
         ),
     )
     op.execute(f"UPDATE users SET school_id = '{DEFAULT_SCHOOL_ID}'")  # noqa: S608
-    op.alter_column("users", "school_id", nullable=False)
+    # Drop the transitional server_default once existing rows have been
+    # backfilled; future inserts must supply ``school_id`` explicitly so a
+    # forgotten assignment fails loudly instead of silently landing in the
+    # default tenant.
+    op.alter_column("users", "school_id", nullable=False, server_default=None)
     op.create_foreign_key("fk_users_school_id_schools", "users", "schools", ["school_id"], ["id"])
     op.create_index("ix_users_school_id", "users", ["school_id"])
 
@@ -78,7 +82,8 @@ def upgrade() -> None:
         ),
     )
     op.execute(f"UPDATE rooms SET school_id = '{DEFAULT_SCHOOL_ID}'")  # noqa: S608
-    op.alter_column("rooms", "school_id", nullable=False)
+    # Drop the transitional server_default (see users.school_id above).
+    op.alter_column("rooms", "school_id", nullable=False, server_default=None)
     op.create_foreign_key("fk_rooms_school_id_schools", "rooms", "schools", ["school_id"], ["id"])
     op.create_index("ix_rooms_school_id", "rooms", ["school_id"])
 

@@ -30,7 +30,6 @@ class Room(Base):
         ForeignKey("schools.id"),
         nullable=False,
         index=True,
-        server_default=sa.text("'00000000-0000-0000-0000-000000000001'::uuid"),
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

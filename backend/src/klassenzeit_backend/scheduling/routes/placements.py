@@ -59,9 +59,19 @@ async def _load_time_block_or_404(db: AsyncSession, time_block_id: uuid.UUID) ->
     return tb
 
 
-async def _load_room_or_404(db: AsyncSession, room_id: uuid.UUID) -> Room:
-    """Fetch a Room by id or raise 404."""
-    room = (await db.execute(select(Room).where(Room.id == room_id))).scalar_one_or_none()
+async def _load_room_or_404(
+    db: AsyncSession,
+    room_id: uuid.UUID,
+    school_id: uuid.UUID,
+) -> Room:
+    """Fetch a Room by id, scoped to a school, or raise 404.
+
+    Returns 404 both for unknown room IDs and for rooms belonging to a
+    different school (avoids cross-school existence leakage).
+    """
+    room = (
+        await db.execute(select(Room).where(Room.id == room_id, Room.school_id == school_id))
+    ).scalar_one_or_none()
     if room is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -112,13 +122,13 @@ async def move_placement_route(
     lesson_id: uuid.UUID,
     time_block_id: uuid.UUID,
     body: MovePlacementRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> PlacementResponse:
     """Move a placement to a new time block (and possibly room) and pin it."""
     placement = await _load_placement_or_404(db, lesson_id, time_block_id)
     target_tb = await _load_time_block_or_404(db, body.time_block_id)
-    await _load_room_or_404(db, body.room_id)
+    await _load_room_or_404(db, body.room_id, current_user.school_id)
     await _assert_lesson_week_scheme_matches(db, lesson_id, target_tb)
     if body.time_block_id != time_block_id:
         # Drop the old composite-PK row before inserting the new one to avoid
