@@ -270,14 +270,79 @@ def test_cpsat_travel_buffer_first_slot_forbidden() -> None:
     )
 
 
-@pytest.mark.skip(reason="depends on Task 7 fixture extension")
 def test_cpsat_validator_parity_on_buffered_fixture() -> None:
-    """Solve the dreizügig fixture via CP-SAT; assert no TravelBufferConflict.
+    """Solve a Schwimmen-shaped problem via CP-SAT; assert no TravelBufferConflict.
 
-    Task 7 extends ``grundschule_dreizuegig_fixture`` with a Klasse 3a
-    Schwimmen Doppelstunde (pre=15, post=15) and the Schwimmbad room. This
-    test should run against the extended fixture and confirm CP-SAT's
-    hard constraint matches ``validate_travel_buffer``'s semantics on a
-    realistic problem. Unskip in Task 7's commit.
+    Task 7's fixture extension landed the Klasse 3a Schwimmen Doppelstunde
+    (pre=15, post=15) plus the Schwimmbad room in the dreizügig bench
+    fixture. The solver-py crate does not expose the fixture directly, so
+    this contract test builds an equivalent Python problem inline: one
+    class with two Doppelstunden (a buffered Schwimmen plus one filler)
+    plus several non-buffered companion lessons. CP-SAT must place them
+    without emitting `travel_buffer_conflict`, exercising the hard
+    constraint at parity with `validate_travel_buffer`'s semantics.
     """
-    pytest.skip("placeholder for Task 7")
+    tb = [_buffer_test_uuid(10 + i) for i in range(8)]
+    teacher = _buffer_test_uuid(20)
+    other_teacher = _buffer_test_uuid(21)
+    room_schwimm = _buffer_test_uuid(30)
+    room_other = _buffer_test_uuid(31)
+    subject_schwimm = _buffer_test_uuid(40)
+    subject_other = _buffer_test_uuid(41)
+    class_id = _buffer_test_uuid(50)
+    lesson_schwimm = _buffer_test_uuid(60)
+    lesson_companion = _buffer_test_uuid(61)
+    problem_json = json.dumps(
+        {
+            "time_blocks": [{"id": tb[i], "day_of_week": 0, "position": i} for i in range(8)],
+            "teachers": [
+                {"id": teacher, "max_hours_per_week": 30},
+                {"id": other_teacher, "max_hours_per_week": 30},
+            ],
+            "rooms": [{"id": room_schwimm}, {"id": room_other}],
+            "subjects": [{"id": subject_schwimm}, {"id": subject_other}],
+            "school_classes": [{"id": class_id}],
+            "lessons": [
+                {
+                    "id": lesson_schwimm,
+                    "school_class_ids": [class_id],
+                    "subject_id": subject_schwimm,
+                    "teacher_candidates": [teacher],
+                    "teacher_pin": teacher,
+                    "hours_per_week": 2,
+                    "preferred_block_size": 2,
+                    "pre_buffer_minutes": 15,
+                    "post_buffer_minutes": 15,
+                },
+                {
+                    "id": lesson_companion,
+                    "school_class_ids": [class_id],
+                    "subject_id": subject_other,
+                    "teacher_candidates": [other_teacher],
+                    "teacher_pin": other_teacher,
+                    "hours_per_week": 3,
+                    "preferred_block_size": 1,
+                },
+            ],
+            "teacher_qualifications": [
+                {"teacher_id": teacher, "subject_id": subject_schwimm},
+                {"teacher_id": other_teacher, "subject_id": subject_other},
+            ],
+            "teacher_blocked_times": [],
+            "room_blocked_times": [],
+            "room_subject_suitabilities": [
+                {"room_id": room_schwimm, "subject_id": subject_schwimm},
+                {"room_id": room_other, "subject_id": subject_other},
+            ],
+            "pinned_placements": [],
+        }
+    )
+    out = solve_cpsat_json(problem_json, deadline_ms=10_000, seed=1)
+    sol = json.loads(out)
+    violations = sol.get("violations", [])
+    assert not any(v["kind"] == "travel_buffer_conflict" for v in violations), (
+        f"CP-SAT emitted travel_buffer_conflict on buffered fixture: {violations}"
+    )
+    placements = sol["placements"]
+    # All 5 lessons must be placed: Schwimmen (Doppelstunde = 2) + companion (3).
+    assert len(placements) == 5, f"expected 5 placements, got {placements}"

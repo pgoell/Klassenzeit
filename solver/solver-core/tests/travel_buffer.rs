@@ -719,6 +719,54 @@ fn test_lahc_swap_move_rejects_buffer_violation() {
 }
 
 #[test]
+fn test_dreizuegig_fixture_includes_klasse_3a_schwimmen() {
+    // Task 7: the dreizügig bench fixture is extended with a Klasse 3a
+    // Schwimmen Doppelstunde (pre=15, post=15) plus a Schwimmbad room.
+    // Subject + Room types in solver-core carry only UUIDs, not name
+    // fields, so this test locates them by fixture-known positions:
+    //   * 12th subject (index 11) is Schwimmen.
+    //   * 17th room (index 16) is Schwimmbad.
+    //   * Klasse 3a is class index 6 (1a..1c, 2a..2c, 3a -> index 6).
+    let problem = solver_core::test_fixtures::dreizuegig_fixture();
+    assert!(
+        problem.subjects.len() >= 12,
+        "expected >= 12 subjects (Schwimmen added), got {}",
+        problem.subjects.len()
+    );
+    assert!(
+        problem.rooms.len() >= 17,
+        "expected >= 17 rooms (Schwimmbad added), got {}",
+        problem.rooms.len()
+    );
+    let schwimmen_subject_id = problem.subjects[11].id;
+    let schwimmbad_room_id = problem.rooms[16].id;
+    let klasse_3a_id = problem.school_classes[6].id;
+
+    // Schwimmbad room must be the ONLY room suiting Schwimmen.
+    let schwimmen_rooms: Vec<_> = problem
+        .room_subject_suitabilities
+        .iter()
+        .filter(|r| r.subject_id == schwimmen_subject_id)
+        .map(|r| r.room_id)
+        .collect();
+    assert_eq!(
+        schwimmen_rooms,
+        vec![schwimmbad_room_id],
+        "Schwimmen must be room-restricted to Schwimmbad"
+    );
+
+    // Locate the Klasse 3a Schwimmen lesson by (subject, class) match.
+    let schwimmen_lesson = problem.lessons.iter().find(|l| {
+        l.subject_id == schwimmen_subject_id && l.school_class_ids.contains(&klasse_3a_id)
+    });
+    let lesson = schwimmen_lesson.expect("Klasse 3a Schwimmen lesson missing");
+    assert_eq!(lesson.pre_buffer_minutes, 15);
+    assert_eq!(lesson.post_buffer_minutes, 15);
+    assert_eq!(lesson.hours_per_week, 2);
+    assert_eq!(lesson.preferred_block_size, 2);
+}
+
+#[test]
 fn test_lahc_kempe_chain_rejects_buffer_violation() {
     // Enable Kempe (period=1 so every iteration is a Kempe attempt). The
     // buffered schwimm lesson is one of two anchors; chain destinations

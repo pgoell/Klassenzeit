@@ -663,6 +663,28 @@ pub fn validate_travel_buffer(problem: &Problem, placements: &[Placement]) -> Re
         teacher_occ.insert((p.teacher_id, tb.day_of_week, tb.position), lesson.id);
     }
 
+    // For multi-row blocks (Doppelstunden), only the FIRST row of the
+    // block carries the pre/post adjacency check. Iterating every row and
+    // computing `next_pos = pos + preferred_block_size` would, for the
+    // second row of a Doppelstunde at (block_start, block_start+1), look at
+    // `block_start + 1 + 2 = block_start + 3`, two slots past the block's
+    // actual post-slot. Determine the per-(lesson, day) anchor up front so
+    // the loop below evaluates each buffered placement at its correct
+    // adjacent slot.
+    let mut anchor_by_lesson_day: HashMap<(LessonId, u8), u8> = HashMap::new();
+    for p in placements {
+        let tb = tb_by_id[&p.time_block_id];
+        let key = (p.lesson_id, tb.day_of_week);
+        anchor_by_lesson_day
+            .entry(key)
+            .and_modify(|cur| {
+                if tb.position < *cur {
+                    *cur = tb.position;
+                }
+            })
+            .or_insert(tb.position);
+    }
+
     for p in placements {
         let lesson = lesson_by_id[&p.lesson_id];
         if lesson.pre_buffer_minutes == 0 && lesson.post_buffer_minutes == 0 {
@@ -671,6 +693,14 @@ pub fn validate_travel_buffer(problem: &Problem, placements: &[Placement]) -> Re
         let tb = tb_by_id[&p.time_block_id];
         let day = tb.day_of_week;
         let pos = tb.position;
+        // Only the block-anchor row drives the buffer check; non-anchor
+        // rows of a Doppelstunde re-use the anchor's pre/post slot
+        // computation and would otherwise report bogus self-violations.
+        if let Some(anchor) = anchor_by_lesson_day.get(&(lesson.id, day)) {
+            if pos != *anchor {
+                continue;
+            }
+        }
 
         if lesson.pre_buffer_minutes > 0 {
             if pos == 0 {
@@ -760,22 +790,115 @@ pub fn validate_travel_buffer(problem: &Problem, placements: &[Placement]) -> Re
 /// lesson is not yet in `state`; LAHC Change/Swap/Block-move callers pass
 /// `Some((old_day, old_start_pos))` so the adjacent-slot check does not
 /// fire against the lesson's own pre-move position.
+///
+/// `placements` is the current placement vector (or an empty slice when the
+/// caller is FFD-with-no-prior-placements). The helper uses it to detect the
+/// symmetric case: even when the candidate `lesson` is itself unbuffered,
+/// the chosen `tb_id` may be adjacent to an existing buffered placement
+/// whose pre/post side faces this slot. Without this check, FFD/LAHC moves
+/// of non-buffered lessons can land next to a buffered placement and the
+/// `validate_travel_buffer` post-condition rejects the entire run.
 pub(crate) fn would_violate_travel_buffer(
     problem: &Problem,
     state: &crate::solve::GreedyState,
+    placements: &[Placement],
     lesson: &Lesson,
     tb_id: TimeBlockId,
     teacher: TeacherId,
     ignore_self: Option<(u8, u8)>,
 ) -> bool {
-    if lesson.pre_buffer_minutes == 0 && lesson.post_buffer_minutes == 0 {
-        return false;
-    }
     let Some(tb) = problem.time_blocks.iter().find(|t| t.id == tb_id) else {
         return false;
     };
     let day = tb.day_of_week;
     let pos = tb.position;
+
+    // Symmetric pruning: even when `lesson` itself is unbuffered, the
+    // candidate slot range may collide with an existing buffered
+    // placement's pre/post-side. We must reject the move if any buffered
+    // placement on the same day, sharing a class or teacher with the
+    // current candidate, has its buffer side pointing at one of the
+    // candidate's positions. Cheap by construction: only buffered lessons
+    // are scanned, and there is typically just one per fixture. The
+    // current lesson's own pre-move placement (via `ignore_self`) is
+    // skipped so a same-lesson re-anchoring does not self-collide.
+    let candidate_n = lesson.preferred_block_size;
+    for p in placements {
+        let Some(p_lesson) = problem.lessons.iter().find(|l| l.id == p.lesson_id) else {
+            continue;
+        };
+        if p_lesson.id == lesson.id {
+            continue;
+        }
+        if p_lesson.pre_buffer_minutes == 0 && p_lesson.post_buffer_minutes == 0 {
+            continue;
+        }
+        let Some(p_tb) = problem.time_blocks.iter().find(|t| t.id == p.time_block_id) else {
+            continue;
+        };
+        if p_tb.day_of_week != day {
+            continue;
+        }
+        // Treat `ignore_self`'s window as "the candidate's pre-move
+        // footprint"; placements that the move is REMOVING from those
+        // slots must not count for the symmetric check either. The
+        // helper's `placements` slice still contains the old placement
+        // (LAHC mutates in place after the legality filter), so without
+        // this guard a Change move that pulls the buffered lesson away
+        // would self-collide on its own old block.
+        if let Some((ignore_day, ignore_start)) = ignore_self {
+            if p_tb.day_of_week == ignore_day {
+                let ignore_n = lesson.preferred_block_size;
+                if p_tb.position >= ignore_start
+                    && p_tb.position < ignore_start.saturating_add(ignore_n)
+                {
+                    continue;
+                }
+            }
+        }
+        let p_pos = p_tb.position;
+        let p_n = p_lesson.preferred_block_size;
+        let shares_class = lesson
+            .school_class_ids
+            .iter()
+            .any(|c| p_lesson.school_class_ids.contains(c));
+        let shares_teacher = teacher == p.teacher_id;
+        if !shares_class && !shares_teacher {
+            continue;
+        }
+        // The candidate occupies positions [pos .. pos + candidate_n).
+        // `p`'s pre side is the slot at `p_pos - 1`; violated iff the
+        // candidate's range covers it (`pos <= p_pos - 1 < pos +
+        // candidate_n`). `p`'s post side is the slot at `p_pos + p_n`;
+        // violated iff the candidate's range covers it
+        // (`pos <= p_pos + p_n < pos + candidate_n`).
+        if p_lesson.pre_buffer_minutes > 0 && p_pos > 0 {
+            let pre_slot = p_pos - 1;
+            let pre_tb = problem
+                .time_blocks
+                .iter()
+                .find(|t| t.day_of_week == day && t.position == pre_slot);
+            let pre_is_break = pre_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
+            if !pre_is_break && pos <= pre_slot && pre_slot < pos + candidate_n {
+                return true;
+            }
+        }
+        if p_lesson.post_buffer_minutes > 0 {
+            let post_slot = p_pos.saturating_add(p_n);
+            let post_tb = problem
+                .time_blocks
+                .iter()
+                .find(|t| t.day_of_week == day && t.position == post_slot);
+            let post_is_break = post_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
+            if !post_is_break && pos <= post_slot && post_slot < pos + candidate_n {
+                return true;
+            }
+        }
+    }
+
+    if lesson.pre_buffer_minutes == 0 && lesson.post_buffer_minutes == 0 {
+        return false;
+    }
 
     // The lesson's own pre-move block spans `[ignore_start, ignore_end]` on
     // `ignore_day`. A class/teacher position in this range is the lesson

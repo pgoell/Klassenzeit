@@ -319,7 +319,10 @@ pub fn zweizuegig_fixture() -> Problem {
 
 /// Build a dreizügige Grundschule `Problem`. Mirrors the Python seed in
 /// `backend/src/klassenzeit_backend/seed/demo_grundschule_dreizuegig.py`.
-/// Asserts 102 lessons / 294 placements so copy-paste drift is caught.
+/// Asserts 103 lessons / 296 placements so copy-paste drift is caught.
+/// The 103rd lesson is a Klasse 3a Schwimmen Doppelstunde with
+/// `pre_buffer_minutes=15` / `post_buffer_minutes=15`, room-restricted to a
+/// 17th room (Schwimmbad). ADR 0044.
 ///
 /// First fixture exercising the multi-class Lesson shape: each Religion
 /// lesson (RK / RE / ETH per Jahrgang) is one `Lesson` row with three
@@ -350,7 +353,11 @@ pub fn dreizuegig_fixture() -> Problem {
 
     // 11 subjects in the order from `_SUBJECTS` in `demo_grundschule.py`:
     //   0 D, 1 M, 2 SU, 3 RK, 4 RE, 5 ETH, 6 E, 7 KU, 8 MU, 9 SP, 10 FÖ.
-    let subject_ids: Vec<SubjectId> = (0..11u8).map(|i| SubjectId(fixture_uuid(35 + i))).collect();
+    // Plus 11 Schwimmen (added for ADR 0044 travel-buffer enforcement; the
+    // Python seed mirrors this 12th subject at the same index).
+    let mut subject_ids: Vec<SubjectId> =
+        (0..11u8).map(|i| SubjectId(fixture_uuid(35 + i))).collect();
+    subject_ids.push(SubjectId(fixture_uuid(250)));
     let subjects: Vec<Subject> = subject_ids
         .iter()
         .enumerate()
@@ -365,14 +372,17 @@ pub fn dreizuegig_fixture() -> Problem {
         .collect();
 
     // 18 teachers; max_hours_per_week per `_TEACHERS_DREIZUEGIG` (Klassenlehrer
-    // and Zug-bound specialists 28h, Religion specialists 14h).
+    // and Zug-bound specialists 28h, Religion specialists 14h). HOF (index 12,
+    // Zug-a sport specialist) carries an extra 2h headroom (30h) for the
+    // Klasse 3a Schwimmen Doppelstunde appended below; the Python seed mirrors
+    // this bump in `_TEACHERS_DREIZUEGIG`.
     // Indices:
     //   0 MUE, 1 SCH, 2 DIE, 3 ENG, 4 KAI, 5 LAN     (Klassenlehrer 1/2)
     //   6 NOL, 7 ROT, 8 STA, 9 BRA, 10 HUB, 11 FRE   (Klassenlehrer 3/4)
     //   12 HOF, 13 RIC, 14 SCS                       (Zug-bound specialists)
     //   15 PFK, 16 PSL, 17 PHL                       (Religion specialists)
     let teacher_max_hours: [u8; 18] = [
-        28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 14, 14, 14,
+        28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 30, 28, 28, 14, 14, 14,
     ];
     let teachers: Vec<Teacher> = (0..18u8)
         .map(|i| Teacher {
@@ -383,11 +393,16 @@ pub fn dreizuegig_fixture() -> Problem {
         .collect();
 
     // 16 rooms: 12 Klassenräume + Turnhalle + Sportplatz + Musikraum + Kunstraum.
-    let rooms: Vec<Room> = (0..16u8)
+    // Plus 1 Schwimmbad (room index 16, external venue, ADR 0044). The Python
+    // seed mirrors this 17th room at the same index.
+    let mut rooms: Vec<Room> = (0..16u8)
         .map(|i| Room {
             id: RoomId(fixture_uuid(64 + i)),
         })
         .collect();
+    rooms.push(Room {
+        id: RoomId(fixture_uuid(251)),
+    });
 
     // 12 classes: 1a..4c. Indices align with grade triples.
     //   0 1a, 1 1b, 2 1c (grade 1, Züge a/b/c)
@@ -450,7 +465,10 @@ pub fn dreizuegig_fixture() -> Problem {
     let mut qual_set: HashSet<(TeacherId, SubjectId)> = HashSet::new();
     let mut lesson_idx: u8 = 0;
     for c_idx in 0..classes.len() {
-        for s_idx in 0..subjects.len() {
+        // Iterate over the 11 Stundentafel subjects only. The 12th subject
+        // (Schwimmen) lives outside the Stundentafel; its single Klasse 3a
+        // lesson is appended after the cross-class Religion trio below.
+        for s_idx in 0..11 {
             let hours = hours_per_class[c_idx][s_idx];
             if hours == 0 {
                 continue;
@@ -526,15 +544,51 @@ pub fn dreizuegig_fixture() -> Problem {
         }
     }
 
+    // Klasse 3a Schwimmen Doppelstunde (ADR 0044 travel-buffer fixture).
+    // pre/post buffer = 15 min so the post-condition validator gates against
+    // adjacent class / teacher placements; only the Schwimmbad room is
+    // suitable. Teacher HOF (index 12) is the Zug-a sport teacher for class
+    // 3a (mirrors `_TEACHER_ASSIGNMENTS_DREIZUEGIG[("3a", "SP")] = "HOF"`);
+    // `teacher_pin: None` lets the solver pick the candidate (per the
+    // teacher-pinning-as-fixture convention, but Schwimmen as a fresh subject
+    // has no historical pin to mirror). Hours_per_week=2,
+    // preferred_block_size=2 => one Doppelstunde block.
+    let schwimmen_subject_id = subject_ids[11];
+    let hof_teacher = &teachers[12];
+    let klasse_3a_id = classes[6].id;
+    lessons.push(Lesson {
+        id: LessonId(fixture_uuid(92 + lesson_idx)),
+        school_class_ids: vec![klasse_3a_id],
+        subject_id: schwimmen_subject_id,
+        teacher_candidates: vec![hof_teacher.id],
+        teacher_pin: None,
+        hours_per_week: 2,
+        preferred_block_size: 2,
+        pre_buffer_minutes: 15,
+        post_buffer_minutes: 15,
+        lesson_group_id: None,
+    });
+    lesson_idx += 1;
+    if qual_set.insert((hof_teacher.id, schwimmen_subject_id)) {
+        quals.push(TeacherQualification {
+            teacher_id: hof_teacher.id,
+            subject_id: schwimmen_subject_id,
+        });
+    }
+    // `lesson_idx` is read once more below in the placement assertions; no
+    // further pushes follow, so the increment is hygienic only (silences
+    // unused_assignments under future maintainers' edits).
+    let _ = lesson_idx;
+
     assert_eq!(
         lessons.len(),
-        102,
-        "dreizuegig fixture drifted from the seed: expected 102 lessons"
+        103,
+        "dreizuegig fixture drifted from the seed: expected 103 lessons"
     );
     let total_hours: u32 = lessons.iter().map(|l| u32::from(l.hours_per_week)).sum();
     assert_eq!(
-        total_hours, 294,
-        "dreizuegig fixture drifted from the seed: expected 294 placements"
+        total_hours, 296,
+        "dreizuegig fixture drifted from the seed: expected 296 placements"
     );
 
     // Klassenräume (rooms 0..11) suit only the Klassenraum-fit subjects
@@ -570,6 +624,14 @@ pub fn dreizuegig_fixture() -> Problem {
     suits.push(RoomSubjectSuitability {
         room_id: rooms[15].id,
         subject_id: subject_ids[7],
+    });
+    // Schwimmbad (room 16) suits only Schwimmen (subject 11). The Schwimmen
+    // subject has no entry on any other room, so per the keyed-by-room
+    // semantics of `room_subject_suitabilities` (see `solver/CLAUDE.md`),
+    // Schwimmen is room-restricted to Schwimmbad alone.
+    suits.push(RoomSubjectSuitability {
+        room_id: rooms[16].id,
+        subject_id: subject_ids[11],
     });
 
     Problem {

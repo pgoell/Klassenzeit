@@ -480,6 +480,7 @@ fn try_change_move_n1(
     if crate::validate::would_violate_travel_buffer(
         problem,
         state,
+        placements,
         lesson,
         new_tb.id,
         teacher,
@@ -891,6 +892,7 @@ fn try_change_block_move(
     if crate::validate::would_violate_travel_buffer(
         problem,
         state,
+        placements,
         lesson,
         dest_tb_ids[0],
         teacher,
@@ -1536,6 +1538,7 @@ fn try_swap_move(
     if crate::validate::would_violate_travel_buffer(
         problem,
         state,
+        placements,
         lesson_a,
         tb_b.id,
         teacher_a,
@@ -1546,6 +1549,7 @@ fn try_swap_move(
     if crate::validate::would_violate_travel_buffer(
         problem,
         state,
+        placements,
         lesson_b,
         tb_a.id,
         teacher_b,
@@ -4228,6 +4232,7 @@ fn kempe_attempt(
         if crate::validate::would_violate_travel_buffer(
             problem,
             state,
+            placements,
             lesson,
             anchor_tb_id,
             original_teacher_id,

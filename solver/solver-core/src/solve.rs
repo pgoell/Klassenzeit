@@ -998,6 +998,7 @@ pub(crate) fn try_place_block(
             if crate::validate::would_violate_travel_buffer(
                 problem,
                 state,
+                placements,
                 lesson,
                 first_tb.id,
                 candidate_teacher,
@@ -1615,6 +1616,38 @@ pub(crate) fn try_place_group(
         }
         if !all_teachers_assigned {
             continue;
+        }
+
+        // Travel-buffer pruning (ADR 0044). The group placement seats `n`
+        // contiguous slots at the window for every member. A member with
+        // `pre_buffer_minutes > 0` or `post_buffer_minutes > 0` must clear
+        // the buffer at its anchor TimeBlock. The symmetric arm of
+        // `would_violate_travel_buffer` also rejects unbuffered members
+        // whose window lands adjacent to a pre-existing buffered placement
+        // on a shared class or shared teacher. The window anchor TimeBlock
+        // is `tb_order[outer_pos]` (start_pos), matching how
+        // `validate_travel_buffer` indexes each member's placement.
+        {
+            let anchor_tb_id = problem.time_blocks[tb_order[outer_pos]].id;
+            let mut window_violates = false;
+            for (m_idx, member) in members.iter().enumerate() {
+                let candidate_teacher = chosen_teachers_buf[m_idx];
+                if crate::validate::would_violate_travel_buffer(
+                    problem,
+                    state,
+                    placements,
+                    member,
+                    anchor_tb_id,
+                    candidate_teacher,
+                    None,
+                ) {
+                    window_violates = true;
+                    break;
+                }
+            }
+            if window_violates {
+                continue;
+            }
         }
 
         let mut class_delta_sum: i64 = 0;
