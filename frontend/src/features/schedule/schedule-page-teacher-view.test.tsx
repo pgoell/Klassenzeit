@@ -13,6 +13,7 @@ import { Toaster } from "@/components/ui/sonner";
 import i18n from "@/i18n/init";
 import {
   initialSchoolClasses,
+  qualityReportByTeacherId,
   server,
   teacherSchedulesByTeacherId,
 } from "../../../tests/msw-handlers";
@@ -169,5 +170,118 @@ describe("SchedulePageTeacherView supervision badge", () => {
 
     const supervisedCells = await screen.findAllByText(/Supervision/);
     expect(supervisedCells.length).toBe(1);
+  });
+});
+
+describe("SchedulePageTeacherView quality metrics", () => {
+  const SCHOOL_CLASS = initialSchoolClasses[0];
+  if (!SCHOOL_CLASS) throw new Error("seed missing: initialSchoolClasses[0]");
+  const SCHEME_ID = SCHOOL_CLASS.week_scheme_id;
+
+  const TEACHER_ID = "77777777-7777-7777-7777-777777777777";
+  const LESSON_BLOCK = "88888888-8888-8888-8888-888888888888";
+  const LESSON_ID = "99999999-9999-9999-9999-999999999999";
+  const ROOM_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+  afterAll(() => {
+    server.resetHandlers();
+  });
+
+  it("renders the quality metrics section when teacher has gap hours", async () => {
+    qualityReportByTeacherId[TEACHER_ID] = {
+      hard_violations: 0,
+      unplaced_hours: 0,
+      class_gap_hours: 0,
+      class_gap_hours_by_class: {},
+      teacher_gap_hours: 2,
+      teacher_gap_hours_by_teacher: { [TEACHER_ID]: 2 },
+      class_day_balance_cost: 0,
+      class_day_balance_cost_by_class: {},
+      home_room_misses: 0,
+      home_room_misses_by_class: {},
+      prefer_early_units: 0,
+      avoid_first_units: 0,
+      avoid_last_units: 0,
+      prefer_late_units: 0,
+      prefer_class_teacher_misses: 0,
+      weighted_score: 0,
+      worst_per_class_spread: 0,
+      worst_per_class_interior_gaps: 0,
+      soft_pin_misses: 0,
+      supervision_spread_raw: 0,
+    };
+    server.use(
+      http.get(`${BASE}/api/week-schemes/${SCHEME_ID}`, () =>
+        HttpResponse.json({
+          id: SCHEME_ID,
+          name: "Standardwoche",
+          description: "",
+          time_blocks: [
+            {
+              id: LESSON_BLOCK,
+              day_of_week: 0,
+              position: 1,
+              start_time: "08:00",
+              end_time: "08:45",
+              kind: "lesson",
+            },
+          ],
+          created_at: "2026-04-17T00:00:00Z",
+          updated_at: "2026-04-17T00:00:00Z",
+        }),
+      ),
+      http.get(`${BASE}/api/lessons`, () =>
+        HttpResponse.json([
+          {
+            id: LESSON_ID,
+            school_classes: [{ id: SCHOOL_CLASS.id, name: "1a" }],
+            subject: { id: "subj-1", name: "Mathematik", short_name: "MA" },
+            teacher: {
+              id: TEACHER_ID,
+              first_name: "Anna",
+              last_name: "Schmidt",
+              short_code: "SCH",
+            },
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            lesson_group_id: null,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        ]),
+      ),
+      http.get(`${BASE}/api/rooms`, () =>
+        HttpResponse.json([
+          {
+            id: ROOM_ID,
+            name: "R1",
+            short_name: "R1",
+            capacity: 30,
+            created_at: "2026-04-17T00:00:00Z",
+            updated_at: "2026-04-17T00:00:00Z",
+          },
+        ]),
+      ),
+      http.get(`${BASE}/api/teachers/${TEACHER_ID}/schedule`, () =>
+        HttpResponse.json({
+          placements: [
+            {
+              lesson_id: LESSON_ID,
+              teacher_id: TEACHER_ID,
+              time_block_id: LESSON_BLOCK,
+              room_id: ROOM_ID,
+              pinned: false,
+            },
+          ],
+          supervision_assignments: [],
+          quality_issues: [],
+          quality_report: qualityReportByTeacherId[TEACHER_ID],
+        }),
+      ),
+    );
+
+    renderTeacherView(`/schedule?teacher=${TEACHER_ID}`);
+    expect(await screen.findByText("Quality metrics")).toBeInTheDocument();
+    expect(screen.getByText("2 teacher gap hours")).toBeInTheDocument();
   });
 });

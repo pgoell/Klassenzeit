@@ -744,11 +744,12 @@ def seed_placements_for_attribution(
     create_teacher: CreateTeacherFn,
     create_stundentafel: CreateStundentafelFn,
     create_school_class: CreateSchoolClassFn,
-) -> Callable[..., Awaitable[uuid.UUID]]:
+) -> Callable[..., Awaitable[tuple[uuid.UUID, uuid.UUID]]]:
     """Seed a SchoolClass + placements that exercise gap_hours and home_room_misses.
 
     Returns an async callable:
-    ``(*, gap_positions_for_a_day, place_one_outside_home_room) -> UUID``.
+    ``(*, gap_positions_for_a_day, place_one_outside_home_room) -> tuple[UUID, UUID]``
+    yielding ``(class_id, teacher_id)`` so callers can target either axis.
 
     Seeds:
     - one SchoolClass with ``home_room_id`` set to one of two created rooms;
@@ -765,7 +766,7 @@ def seed_placements_for_attribution(
         *,
         gap_positions_for_a_day: tuple[int, int],
         place_one_outside_home_room: bool,
-    ) -> uuid.UUID:
+    ) -> tuple[uuid.UUID, uuid.UUID]:
         ws = await create_week_scheme()
         # Three lesson-kind time blocks at positions 1, 2, 3 on day_of_week=1.
         tbs = [
@@ -829,7 +830,7 @@ def seed_placements_for_attribution(
             )
         )
         await db_session.flush()
-        return cls.id
+        return cls.id, teacher.id
 
     return _seed
 

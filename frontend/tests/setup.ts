@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import {
   qualityReportByClassId,
+  qualityReportByTeacherId,
   roomAvailabilityByRoomId,
   roomSuitabilityByRoomId,
   server,
@@ -77,6 +78,9 @@ beforeEach(() => {
   }
   for (const key of Object.keys(qualityReportByClassId)) {
     delete qualityReportByClassId[key];
+  }
+  for (const key of Object.keys(qualityReportByTeacherId)) {
+    delete qualityReportByTeacherId[key];
   }
 });
 afterEach(() => server.resetHandlers());

@@ -19,6 +19,7 @@ from klassenzeit_backend.scheduling.progress import register_progress
 from klassenzeit_backend.scheduling.quality_checks import (
     QualityIssue,
     compute_quality_attribution_for_class,
+    compute_quality_attribution_for_teacher,
     compute_quality_issues,
 )
 from klassenzeit_backend.scheduling.schemas.schedule import (
@@ -278,9 +279,11 @@ async def read_schedule_for_teacher_route(
     supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
         db, teacher_id
     )
+    quality_report = await compute_quality_attribution_for_teacher(db, teacher_id)
     return ScheduleReadResponse(
         placements=placements,
         supervision_assignments=supervision_assignments,
+        quality_report=quality_report,
     )
 
 

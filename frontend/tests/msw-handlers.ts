@@ -188,6 +188,14 @@ export const qualityReportByClassId: Record<
   components["schemas"]["QualityReportResponse"]
 > = {};
 
+// Mutable per-test override so individual test cases can seed populated
+// per-teacher attribution. Keys: teacherId. Reset to `{}` in `beforeEach`
+// (tests/setup.ts).
+export const qualityReportByTeacherId: Record<
+  string,
+  components["schemas"]["QualityReportResponse"]
+> = {};
+
 export const initialLessons = [
   {
     id: "55555555-5555-5555-5555-555555555555",
@@ -804,7 +812,7 @@ export const defaultHandlers = [
       placements: list,
       supervision_assignments: [],
       quality_issues: [],
-      quality_report: null,
+      quality_report: qualityReportByTeacherId[teacherId] ?? EMPTY_QUALITY_REPORT,
     });
   }),
   http.get(`${BASE}/api/rooms/:room_id/schedule`, ({ params }) => {

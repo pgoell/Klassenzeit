@@ -6,12 +6,14 @@ import type { components } from "@/lib/api-types";
 type QualityIssue = components["schemas"]["QualityIssueResponse"];
 type QualityReport = components["schemas"]["QualityReportResponse"];
 
+type QualityScope = { kind: "class"; classId: string } | { kind: "teacher"; teacherId: string };
+
 interface QualityIssueSidebarProps {
   issues: QualityIssue[];
   onIssueClick: (issue: QualityIssue) => void;
   subjectMap?: Map<string, string>;
   qualityReport?: QualityReport | null;
-  classId?: string;
+  scope?: QualityScope;
 }
 
 const KIND_ORDER: QualityIssue["kind"][] = [
@@ -23,15 +25,29 @@ const KIND_ORDER: QualityIssue["kind"][] = [
   "class_teacher_subject_share",
 ];
 
-function pickMetricsForClass(
+interface ClassMetrics {
+  classGapHours: number;
+  homeRoomMisses: number;
+}
+
+interface TeacherMetrics {
+  teacherGapHours: number;
+}
+
+function pickQualityMetricsForScope(
   qualityReport: QualityReport | null | undefined,
-  classId: string | undefined,
-): { classGapHours: number; homeRoomMisses: number } | null {
-  if (!qualityReport || !classId) return null;
-  const classGapHours = qualityReport.class_gap_hours_by_class[classId] ?? 0;
-  const homeRoomMisses = qualityReport.home_room_misses_by_class[classId] ?? 0;
-  if (classGapHours === 0 && homeRoomMisses === 0) return null;
-  return { classGapHours, homeRoomMisses };
+  scope: QualityScope | undefined,
+): { kind: "class"; metrics: ClassMetrics } | { kind: "teacher"; metrics: TeacherMetrics } | null {
+  if (!qualityReport || !scope) return null;
+  if (scope.kind === "class") {
+    const classGapHours = qualityReport.class_gap_hours_by_class[scope.classId] ?? 0;
+    const homeRoomMisses = qualityReport.home_room_misses_by_class[scope.classId] ?? 0;
+    if (classGapHours === 0 && homeRoomMisses === 0) return null;
+    return { kind: "class", metrics: { classGapHours, homeRoomMisses } };
+  }
+  const teacherGapHours = qualityReport.teacher_gap_hours_by_teacher[scope.teacherId] ?? 0;
+  if (teacherGapHours === 0) return null;
+  return { kind: "teacher", metrics: { teacherGapHours } };
 }
 
 export function QualityIssueSidebar({
@@ -39,20 +55,38 @@ export function QualityIssueSidebar({
   onIssueClick,
   subjectMap,
   qualityReport,
-  classId,
+  scope,
 }: QualityIssueSidebarProps) {
   const { t } = useTranslation();
-  const metrics = pickMetricsForClass(qualityReport, classId);
+  const picked = pickQualityMetricsForScope(qualityReport, scope);
 
-  const metricsSection = metrics ? (
+  const metricsSection = picked ? (
     <section className="mt-3 border-b pb-3">
       <h3 className="text-sm font-medium text-foreground">{t("schedule.qualityMetrics.title")}</h3>
       <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
-        {metrics.classGapHours > 0 && (
-          <li>{t("schedule.qualityMetrics.classGapHours", { count: metrics.classGapHours })}</li>
-        )}
-        {metrics.homeRoomMisses > 0 && (
-          <li>{t("schedule.qualityMetrics.homeRoomMisses", { count: metrics.homeRoomMisses })}</li>
+        {picked.kind === "class" ? (
+          <>
+            {picked.metrics.classGapHours > 0 && (
+              <li>
+                {t("schedule.qualityMetrics.classGapHours", {
+                  count: picked.metrics.classGapHours,
+                })}
+              </li>
+            )}
+            {picked.metrics.homeRoomMisses > 0 && (
+              <li>
+                {t("schedule.qualityMetrics.homeRoomMisses", {
+                  count: picked.metrics.homeRoomMisses,
+                })}
+              </li>
+            )}
+          </>
+        ) : (
+          <li>
+            {t("schedule.qualityMetrics.teacherGapHours", {
+              count: picked.metrics.teacherGapHours,
+            })}
+          </li>
         )}
       </ul>
     </section>

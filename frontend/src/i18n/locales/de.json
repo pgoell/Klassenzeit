@@ -462,7 +462,9 @@
       "classGapHours_one": "1 Lückenstunde",
       "classGapHours_other": "{{count}} Lückenstunden",
       "homeRoomMisses_one": "1 Klassenraum-Treffer fehlt",
-      "homeRoomMisses_other": "{{count}} Klassenraum-Treffer fehlen"
+      "homeRoomMisses_other": "{{count}} Klassenraum-Treffer fehlen",
+      "teacherGapHours_one": "1 Lehrer-Springstunde",
+      "teacherGapHours_other": "{{count}} Lehrer-Springstunden"
     },
     "cellDeletedLesson": "(gelöschte Unterrichtsstunde)"
   },

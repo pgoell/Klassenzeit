@@ -488,12 +488,13 @@ async def test_read_teacher_schedule_returns_empty_for_unscheduled_teacher(
     teacher = await create_teacher()
     resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
     assert resp.status_code == 200
-    assert resp.json() == {
-        "placements": [],
-        "supervision_assignments": [],
-        "quality_issues": [],
-        "quality_report": None,
-    }
+    body = resp.json()
+    assert body["placements"] == []
+    assert body["supervision_assignments"] == []
+    assert body["quality_issues"] == []
+    assert body["quality_report"] is not None
+    assert body["quality_report"]["teacher_gap_hours"] == 0
+    assert body["quality_report"]["teacher_gap_hours_by_teacher"] == {}
 
 
 async def test_read_teacher_schedule_returns_placements_after_solve(
@@ -950,19 +951,47 @@ async def test_get_schedule_for_class_response_carries_quality_report(
     assert qr["weighted_score"] == 0
 
 
-async def test_get_schedule_for_teacher_response_quality_report_none(
+async def test_get_schedule_for_teacher_response_carries_quality_report(
     client: AsyncClient,
+    db_session: AsyncSession,
     create_test_user,
     login_as,
+    create_subject,
+    create_week_scheme,
+    create_time_block,
+    create_room,
     create_teacher,
+    create_stundentafel,
+    create_school_class,
 ) -> None:
-    """Teacher GET returns ``quality_report: None`` (resource-scoping)."""
-    await create_test_user(email="admin@teacher-qr-none.com", role="admin")
-    await login_as("admin@teacher-qr-none.com", "testpassword123")
-    teacher = await create_teacher()
-    resp = await client.get(f"/api/teachers/{teacher.id}/schedule")
-    assert resp.status_code == 200
-    assert resp.json()["quality_report"] is None
+    """Teacher GET surfaces a populated ``quality_report`` (teacher_gap axis)."""
+    await create_test_user(email="admin@teacher-qr.com", role="admin")
+    await login_as("admin@teacher-qr.com", "testpassword123")
+    cls, _ = await _seed_solvable_class(
+        db_session,
+        create_subject,
+        create_week_scheme,
+        create_time_block,
+        create_room,
+        create_teacher,
+        create_stundentafel,
+        create_school_class,
+        class_name="1a-teacher-qr",
+    )
+    post = await client.post(f"/api/classes/{cls.id}/schedule")
+    assert post.status_code == 200, post.text
+    teacher_id_str = (
+        await db_session.execute(
+            select(Lesson.teacher_id).where(Lesson.id == post.json()["placements"][0]["lesson_id"])
+        )
+    ).scalar_one()
+    resp = await client.get(f"/api/teachers/{teacher_id_str}/schedule")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["quality_report"] is not None
+    qr = body["quality_report"]
+    assert "teacher_gap_hours_by_teacher" in qr
+    assert qr["weighted_score"] == 0
 
 
 async def test_get_schedule_for_room_response_quality_report_none(
