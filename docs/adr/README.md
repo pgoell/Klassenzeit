@@ -68,3 +68,4 @@ sections, and add the new entry to the index below.
 | 0042 | [Soft pin semantic as a canonical-score axis](0042-soft-pin-semantic.md) | Accepted |
 | 0043 | [Bump class_day_balance weight to clear LAHC day-spread bar](0043-class-day-balance-weight-bump.md) | Accepted |
 | 0044 | [Schwimmunterricht travel buffer enforcement](0044-schwimm-travel-buffer.md) | Accepted |
+| 0045 | [Multi-school tenancy (tracer bullet)](0045-multi-school-tenancy.md) | Accepted |
