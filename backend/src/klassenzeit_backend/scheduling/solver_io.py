@@ -1007,22 +1007,32 @@ async def persist_solution_for_all_classes(
 async def read_schedule_for_class(
     db: AsyncSession,
     class_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[PlacementResponse]:
     """Return the class's persisted placements, raising 404 if the class is missing.
 
     Args:
         db: The ambient async session.
         class_id: UUID of the class to read.
+        school_id: Tenant school to scope the lookup to.
 
     Returns:
         A list of :class:`PlacementResponse` values; empty if the class has no
         persisted schedule yet.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist. The empty-schedule case
-            is distinguished by returning an empty list.
+        HTTPException: 404 if the class doesn't exist in the requesting
+            school. The empty-schedule case (class exists, no placements) is
+            distinguished by returning an empty list.
     """
-    cls = await db.get(SchoolClass, class_id)
+    cls = (
+        await db.execute(
+            select(SchoolClass).where(
+                SchoolClass.id == class_id, SchoolClass.school_id == school_id
+            )
+        )
+    ).scalar_one_or_none()
     if cls is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 

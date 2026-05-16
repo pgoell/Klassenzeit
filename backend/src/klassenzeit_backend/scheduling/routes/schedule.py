@@ -218,7 +218,9 @@ async def read_schedule_for_class_route(
     Raises:
         HTTPException: 404 if the class doesn't exist in the user's school.
     """
-    placements = await solver_io.read_schedule_for_class(db, class_id)
+    placements = await solver_io.read_schedule_for_class(
+        db, class_id, school_id=current_user.school_id
+    )
     quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
     quality_report = await compute_quality_attribution_for_class(
         db, class_id, school_id=current_user.school_id
