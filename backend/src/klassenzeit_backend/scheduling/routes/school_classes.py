@@ -21,20 +21,30 @@ from klassenzeit_backend.scheduling.schemas.school_class import (
 router = APIRouter(prefix="/classes", tags=["classes"])
 
 
-async def _get_school_class(db: AsyncSession, class_id: uuid.UUID) -> SchoolClass:
-    """Load a SchoolClass by primary key or raise 404.
+async def _get_school_class(
+    db: AsyncSession, class_id: uuid.UUID, school_id: uuid.UUID
+) -> SchoolClass:
+    """Load a SchoolClass by primary key scoped to a school, or raise 404.
+
+    Returns 404 both for unknown class IDs and for classes belonging to a
+    different school. This avoids leaking the existence of other-school
+    rows via a 403.
 
     Args:
         db: Active async database session.
         class_id: UUID of the school class to load.
+        school_id: Tenant school to scope the lookup to.
 
     Returns:
         The matching SchoolClass ORM instance.
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists.
+        HTTPException: 404 if no school class with that ID exists within the school.
     """
-    school_class = await db.get(SchoolClass, class_id)
+    result = await db.execute(
+        select(SchoolClass).where(SchoolClass.id == class_id, SchoolClass.school_id == school_id)
+    )
+    school_class = result.scalar_one_or_none()
     if school_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return school_class
@@ -66,14 +76,15 @@ def _to_response(school_class: SchoolClass) -> SchoolClassResponse:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_school_class_route(
     body: SchoolClassCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolClassResponse:
-    """Create a new school class.
+    """Create a new school class scoped to the current user's school.
 
     Args:
         body: Fields for the new school class including FK references.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; the new class's ``school_id`` is
+            stamped from ``current_user.school_id``.
         db: Injected async database session.
 
     Returns:
@@ -90,6 +101,7 @@ async def create_school_class_route(
         home_room_id=body.home_room_id,
         class_teacher_id=body.class_teacher_id,
         max_lessons_per_day=body.max_lessons_per_day,
+        school_id=current_user.school_id,
     )
     db.add(school_class)
     try:
@@ -108,42 +120,46 @@ async def create_school_class_route(
 
 @router.get("")
 async def list_school_classes(
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[SchoolClassResponse]:
-    """Return all school classes ordered by name.
+    """Return all school classes in the user's school ordered by name.
 
     Args:
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
 
     Returns:
-        List of all school classes sorted alphabetically by name.
+        List of school classes in the user's school sorted alphabetically by name.
     """
-    result = await db.execute(select(SchoolClass).order_by(SchoolClass.name))
+    result = await db.execute(
+        select(SchoolClass)
+        .where(SchoolClass.school_id == current_user.school_id)
+        .order_by(SchoolClass.name)
+    )
     return [_to_response(sc) for sc in result.scalars()]
 
 
 @router.get("/{class_id}")
 async def get_school_class(
     class_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolClassResponse:
-    """Fetch a single school class by ID.
+    """Fetch a single school class by ID scoped to the user's school.
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The matching school class as a SchoolClassResponse.
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists.
+        HTTPException: 404 if no school class with that ID exists in the user's school.
     """
-    school_class = await _get_school_class(db, class_id)
+    school_class = await _get_school_class(db, class_id, current_user.school_id)
     return _to_response(school_class)
 
 
@@ -151,25 +167,25 @@ async def get_school_class(
 async def update_school_class_route(
     class_id: uuid.UUID,
     body: SchoolClassUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolClassResponse:
-    """Partially update a school class.
+    """Partially update a school class scoped to the user's school.
 
     Args:
         class_id: UUID path parameter identifying the school class to patch.
         body: Fields to update; omitted fields remain unchanged.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The updated school class as a SchoolClassResponse.
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists.
+        HTTPException: 404 if no school class with that ID exists in the user's school.
         HTTPException: 409 if the new name conflicts or FK is invalid.
     """
-    school_class = await _get_school_class(db, class_id)
+    school_class = await _get_school_class(db, class_id, current_user.school_id)
     if body.name is not None:
         school_class.name = body.name
     if body.grade_level is not None:
@@ -201,21 +217,21 @@ async def update_school_class_route(
 @router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_school_class_route(
     class_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
-    """Delete a school class by ID.
+    """Delete a school class by ID scoped to the user's school.
 
     Args:
         class_id: UUID path parameter identifying the school class to delete.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists.
+        HTTPException: 404 if no school class with that ID exists in the user's school.
         HTTPException: 409 if the school class is referenced by lessons or other records.
     """
-    school_class = await _get_school_class(db, class_id)
+    school_class = await _get_school_class(db, class_id, current_user.school_id)
     await db.delete(school_class)
     try:
         await db.commit()

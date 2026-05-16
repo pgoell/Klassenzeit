@@ -17,6 +17,7 @@ from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.scheduling.solver_io import (
     persist_solution_for_class,
     read_schedule_for_class,
@@ -290,7 +291,7 @@ async def test_read_returns_empty_list_for_never_scheduled_class(
         create_school_class,
         class_name="1a-read-empty",
     )
-    result = await read_schedule_for_class(db_session, class_id)
+    result = await read_schedule_for_class(db_session, class_id, school_id=DEFAULT_SCHOOL_ID)
     assert result == []
 
 
@@ -357,14 +358,14 @@ async def test_read_returns_only_rows_for_requested_class(
         },
     )
     await db_session.flush()
-    result_a = await read_schedule_for_class(db_session, class_a_id)
+    result_a = await read_schedule_for_class(db_session, class_a_id, school_id=DEFAULT_SCHOOL_ID)
     assert len(result_a) == 1
     assert result_a[0].lesson_id == lesson_a_id
 
 
 async def test_read_raises_404_for_missing_class(db_session: AsyncSession) -> None:
     with pytest.raises(HTTPException) as excinfo:
-        await read_schedule_for_class(db_session, uuid.uuid4())
+        await read_schedule_for_class(db_session, uuid.uuid4(), school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 404
 
 
@@ -450,7 +451,7 @@ async def test_read_schedule_surfaces_pinned_flag(
         )
     )
     await db_session.flush()
-    result = await read_schedule_for_class(db_session, class_id)
+    result = await read_schedule_for_class(db_session, class_id, school_id=DEFAULT_SCHOOL_ID)
     assert len(result) == 1
     assert result[0].pinned is True
     assert result[0].pin_kind is PinKind.HARD

@@ -315,6 +315,7 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
         stundentafel_id=tafel.id,
         week_scheme_id=scheme.id,
         home_room_id=None,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(cls)
     await db_session.flush()

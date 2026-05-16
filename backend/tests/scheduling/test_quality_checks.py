@@ -14,6 +14,7 @@ import pytest
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.scheduling.quality_checks import (
     Placement,
@@ -792,9 +793,15 @@ def test_check_interior_gaps_cells_empty() -> None:
 
 async def test_compute_quality_issues_returns_empty_when_no_placements(
     db_session,
+    create_stundentafel,
+    create_week_scheme,
+    create_school_class,
 ) -> None:
     """With no scheduled lessons, the orchestrator returns []."""
-    issues = await compute_quality_issues(db_session, uuid.uuid4())
+    tafel = await create_stundentafel()
+    scheme = await create_week_scheme()
+    cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
+    issues = await compute_quality_issues(db_session, cls.id, school_id=DEFAULT_SCHOOL_ID)
     assert issues == []
 
 
@@ -867,11 +874,11 @@ async def test_compute_quality_issues_filters_by_class_and_emits_room_hop(
     )
     await db_session.flush()
 
-    issues_a = await compute_quality_issues(db_session, cls_a.id)
+    issues_a = await compute_quality_issues(db_session, cls_a.id, school_id=DEFAULT_SCHOOL_ID)
     kinds_a = {i.kind for i in issues_a}
     assert "room_hop" in kinds_a
     for issue in issues_a:
         assert issue.school_class_id == cls_a.id
 
-    issues_b = await compute_quality_issues(db_session, cls_b.id)
+    issues_b = await compute_quality_issues(db_session, cls_b.id, school_id=DEFAULT_SCHOOL_ID)
     assert issues_b == []

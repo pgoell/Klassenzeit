@@ -527,6 +527,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             grade_level=class_spec.grade_level,
             stundentafel_id=tafeln_by_grade[class_spec.grade_level].id,
             week_scheme_id=week_scheme.id,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(school_class)
         classes_by_name[class_spec.name] = school_class

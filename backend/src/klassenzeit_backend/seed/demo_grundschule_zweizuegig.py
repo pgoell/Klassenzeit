@@ -297,6 +297,7 @@ async def seed_demo_grundschule_zweizuegig(session: AsyncSession) -> None:
                 grade_level=class_spec.grade_level,
                 stundentafel_id=tafeln_by_grade[class_spec.grade_level].id,
                 week_scheme_id=week_scheme.id,
+                school_id=DEFAULT_SCHOOL_ID,
             )
         )
     await session.flush()
