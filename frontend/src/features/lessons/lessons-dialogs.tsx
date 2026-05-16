@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -69,6 +70,9 @@ export function LessonFormDialog({
   const initialTeacherId = lesson?.teacher?.id ?? null;
   const [pinIntent, setPinIntent] = useState<boolean>(initialTeacherId !== null);
   const lastPinnedRef = useRef<string | null>(initialTeacherId);
+  const hasInitialTravelBuffer =
+    (lesson?.pre_buffer_minutes ?? 0) > 0 || (lesson?.post_buffer_minutes ?? 0) > 0;
+  const [travelBufferOpen, setTravelBufferOpen] = useState<boolean>(hasInitialTravelBuffer);
 
   const form = useForm<LessonFormValues>({
     resolver: zodResolver(LessonFormSchema),
@@ -78,6 +82,8 @@ export function LessonFormDialog({
       teacher_id: lesson?.teacher?.id ?? null,
       hours_per_week: lesson?.hours_per_week ?? 1,
       preferred_block_size: lesson?.preferred_block_size ?? 1,
+      pre_buffer_minutes: lesson?.pre_buffer_minutes ?? 0,
+      post_buffer_minutes: lesson?.post_buffer_minutes ?? 0,
     },
   });
   const createMutation = useCreateLesson();
@@ -127,11 +133,15 @@ export function LessonFormDialog({
       teacher_id: values.teacher_id,
       hours_per_week: values.hours_per_week,
       preferred_block_size: values.preferred_block_size,
+      pre_buffer_minutes: values.pre_buffer_minutes,
+      post_buffer_minutes: values.post_buffer_minutes,
     };
     const updateBody: LessonUpdate = {
       teacher_id: values.teacher_id,
       hours_per_week: values.hours_per_week,
       preferred_block_size: values.preferred_block_size,
+      pre_buffer_minutes: values.pre_buffer_minutes,
+      post_buffer_minutes: values.post_buffer_minutes,
     };
     try {
       if (lesson) {
@@ -370,6 +380,71 @@ export function LessonFormDialog({
                 </FormItem>
               )}
             />
+            <div className="space-y-2">
+              <button
+                type="button"
+                aria-expanded={travelBufferOpen}
+                aria-controls="lesson-travel-buffer-panel"
+                onClick={() => setTravelBufferOpen((open) => !open)}
+                className="inline-flex items-center gap-2 text-sm font-medium hover:underline"
+              >
+                {travelBufferOpen ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                {t("lessons.sections.travelBuffer")}
+              </button>
+              {travelBufferOpen ? (
+                <div
+                  id="lesson-travel-buffer-panel"
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                >
+                  <FormField
+                    control={form.control}
+                    name="pre_buffer_minutes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("lessons.fields.preBufferMinutes")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={60}
+                            value={field.value}
+                            onChange={(e) =>
+                              field.onChange(e.target.value === "" ? 0 : Number(e.target.value))
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="post_buffer_minutes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("lessons.fields.postBufferMinutes")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={60}
+                            value={field.value}
+                            onChange={(e) =>
+                              field.onChange(e.target.value === "" ? 0 : Number(e.target.value))
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              ) : null}
+            </div>
             {rootError ? (
               <p role="alert" className="text-sm font-medium text-destructive">
                 {rootError}

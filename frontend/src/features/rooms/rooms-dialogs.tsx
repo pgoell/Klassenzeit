@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -50,6 +52,7 @@ export function RoomFormDialog({ open, onOpenChange, submitLabel, room }: RoomFo
       name: room?.name ?? "",
       short_name: room?.short_name ?? "",
       capacity: room?.capacity ?? undefined,
+      is_external: room?.is_external ?? false,
       suitable_subject_ids: original,
     },
     values: room
@@ -57,6 +60,7 @@ export function RoomFormDialog({ open, onOpenChange, submitLabel, room }: RoomFo
           name: room.name,
           short_name: room.short_name,
           capacity: room.capacity ?? undefined,
+          is_external: room.is_external,
           suitable_subject_ids: original,
         }
       : undefined,
@@ -76,13 +80,23 @@ export function RoomFormDialog({ open, onOpenChange, submitLabel, room }: RoomFo
       if (room) {
         await updateMutation.mutateAsync({
           id: room.id,
-          base: { name: values.name, short_name: values.short_name, capacity },
+          base: {
+            name: values.name,
+            short_name: values.short_name,
+            capacity,
+            is_external: values.is_external,
+          },
           suitable_subject_ids: values.suitable_subject_ids,
           original_suitable_subject_ids: original,
         });
       } else {
         await createMutation.mutateAsync({
-          base: { name: values.name, short_name: values.short_name, capacity },
+          base: {
+            name: values.name,
+            short_name: values.short_name,
+            capacity,
+            is_external: values.is_external,
+          },
           suitable_subject_ids: values.suitable_subject_ids,
         });
       }
@@ -164,6 +178,24 @@ export function RoomFormDialog({ open, onOpenChange, submitLabel, room }: RoomFo
                     />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="is_external"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(next) => field.onChange(next === true)}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>{t("rooms.fields.isExternal")}</FormLabel>
+                    <FormDescription>{t("rooms.fields.isExternalDescription")}</FormDescription>
+                  </div>
                 </FormItem>
               )}
             />

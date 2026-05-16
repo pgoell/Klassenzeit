@@ -1,5 +1,5 @@
 import { useSearch } from "@tanstack/react-router";
-import { DoorOpen } from "lucide-react";
+import { DoorOpen, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/empty-state";
@@ -29,7 +29,19 @@ export function RoomsPage() {
     {
       key: "name",
       header: t("rooms.columns.name"),
-      cell: (room) => room.name,
+      cell: (room) => (
+        <span className="inline-flex items-center gap-1.5">
+          {room.name}
+          {room.is_external ? (
+            <span title={t("rooms.fields.isExternalDescription")} className="inline-flex">
+              <ExternalLink
+                className="h-3.5 w-3.5 text-muted-foreground"
+                aria-label={t("rooms.fields.isExternal")}
+              />
+            </span>
+          ) : null}
+        </span>
+      ),
       cellClassName: "font-medium",
     },
     {

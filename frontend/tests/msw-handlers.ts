@@ -34,6 +34,7 @@ export const initialRooms = [
     name: "Raum 101",
     short_name: "101",
     capacity: 30,
+    is_external: false,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -42,6 +43,7 @@ export const initialRooms = [
     name: "Klasse 1a",
     short_name: "1a",
     capacity: 25,
+    is_external: false,
     created_at: "2026-04-17T00:00:00Z",
     updated_at: "2026-04-17T00:00:00Z",
   },
@@ -218,6 +220,8 @@ export const initialLessons = [
     },
     hours_per_week: 4,
     preferred_block_size: 1,
+    pre_buffer_minutes: 0,
+    post_buffer_minutes: 0,
     lesson_group_id: null,
     created_at: "2026-04-20T00:00:00Z",
     updated_at: "2026-04-20T00:00:00Z",
@@ -261,6 +265,7 @@ export const defaultHandlers = [
       name: string;
       short_name: string;
       capacity: number | null;
+      is_external?: boolean;
     };
     const id = "dddddddd-dddd-dddd-dddd-dddddddddddd";
     roomSuitabilityByRoomId[id] = [];
@@ -268,6 +273,7 @@ export const defaultHandlers = [
       {
         id,
         ...body,
+        is_external: body.is_external ?? false,
         created_at: "2026-04-17T00:00:00Z",
         updated_at: "2026-04-17T00:00:00Z",
       },
@@ -327,6 +333,7 @@ export const defaultHandlers = [
       name: "mutable",
       short_name: "X",
       capacity: null,
+      is_external: false,
       created_at: "2026-04-17T00:00:00Z",
       updated_at: "2026-04-17T00:00:00Z",
     };
@@ -722,6 +729,8 @@ export const defaultHandlers = [
       teacher_id: string | null;
       hours_per_week: number;
       preferred_block_size: number;
+      pre_buffer_minutes?: number;
+      post_buffer_minutes?: number;
     };
     const schoolClasses = body.school_class_ids.map((id) => {
       const match = initialSchoolClasses.find((c) => c.id === id);
@@ -749,6 +758,8 @@ export const defaultHandlers = [
           : null,
         hours_per_week: body.hours_per_week,
         preferred_block_size: body.preferred_block_size,
+        pre_buffer_minutes: body.pre_buffer_minutes ?? 0,
+        post_buffer_minutes: body.post_buffer_minutes ?? 0,
         lesson_group_id: null,
         created_at: "2026-04-20T00:00:00Z",
         updated_at: "2026-04-20T00:00:00Z",
@@ -761,6 +772,8 @@ export const defaultHandlers = [
       teacher_id?: string | null;
       hours_per_week?: number;
       preferred_block_size?: number;
+      pre_buffer_minutes?: number;
+      post_buffer_minutes?: number;
     };
     const [base] = initialLessons;
     if (!base) {
@@ -771,6 +784,8 @@ export const defaultHandlers = [
       id: String(params.lesson_id),
       hours_per_week: body.hours_per_week ?? base.hours_per_week,
       preferred_block_size: body.preferred_block_size ?? base.preferred_block_size,
+      pre_buffer_minutes: body.pre_buffer_minutes ?? base.pre_buffer_minutes,
+      post_buffer_minutes: body.post_buffer_minutes ?? base.post_buffer_minutes,
       teacher:
         body.teacher_id === undefined
           ? base.teacher

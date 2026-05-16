@@ -6,6 +6,16 @@ export const LessonFormSchema = z.object({
   teacher_id: z.string().nullable(),
   hours_per_week: z.number().int().min(1, "Hours must be at least 1"),
   preferred_block_size: z.number().int().min(1).max(2),
+  pre_buffer_minutes: z
+    .number()
+    .int()
+    .min(0, "Travel time must be 0 minutes or more.")
+    .max(60, "Travel time at most 60 minutes."),
+  post_buffer_minutes: z
+    .number()
+    .int()
+    .min(0, "Travel time must be 0 minutes or more.")
+    .max(60, "Travel time at most 60 minutes."),
 });
 
 export type LessonFormValues = z.infer<typeof LessonFormSchema>;

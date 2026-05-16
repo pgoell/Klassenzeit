@@ -181,6 +181,10 @@
       "capacity": "Capacity",
       "subjects": "Subjects"
     },
+    "fields": {
+      "isExternal": "External room",
+      "isExternalDescription": "Located outside the school building, e.g. a swimming pool"
+    },
     "empty": {
       "title": "No rooms yet",
       "body": "Create a room so the solver knows where lessons can take place. Add general classrooms first, then specialised rooms like the science lab.",
@@ -561,7 +565,12 @@
       "blockSizeLabel": "Period format",
       "blockSizeSingle": "Single periods",
       "blockSizeDouble": "Double periods (back-to-back)",
-      "blockSizeHelp": "Schedule the weekly hours as separate slots, or pair them into back-to-back doubles where possible."
+      "blockSizeHelp": "Schedule the weekly hours as separate slots, or pair them into back-to-back doubles where possible.",
+      "preBufferMinutes": "Travel time before (min)",
+      "postBufferMinutes": "Travel time after (min)"
+    },
+    "sections": {
+      "travelBuffer": "Travel times"
     },
     "dialog": {
       "createTitle": "New lesson",
