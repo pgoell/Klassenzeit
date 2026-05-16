@@ -283,7 +283,9 @@ async def read_schedule_for_teacher_route(
     Raises:
         HTTPException: 404 if the teacher doesn't exist.
     """
-    placements = await solver_io.read_schedule_for_teacher(db, teacher_id)
+    placements = await solver_io.read_schedule_for_teacher(
+        db, teacher_id, school_id=current_user.school_id
+    )
     supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
         db, teacher_id
     )

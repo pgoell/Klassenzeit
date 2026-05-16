@@ -377,11 +377,16 @@ async def build_problem_json(
 
     # Load every TeacherQualification for the lessons' subjects so the per-Lesson
     # candidate set (item 64) considers all qualified teachers, not just the pin.
+    # The Teacher.school_id filter is load-bearing: a cross-school teacher's
+    # qualification row would otherwise leak into the candidate pool.
     teacher_qualifications = (
         (
             await db.execute(
-                select(TeacherQualification).where(
+                select(TeacherQualification)
+                .join(Teacher, Teacher.id == TeacherQualification.teacher_id)
+                .where(
                     TeacherQualification.subject_id.in_(subject_ids or sentinel),
+                    Teacher.school_id == school_id,
                 )
             )
         )
@@ -392,8 +397,21 @@ async def build_problem_json(
     qualified_teacher_ids = {q.teacher_id for q in teacher_qualifications}
     teacher_ids = pinned_teacher_ids | qualified_teacher_ids
 
+    # Defense in depth: even pinned teacher ids (sourced from Lesson.teacher_id,
+    # which pre-dates Lesson tenancy) are filtered through the school_id gate.
     teachers = (
-        ((await db.execute(select(Teacher).where(Teacher.id.in_(teacher_ids)))).scalars().all())
+        (
+            (
+                await db.execute(
+                    select(Teacher).where(
+                        Teacher.id.in_(teacher_ids),
+                        Teacher.school_id == school_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         if teacher_ids
         else []
     )
@@ -1064,23 +1082,30 @@ async def read_schedule_for_class(
 async def read_schedule_for_teacher(
     db: AsyncSession,
     teacher_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[PlacementResponse]:
     """Return persisted placements where the lesson's teacher matches.
 
     Args:
         db: The ambient async session.
         teacher_id: UUID of the teacher to read.
+        school_id: Tenant school to scope the lookup to.
 
     Returns:
         A list of :class:`PlacementResponse` values; empty if the teacher has no
         scheduled lessons yet.
 
     Raises:
-        HTTPException: 404 if the teacher doesn't exist. The empty-schedule
-            case is distinguished by returning an empty list.
+        HTTPException: 404 if the teacher doesn't exist in the user's school.
+            The empty-schedule case is distinguished by returning an empty list.
     """
-    teacher = await db.get(Teacher, teacher_id)
-    if teacher is None:
+    teacher_row = (
+        await db.execute(
+            select(Teacher).where(Teacher.id == teacher_id, Teacher.school_id == school_id)
+        )
+    ).scalar_one_or_none()
+    if teacher_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
 
     rows = (

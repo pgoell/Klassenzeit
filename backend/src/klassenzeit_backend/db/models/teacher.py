@@ -3,7 +3,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, SmallInteger, String, func
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -13,17 +22,25 @@ class Teacher(Base):
     """A teacher who can be assigned to lessons."""
 
     __tablename__ = "teachers"
+    __table_args__ = (
+        UniqueConstraint("school_id", "short_code", name="uq_teachers_school_id_short_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
-    short_code: Mapped[str] = mapped_column(String(10), unique=True)
+    short_code: Mapped[str] = mapped_column(String(10))
     max_hours_per_week: Mapped[int] = mapped_column(SmallInteger)
     reserve_hours_per_week: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="0"
     )
     working_days: Mapped[list[int] | None] = mapped_column(ARRAY(SmallInteger), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("schools.id"),
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

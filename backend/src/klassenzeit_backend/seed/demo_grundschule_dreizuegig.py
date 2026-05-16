@@ -541,6 +541,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             short_code=teacher_spec.short_code,
             max_hours_per_week=teacher_spec.max_hours_per_week,
             is_active=True,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(teacher)
         await session.flush()
@@ -569,6 +570,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
         max_hours_per_week=14,
         is_active=True,
         working_days=[0, 1, 2],
+        school_id=DEFAULT_SCHOOL_ID,
     )
     session.add(teilzeit_teacher)
     await session.flush()
