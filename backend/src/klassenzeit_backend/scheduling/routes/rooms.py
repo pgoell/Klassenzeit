@@ -28,20 +28,26 @@ from klassenzeit_backend.scheduling.schemas.room import (
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
 
-async def _get_room(db: AsyncSession, room_id: uuid.UUID) -> Room:
-    """Load a Room by primary key or raise 404.
+async def _get_room(db: AsyncSession, room_id: uuid.UUID, school_id: uuid.UUID) -> Room:
+    """Load a Room by primary key scoped to a school, or raise 404.
+
+    Returns 404 both for unknown room IDs and for rooms belonging to a
+    different school. This avoids leaking the existence of other-school
+    rows via a 403.
 
     Args:
         db: Active async database session.
         room_id: UUID of the room to load.
+        school_id: Tenant school to scope the lookup to.
 
     Returns:
         The matching Room ORM instance.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists within the school.
     """
-    room = await db.get(Room, room_id)
+    result = await db.execute(select(Room).where(Room.id == room_id, Room.school_id == school_id))
+    room = result.scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return room
@@ -99,27 +105,30 @@ async def _build_room_detail(db: AsyncSession, room: Room) -> RoomDetailResponse
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_room_route(
     body: RoomCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoomListResponse:
-    """Create a new room.
+    """Create a new room scoped to the current user's school.
 
     Args:
         body: Name, short_name, and capacity for the new room.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; the new room's ``school_id`` is
+            stamped from ``current_user.school_id``.
         db: Injected async database session.
 
     Returns:
         The created room as a RoomListResponse.
 
     Raises:
-        HTTPException: 409 if name or short_name conflicts with an existing room.
+        HTTPException: 409 if name or short_name conflicts with an existing
+            room in the same school.
     """
     room = Room(
         name=body.name,
         short_name=body.short_name,
         capacity=body.capacity,
         is_external=body.is_external,
+        school_id=current_user.school_id,
     )
     db.add(room)
     try:
@@ -143,19 +152,22 @@ async def create_room_route(
 
 @router.get("")
 async def list_rooms(
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[RoomListResponse]:
-    """Return all rooms ordered by name.
+    """Return all rooms in the current user's school, ordered by name.
 
     Args:
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
 
     Returns:
-        List of all rooms sorted alphabetically by name (no nested suitability or availability).
+        List of rooms in the user's school sorted alphabetically by name
+        (no nested suitability or availability).
     """
-    result = await db.execute(select(Room).order_by(Room.name))
+    result = await db.execute(
+        select(Room).where(Room.school_id == current_user.school_id).order_by(Room.name)
+    )
     return [
         RoomListResponse(
             id=r.id,
@@ -173,23 +185,23 @@ async def list_rooms(
 @router.get("/{room_id}")
 async def get_room(
     room_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoomDetailResponse:
-    """Fetch a single room by ID, including suitability subjects and availability time blocks.
+    """Fetch a single room by ID, scoped to the user's school, with suitability and availability.
 
     Args:
         room_id: UUID path parameter identifying the room.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The matching room with nested suitability and availability as a RoomDetailResponse.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists in the user's school.
     """
-    room = await _get_room(db, room_id)
+    room = await _get_room(db, room_id, current_user.school_id)
     return await _build_room_detail(db, room)
 
 
@@ -197,25 +209,25 @@ async def get_room(
 async def update_room_route(
     room_id: uuid.UUID,
     body: RoomUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoomListResponse:
-    """Partially update a room's fields.
+    """Partially update a room's fields, scoped to the user's school.
 
     Args:
         room_id: UUID path parameter identifying the room to patch.
         body: Fields to update; omitted fields remain unchanged.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The updated room as a RoomListResponse.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists in the user's school.
         HTTPException: 409 if the new name or short_name conflicts.
     """
-    room = await _get_room(db, room_id)
+    room = await _get_room(db, room_id, current_user.school_id)
     if body.name is not None:
         room.name = body.name
     if body.short_name is not None:
@@ -246,23 +258,23 @@ async def update_room_route(
 @router.delete("/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_room_route(
     room_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
-    """Delete a room by ID.
+    """Delete a room by ID, scoped to the user's school.
 
     Suitability and availability rows are removed automatically by FK ondelete CASCADE.
 
     Args:
         room_id: UUID path parameter identifying the room to delete.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists in the user's school.
         HTTPException: 409 if the room is referenced by other records (FK protection).
     """
-    room = await _get_room(db, room_id)
+    room = await _get_room(db, room_id, current_user.school_id)
     await db.delete(room)
     try:
         await db.commit()
@@ -277,10 +289,10 @@ async def delete_room_route(
 async def replace_room_suitability(
     room_id: uuid.UUID,
     body: SuitabilityReplaceRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoomDetailResponse:
-    """Replace the entire suitability subject list for a room.
+    """Replace the entire suitability subject list for a room, scoped to the user's school.
 
     Deletes all existing RoomSubjectSuitability rows for the room and inserts
     new ones from the supplied subject_ids list. Deduplicates input server-side.
@@ -288,18 +300,18 @@ async def replace_room_suitability(
     Args:
         room_id: UUID path parameter identifying the room.
         body: List of subject UUIDs that define the new suitability set.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The updated room detail including the new suitability list.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists in the user's school.
         HTTPException: 400 if any subject_id does not exist; body contains
             ``missing_subject_ids`` list.
     """
-    room = await _get_room(db, room_id)
+    room = await _get_room(db, room_id, current_user.school_id)
     # Deduplicate while preserving order.
     seen: set[uuid.UUID] = set()
     unique_ids: list[uuid.UUID] = []
@@ -336,10 +348,10 @@ async def replace_room_suitability(
 async def replace_room_availability(
     room_id: uuid.UUID,
     body: AvailabilityReplaceRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> RoomDetailResponse:
-    """Replace the entire availability time block list for a room.
+    """Replace the entire availability time block list for a room, scoped to the user's school.
 
     Deletes all existing RoomAvailability rows for the room and inserts new
     ones from the supplied time_block_ids list.
@@ -347,17 +359,17 @@ async def replace_room_availability(
     Args:
         room_id: UUID path parameter identifying the room.
         body: List of time block UUIDs that define the new availability set.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The updated room detail including the new availability list.
 
     Raises:
-        HTTPException: 404 if no room with that ID exists.
+        HTTPException: 404 if no room with that ID exists in the user's school.
         HTTPException: 409 if any time_block_id is invalid (FK violation).
     """
-    room = await _get_room(db, room_id)
+    room = await _get_room(db, room_id, current_user.school_id)
     await db.execute(delete(RoomAvailability).where(RoomAvailability.room_id == room_id))
     for time_block_id in body.time_block_ids:
         db.add(RoomAvailability(room_id=room_id, time_block_id=time_block_id))

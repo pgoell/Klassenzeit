@@ -56,7 +56,7 @@ def _quality_issues_to_response(
 async def generate_schedule_for_class(
     class_id: uuid.UUID,
     request: Request,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScheduleResponse:
     """Run the solver for the given class, persist the placements, and return them.
@@ -65,7 +65,7 @@ async def generate_schedule_for_class(
         class_id: UUID path parameter identifying the school class.
         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
             ``app.state.settings``.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the room query to their school.
         db: Injected async database session.
 
     Returns:
@@ -80,7 +80,7 @@ async def generate_schedule_for_class(
     own_pins = await solver_io.collect_own_class_pins(db, class_id)
     all_pins = sibling_pins + own_pins
     problem_json, class_lesson_ids, input_counts = await solver_io.build_problem_json(
-        db, class_id, pinned_placements=all_pins
+        db, class_id, school_id=current_user.school_id, pinned_placements=all_pins
     )
     settings = request.app.state.settings
     deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
@@ -136,7 +136,7 @@ async def generate_schedule_for_class(
 @router.post("/schedule/all")
 async def generate_schedule_for_all_classes(
     request: Request,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
     respect_pins: bool = True,
 ) -> WholeSchoolScheduleResponse:
@@ -151,7 +151,7 @@ async def generate_schedule_for_all_classes(
 
     Args:
         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the room query to their school.
         db: Injected async database session.
         respect_pins: When true, pinned rows are threaded as solver input
             pins. Defaults to true.
@@ -167,7 +167,7 @@ async def generate_schedule_for_all_classes(
     """
     pins = await solver_io.collect_all_pins(db) if respect_pins else []
     problem_json, _, input_counts = await solver_io.build_problem_json(
-        db, class_id=None, pinned_placements=pins
+        db, class_id=None, school_id=current_user.school_id, pinned_placements=pins
     )
     settings = request.app.state.settings
     deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]

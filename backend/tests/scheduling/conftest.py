@@ -22,6 +22,7 @@ from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
@@ -233,6 +234,7 @@ def create_room(db_session: AsyncSession) -> CreateRoomFn:
         name: str | None = None,
         short_name: str | None = None,
         capacity: int | None = None,
+        school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
     ) -> Room:
         """Create and flush a Room with auto-generated unique defaults.
 
@@ -240,6 +242,7 @@ def create_room(db_session: AsyncSession) -> CreateRoomFn:
             name: Room name; auto-generated if omitted.
             short_name: Short label; auto-generated if omitted.
             capacity: Optional seating capacity.
+            school_id: Tenant school FK; defaults to the canonical default school.
 
         Returns:
             The newly created Room ORM instance.
@@ -249,6 +252,7 @@ def create_room(db_session: AsyncSession) -> CreateRoomFn:
             name=name if name is not None else f"Room {n}",
             short_name=short_name if short_name is not None else f"R{n}",
             capacity=capacity,
+            school_id=school_id,
         )
         db_session.add(room)
         await db_session.flush()

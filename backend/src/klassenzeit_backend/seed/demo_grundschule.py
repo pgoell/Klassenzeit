@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import (
     SchoolType,
@@ -279,6 +280,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
             name=room_spec.name,
             short_name=room_spec.short_name,
             capacity=room_spec.capacity,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(room)
         await session.flush()

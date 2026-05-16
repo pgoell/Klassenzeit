@@ -11,6 +11,7 @@ from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room, RoomAvailability, RoomSubjectSuitability
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.session import UserSession
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
@@ -28,6 +29,7 @@ __all__ = [
     "RoomAvailability",
     "RoomSubjectSuitability",
     "ScheduledLesson",
+    "School",
     "SchoolClass",
     "Stundentafel",
     "StundentafelEntry",

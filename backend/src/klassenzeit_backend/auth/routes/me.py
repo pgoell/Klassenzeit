@@ -15,6 +15,7 @@ from klassenzeit_backend.auth.passwords import (
 )
 from klassenzeit_backend.auth.schemas.me import ChangePasswordRequest, MeResponse
 from klassenzeit_backend.auth.sessions import delete_user_sessions
+from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 
@@ -27,13 +28,21 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/me")
 async def auth_me(
     user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ) -> MeResponse:
     """Return the current authenticated user's profile."""
+    school = await db.get(School, user.school_id)
+    if school is None:
+        raise RuntimeError(
+            f"User {user.id} has school_id={user.school_id} but School row is missing"
+        )
     return MeResponse(
         id=user.id,
         email=user.email,
         role=user.role,
         force_password_change=user.force_password_change,
+        school_id=user.school_id,
+        school_name=school.name,
     )
 
 

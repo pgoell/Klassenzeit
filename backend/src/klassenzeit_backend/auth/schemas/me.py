@@ -12,6 +12,8 @@ class MeResponse(BaseModel):
     email: str
     role: str
     force_password_change: bool
+    school_id: uuid.UUID
+    school_name: str
 
 
 class ChangePasswordRequest(BaseModel):

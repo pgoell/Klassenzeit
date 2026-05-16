@@ -14,6 +14,7 @@ from klassenzeit_backend.auth.sessions import (
     delete_user_sessions,
     lookup_session,
 )
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.session import UserSession
 from klassenzeit_backend.db.models.user import User
 
@@ -23,6 +24,7 @@ async def _make_user(db: AsyncSession, email: str = "sess@test.com") -> User:
         email=email,
         password_hash=hash_password("testpassword123"),
         role="user",
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db.add(user)
     await db.flush()

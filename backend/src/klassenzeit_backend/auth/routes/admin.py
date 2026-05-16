@@ -59,6 +59,7 @@ async def admin_create_user(
         email=email,
         password_hash=hash_password(body.password),
         role=body.role,
+        school_id=_admin.school_id,
     )
     db.add(user)
     await db.commit()

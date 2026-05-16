@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.subject import Subject
@@ -290,7 +291,12 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
             )
         )
 
-    room = Room(name=f"Room-{uuid.uuid4().hex[:8]}", short_name="R1", capacity=None)
+    room = Room(
+        name=f"Room-{uuid.uuid4().hex[:8]}",
+        short_name="R1",
+        capacity=None,
+        school_id=DEFAULT_SCHOOL_ID,
+    )
     db_session.add(room)
     teacher = Teacher(
         first_name="T",
@@ -324,7 +330,9 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     await db_session.flush()
 
-    problem_json, _, _ = await solver_io.build_problem_json(db_session, cls.id)
+    problem_json, _, _ = await solver_io.build_problem_json(
+        db_session, cls.id, school_id=DEFAULT_SCHOOL_ID
+    )
     payload = json.loads(problem_json)
     by_position = {(tb["day_of_week"], tb["position"]): tb for tb in payload["time_blocks"]}
     assert len(payload["time_blocks"]) == 8, payload["time_blocks"]
