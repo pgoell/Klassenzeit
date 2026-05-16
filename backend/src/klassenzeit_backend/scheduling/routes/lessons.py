@@ -414,7 +414,11 @@ async def generate_lessons_from_stundentafel(
     Raises:
         HTTPException: 404 if no school class with that ID exists in the user's school.
     """
-    result = await db.execute(select(SchoolClass).where(SchoolClass.id == class_id))
+    result = await db.execute(
+        select(SchoolClass).where(
+            SchoolClass.id == class_id, SchoolClass.school_id == current_user.school_id
+        )
+    )
     school_class = result.scalar_one_or_none()
     if school_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
