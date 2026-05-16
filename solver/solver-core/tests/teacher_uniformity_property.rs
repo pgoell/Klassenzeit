@@ -122,7 +122,7 @@ prop_compose! {
                     teacher_candidates: teacher_ids.clone(),
                     teacher_pin: None,
                     hours_per_week: 1,
-                    preferred_block_size: 1,
+                    preferred_block_size: 1, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                     lesson_group_id: None,
                 });
             }

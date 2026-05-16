@@ -159,6 +159,74 @@ _TEACHERS_DREIZUEGIG: tuple[_TeacherSpec, ...] = (
 )
 
 
+# Override: the Zug-a sport specialist (HOF) also teaches the Klasse 3a
+# Schwimmen Doppelstunde appended below (ADR 0044 travel-buffer fixture).
+# Bumps HOF's max_hours_per_week from 28 to 30 (2h Schwimmen on top of the
+# 28h Sport/MU/FOE/KU load) and widens qualifications to include Schwimmen.
+# Mirrors `teacher_max_hours[12] = 30` in `solver-core/src/test_fixtures.rs`.
+def _bump_hof_for_schwimmen(spec: _TeacherSpec) -> _TeacherSpec:
+    if spec.short_code != "HOF":
+        return spec
+    return _TeacherSpec(
+        spec.first_name,
+        spec.last_name,
+        spec.short_code,
+        30,
+        (*spec.qualified_subject_short_names, "SwM"),
+    )
+
+
+_TEACHERS_DREIZUEGIG = tuple(_bump_hof_for_schwimmen(t) for t in _TEACHERS_DREIZUEGIG)
+
+
+# Schwimmen Subject + Schwimmbad Room (external venue) mirror the
+# `dreizuegig_fixture` extension in `solver-core/src/test_fixtures.rs`
+# for the ADR 0044 travel-buffer constraint. Schwimmen sits outside the
+# Stundentafel (it's a per-class extra-curricular Doppelstunde, not a
+# regular curriculum row), so the seed inserts the Lesson directly.
+class _ExtraSubjectSpec(NamedTuple):
+    name: str
+    short_name: str
+    color: str
+
+
+_EXTRA_SUBJECTS_DREIZUEGIG: tuple[_ExtraSubjectSpec, ...] = (
+    _ExtraSubjectSpec("Schwimmen", "SwM", "chart-2"),
+)
+
+
+# Schwimmbad: external venue with the Schwimmen suitability flag. `is_external`
+# turns on the travel-buffer enforcement contract for any lesson placed in it.
+class _ExtraRoomSpec(NamedTuple):
+    name: str
+    short_name: str
+    capacity: int | None
+    is_external: bool
+    suitable_subject_short_names: tuple[str, ...]
+
+
+_EXTRA_ROOMS_DREIZUEGIG: tuple[_ExtraRoomSpec, ...] = (
+    _ExtraRoomSpec("Schwimmbad", "SB", None, True, ("SwM",)),
+)
+
+
+class _ExtraLessonSpec(NamedTuple):
+    class_name: str
+    subject_short: str
+    teacher_short: str
+    hours_per_week: int
+    preferred_block_size: int
+    pre_buffer_minutes: int
+    post_buffer_minutes: int
+
+
+_EXTRA_LESSONS_DREIZUEGIG: tuple[_ExtraLessonSpec, ...] = (
+    # Klasse 3a Schwimmen Doppelstunde, pinned to HOF (Zug-a sport teacher).
+    # 15-minute pre/post travel buffers per ADR 0044.
+    _ExtraLessonSpec("3a", "SwM", "HOF", 2, 2, 15, 15),
+)
+
+
 _ROOMS_DREIZUEGIG: tuple[_RoomSpec, ...] = (
     _RoomSpec("Klasse 1a", "1a", 25, _KLASSENRAUM_SUITABLE_SUBJECTS),
     _RoomSpec("Klasse 1b", "1b", 25, _KLASSENRAUM_SUITABLE_SUBJECTS),
@@ -411,6 +479,15 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
         )
         session.add(subject)
         subjects_by_short[spec.short_name] = subject
+    # ADR 0044 extra subjects (Schwimmen) live outside the Stundentafel.
+    for extra_spec in _EXTRA_SUBJECTS_DREIZUEGIG:
+        extra_subject = Subject(
+            name=extra_spec.name,
+            short_name=extra_spec.short_name,
+            color=extra_spec.color,
+        )
+        session.add(extra_subject)
+        subjects_by_short[extra_spec.short_name] = extra_subject
     await session.flush()
 
     tafel_hours_by_grade: dict[int, dict[str, int]] = {
@@ -503,22 +580,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
         )
     await session.flush()
 
-    for room_spec in _ROOMS_DREIZUEGIG:
-        room = Room(
-            name=room_spec.name,
-            short_name=room_spec.short_name,
-            capacity=room_spec.capacity,
-        )
-        session.add(room)
-        await session.flush()
-        for subject_short in room_spec.suitable_subject_short_names:
-            session.add(
-                RoomSubjectSuitability(
-                    room_id=room.id,
-                    subject_id=subjects_by_short[subject_short].id,
-                )
-            )
-    await session.flush()
+    await _insert_rooms_dreizuegig(session, subjects_by_short=subjects_by_short)
 
     await _assign_eponymous_home_rooms(session, set(classes_by_name))
 
@@ -528,6 +590,16 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
     # are pinned at insert time so the solver sees teacher_id IS NOT NULL
     # without the route's auto-assign step running.
     await _insert_religion_trios(
+        session,
+        classes_by_name=classes_by_name,
+        teachers_by_short=teachers_by_short,
+        subjects_by_short=subjects_by_short,
+    )
+
+    # ADR 0044 extra Lessons (Klasse 3a Schwimmen). Pinned at seed time
+    # mirroring the Religion trio pattern; the Lesson sits outside the
+    # Stundentafel so `generate-lessons` does not create or duplicate it.
+    await _insert_extra_lessons(
         session,
         classes_by_name=classes_by_name,
         teachers_by_short=teachers_by_short,
@@ -569,4 +641,85 @@ async def _insert_religion_trios(
                         school_class_id=school_class.id,
                     )
                 )
+    await session.flush()
+
+
+async def _insert_rooms_dreizuegig(
+    session: AsyncSession,
+    *,
+    subjects_by_short: dict[str, Subject],
+) -> None:
+    """Insert the dreizügig room set and ADR 0044 external venues.
+
+    Mirrors the per-room `RoomSubjectSuitability` shape from the
+    one-room loop in the original seed body. Schwimmbad is marked
+    `is_external=True` so the travel-buffer enforcement applies to any
+    lesson placed in it.
+    """
+    for room_spec in _ROOMS_DREIZUEGIG:
+        room = Room(
+            name=room_spec.name,
+            short_name=room_spec.short_name,
+            capacity=room_spec.capacity,
+        )
+        session.add(room)
+        await session.flush()
+        for subject_short in room_spec.suitable_subject_short_names:
+            session.add(
+                RoomSubjectSuitability(
+                    room_id=room.id,
+                    subject_id=subjects_by_short[subject_short].id,
+                )
+            )
+    for extra_room_spec in _EXTRA_ROOMS_DREIZUEGIG:
+        extra_room = Room(
+            name=extra_room_spec.name,
+            short_name=extra_room_spec.short_name,
+            capacity=extra_room_spec.capacity,
+            is_external=extra_room_spec.is_external,
+        )
+        session.add(extra_room)
+        await session.flush()
+        for subject_short in extra_room_spec.suitable_subject_short_names:
+            session.add(
+                RoomSubjectSuitability(
+                    room_id=extra_room.id,
+                    subject_id=subjects_by_short[subject_short].id,
+                )
+            )
+    await session.flush()
+
+
+async def _insert_extra_lessons(
+    session: AsyncSession,
+    *,
+    classes_by_name: dict[str, SchoolClass],
+    teachers_by_short: dict[str, Teacher],
+    subjects_by_short: dict[str, Subject],
+) -> None:
+    """Insert ADR 0044 extra Lessons (Klasse 3a Schwimmen Doppelstunde).
+
+    Mirrors the per-(class, subject) Lesson + LessonSchoolClass shape from
+    `_insert_religion_trios` but for single-class rows, with the
+    teacher pinned (lesson.teacher_id) and pre/post buffer minutes set.
+    """
+    for spec in _EXTRA_LESSONS_DREIZUEGIG:
+        school_class = classes_by_name[spec.class_name]
+        teacher = teachers_by_short[spec.teacher_short]
+        lesson = Lesson(
+            subject_id=subjects_by_short[spec.subject_short].id,
+            teacher_id=teacher.id,
+            hours_per_week=spec.hours_per_week,
+            preferred_block_size=spec.preferred_block_size,
+            pre_buffer_minutes=spec.pre_buffer_minutes,
+            post_buffer_minutes=spec.post_buffer_minutes,
+        )
+        session.add(lesson)
+        await session.flush()
+        session.add(
+            LessonSchoolClass(
+                lesson_id=lesson.id,
+                school_class_id=school_class.id,
+            )
+        )
     await session.flush()

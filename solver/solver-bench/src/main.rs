@@ -2691,6 +2691,8 @@ mod tests {
             teacher_pin: Some(TeacherId(Uuid::from_u128(0x1))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         // If the Lesson struct grows new fields after 2026-05-10, `cargo build`

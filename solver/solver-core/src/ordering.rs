@@ -340,6 +340,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         problem.lessons.push(Lesson {
@@ -350,6 +352,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let idx = Indexed::new(&problem);
@@ -373,6 +377,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         problem.lessons.push(Lesson {
@@ -383,6 +389,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let idx = Indexed::new(&problem);
@@ -403,6 +411,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(ord_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             });
         }
@@ -438,6 +448,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let idx = Indexed::new(&problem);
@@ -471,6 +483,8 @@ mod tests {
             teacher_pin: None,
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         // L2 (idx 1, id 71): narrower pool with one qualified candidate.
@@ -482,6 +496,8 @@ mod tests {
             teacher_pin: None,
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let idx = Indexed::new(&problem);
@@ -558,6 +574,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(20))),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         problem.lessons.push(Lesson {
@@ -568,6 +586,8 @@ mod tests {
             teacher_pin: Some(TeacherId(ord_uuid(21))),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let idx = Indexed::new(&problem);

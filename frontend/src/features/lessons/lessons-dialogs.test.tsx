@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
@@ -80,6 +80,8 @@ describe("LessonFormDialog multi-class selection", () => {
       teacher: null,
       hours_per_week: 4,
       preferred_block_size: 1,
+      pre_buffer_minutes: 0,
+      post_buffer_minutes: 0,
       lesson_group_id: null,
       created_at: "2026-04-20T00:00:00Z",
       updated_at: "2026-04-20T00:00:00Z",
@@ -118,6 +120,8 @@ function makeLesson(opts: { teacherId: string | null; subjectId?: string }): Les
     teacher,
     hours_per_week: 4,
     preferred_block_size: 1,
+    pre_buffer_minutes: 0,
+    post_buffer_minutes: 0,
     lesson_group_id: null,
     created_at: "2026-04-20T00:00:00Z",
     updated_at: "2026-04-20T00:00:00Z",
@@ -274,6 +278,68 @@ describe("LessonFormDialog teacher pin switch", () => {
     await user.click(trigger);
     expect(await screen.findByRole("option", { name: /Schmidt/ })).toBeVisible();
     expect(screen.queryByRole("option", { name: /Weber/ })).toBeNull();
+  });
+
+  test("submits pre_buffer_minutes and post_buffer_minutes from the Travel times section", async () => {
+    seedTeachersWithQualifications();
+    const captured: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post(`${BASE}/api/lessons`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        captured.push(body);
+        return HttpResponse.json(
+          {
+            id: "66666666-6666-6666-6666-666666666666",
+            school_classes: [{ id: "88888888-8888-8888-8888-888888888888", name: "1a" }],
+            subject: { id: SUBJECT_MA_ID, name: "Mathematik", short_name: "MA" },
+            teacher: null,
+            hours_per_week: body.hours_per_week,
+            preferred_block_size: body.preferred_block_size,
+            pre_buffer_minutes: body.pre_buffer_minutes ?? 0,
+            post_buffer_minutes: body.post_buffer_minutes ?? 0,
+            lesson_group_id: null,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      wrapLessonDialog(<LessonFormDialog open onOpenChange={() => {}} submitLabel="Create" />),
+    );
+    await user.click(await screen.findByRole("checkbox", { name: /^1a$/i }));
+    const subjectTrigger = screen.getByRole("combobox", { name: /^subject$/i });
+    await user.click(subjectTrigger);
+    await user.click(await screen.findByRole("option", { name: /Mathematik/ }));
+    await user.click(screen.getByRole("button", { name: /^travel times$/i }));
+    await user.type(await screen.findByLabelText(/travel time before/i), "15");
+    await user.type(screen.getByLabelText(/travel time after/i), "20");
+    await user.click(screen.getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(captured.length).toBe(1));
+    expect(captured[0]).toEqual(
+      expect.objectContaining({ pre_buffer_minutes: 15, post_buffer_minutes: 20 }),
+    );
+  });
+
+  test("rejects pre_buffer_minutes above 60", async () => {
+    seedTeachersWithQualifications();
+    const user = userEvent.setup();
+    render(
+      wrapLessonDialog(<LessonFormDialog open onOpenChange={() => {}} submitLabel="Create" />),
+    );
+    await user.click(await screen.findByRole("checkbox", { name: /^1a$/i }));
+    const subjectTrigger = screen.getByRole("combobox", { name: /^subject$/i });
+    await user.click(subjectTrigger);
+    await user.click(await screen.findByRole("option", { name: /Mathematik/ }));
+    await user.click(screen.getByRole("button", { name: /^travel times$/i }));
+    const preInput = await screen.findByLabelText(/travel time before/i);
+    await user.type(preInput, "61");
+    const form = preInput.closest("form");
+    if (!form) throw new Error("form not found");
+    fireEvent.submit(form);
+    expect(await screen.findByText(/at most 60 minutes/i)).toBeInTheDocument();
   });
 
   test("renders pinned-but-no-longer-qualified teacher with suffix", async () => {

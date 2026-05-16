@@ -161,6 +161,7 @@ def _build_model(
         model, problem, anchor_vars, anchors_for_lesson, lookups, t_chosen
     )
     _emit_non_overlap(model, anchor_vars, lookups, y_and_t)
+    _emit_travel_buffer(model, problem, anchor_vars, anchors_for_lesson, lookups, t_chosen)
     _emit_teacher_max_hours(model, anchor_vars, lookups, t_chosen)
     _emit_same_room(model, problem, anchor_vars, anchors_for_lesson)
     _emit_lesson_group_co_placement(model, problem, anchor_vars, anchors_for_lesson)
@@ -474,6 +475,180 @@ def _create_y_and_t_vars(
                 model.add(and_var >= anchor_var + t_var - 1)
                 y_and_t[(l_id, teacher_id, key)] = and_var
     return y_and_t
+
+
+def _emit_travel_buffer(  # noqa: PLR0912 (per-side / per-class / per-teacher branches plus block-window overlap math; splitting hurts readability)
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_for_lesson: dict[str, list[AnchorKey]],
+    lookups: dict[str, Any],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+) -> None:
+    """Hard constraint: ADR 0044 one-slot travel buffer.
+
+    Step 3 survey of cpsat.py:
+    - Per-(lesson, time-block-anchor) decision variable: ``anchor_vars[(l, d,
+      start_pos, r)]`` (BoolVar), built in ``_create_anchor_vars``.
+    - Per-(lesson, teacher) decision variable: ``t_chosen[(l, t)]`` (BoolVar),
+      built in ``_create_teacher_choice_vars`` with ``add_exactly_one`` per
+      lesson.
+    - ``_emit_non_overlap(model, anchor_vars, lookups, y_and_t)`` is the
+      shape we mirror for the call site.
+
+    For each lesson L with non-zero pre_buffer_minutes or post_buffer_minutes
+    and each of L's anchors at (day, start_pos, room):
+
+    * pre-side (start_pos > 0; start_pos == 0 forces anchor=0):
+        For prev_pos = start_pos - 1, IF the slot at (day, prev_pos) is NOT
+        kind="break":
+          - For every other lesson M sharing a class with L and every
+            anchor a of M whose window covers (day, prev_pos):
+                y[L_anchor] + y[a] <= 1  (class non-adjacency)
+          - For every other lesson M and every teacher T in BOTH L's and M's
+            teacher_candidates, and every anchor a of M whose window covers
+            (day, prev_pos):
+                y[L_anchor] + t_chosen[L,T] + y[a] + t_chosen[M,T] <= 3
+            (teacher non-adjacency on the CHOSEN teacher, not a fan-out)
+
+    * post-side (anchor must have a slot at start_pos + L.block_size; else
+      force anchor=0): mirror pre-side with next_pos = start_pos + block_size.
+
+    Encoded on the existing decision variables; no new variables introduced.
+    Day-edge anchors (first slot for pre, last slot for post) are forced to
+    zero so any buffered lesson lands in an interior slot for its side.
+    """
+    lesson_lookup = lookups["lesson_lookup"]
+    tb_at = lookups["tb_at"]
+
+    # Build (day, position) -> kind so we can skip the implication when the
+    # adjacent slot is a break (vacuously honoured, no anchors reference it).
+    tb_kind_at: dict[tuple[int, int], str] = {}
+    for tb in problem["time_blocks"]:
+        tb_kind_at[(tb["day_of_week"], tb["position"])] = tb.get("kind", "lesson")
+
+    # Pre-compute, for each (lesson, day, covered_position), the anchors of
+    # that lesson whose window covers the position. Used to look up the
+    # "other lesson's anchor covering prev_pos / next_pos" quickly.
+    anchors_covering: dict[tuple[str, int, int], list[AnchorKey]] = defaultdict(list)
+    for key in anchor_vars:
+        (l_id, day, start_pos, _r_id) = key
+        n = lesson_lookup[l_id]["preferred_block_size"]
+        for offset in range(n):
+            anchors_covering[(l_id, day, start_pos + offset)].append(key)
+
+    for lesson in problem["lessons"]:
+        pre = lesson.get("pre_buffer_minutes", 0)
+        post = lesson.get("post_buffer_minutes", 0)
+        if pre == 0 and post == 0:
+            continue
+        l_id = lesson["id"]
+        block_size = lesson["preferred_block_size"]
+        class_ids = set(lesson["school_class_ids"])
+        l_candidates = set(lesson["teacher_candidates"])
+        for key in anchors_for_lesson.get(l_id, []):
+            (_l, day, start_pos, _r_id) = key
+            y_var = anchor_vars[key]
+
+            if pre > 0:
+                if start_pos == 0:
+                    # First slot on the day: no slot exists for the pre-buffer.
+                    model.add(y_var == 0)
+                else:
+                    prev_pos = start_pos - 1
+                    prev_kind = tb_kind_at.get((day, prev_pos))
+                    # If the slot exists and is a break, the implication is
+                    # vacuous (no lesson anchors reference a break slot
+                    # because anchors are built only over lesson kinds).
+                    if prev_kind is not None and prev_kind != "break":
+                        _emit_buffer_side_clauses(
+                            model,
+                            problem,
+                            l_id,
+                            class_ids,
+                            l_candidates,
+                            y_var,
+                            day,
+                            prev_pos,
+                            anchor_vars,
+                            anchors_covering,
+                            t_chosen,
+                        )
+
+            if post > 0:
+                next_pos = start_pos + block_size
+                if (day, next_pos) not in tb_at:
+                    # Last slot on the day: no slot exists for the post-buffer.
+                    model.add(y_var == 0)
+                else:
+                    next_kind = tb_kind_at.get((day, next_pos))
+                    if next_kind is not None and next_kind != "break":
+                        _emit_buffer_side_clauses(
+                            model,
+                            problem,
+                            l_id,
+                            class_ids,
+                            l_candidates,
+                            y_var,
+                            day,
+                            next_pos,
+                            anchor_vars,
+                            anchors_covering,
+                            t_chosen,
+                        )
+
+
+# at_most_three of {y_L, t_chosen[L,T], y_M, t_chosen[M,T]} keeps L and M
+# from co-placing on teacher T at the buffered-adjacent slot: only three of
+# the four indicator BoolVars can be 1 at once.
+_TRAVEL_BUFFER_TEACHER_CLAUSE_AT_MOST = 3
+
+
+def _emit_buffer_side_clauses(
+    model: cp_model.CpModel,
+    problem: dict[str, Any],
+    l_id: str,
+    class_ids: set[str],
+    l_candidates: set[str],
+    y_var: cp_model.IntVar,
+    day: int,
+    other_pos: int,
+    anchor_vars: dict[AnchorKey, cp_model.IntVar],
+    anchors_covering: dict[tuple[str, int, int], list[AnchorKey]],
+    t_chosen: dict[tuple[str, str], cp_model.IntVar],
+) -> None:
+    """Per-side buffer clauses for the buffered lesson at ``y_var``.
+
+    Walks every other lesson whose anchor covers ``(day, other_pos)``.
+
+    Class clause: ``y_var + y[a_M] <= 1`` for each anchor ``a_M`` of an
+    other lesson M sharing a class with L.
+
+    Teacher clause: ``y_var + t_chosen[L,T] + y[a_M] + t_chosen[M,T]
+    <= _TRAVEL_BUFFER_TEACHER_CLAUSE_AT_MOST`` for each anchor ``a_M`` of an
+    other lesson M and each shared candidate teacher T. Encodes the rule on
+    the CHOSEN teacher (not a fan-out over teacher_candidates) so the
+    constraint binds only when both L and M actually settle on teacher T.
+    """
+    for other in problem["lessons"]:
+        m_id = other["id"]
+        if m_id == l_id:
+            continue
+        other_classes = set(other["school_class_ids"])
+        shares_class = bool(class_ids & other_classes)
+        other_candidates = set(other["teacher_candidates"])
+        shared_teachers = l_candidates & other_candidates
+        if not shares_class and not shared_teachers:
+            continue
+        for a_key in anchors_covering.get((m_id, day, other_pos), []):
+            y_m = anchor_vars[a_key]
+            if shares_class:
+                model.add(y_var + y_m <= 1)
+            for teacher_id in shared_teachers:
+                model.add(
+                    y_var + t_chosen[(l_id, teacher_id)] + y_m + t_chosen[(m_id, teacher_id)]
+                    <= _TRAVEL_BUFFER_TEACHER_CLAUSE_AT_MOST
+                )
 
 
 def _emit_non_overlap(  # noqa: PLR0912 (lesson-group dedup plus teacher-product plus room non-overlap branches; splitting hurts readability)

@@ -12,6 +12,7 @@ class RoomCreate(BaseModel):
     name: str
     short_name: str
     capacity: int | None = Field(default=None, ge=1)
+    is_external: bool = False
 
 
 class RoomUpdate(BaseModel):
@@ -20,6 +21,7 @@ class RoomUpdate(BaseModel):
     name: str | None = None
     short_name: str | None = None
     capacity: int | None = Field(default=None, ge=1)
+    is_external: bool | None = None
 
 
 class SuitabilitySubjectResponse(BaseModel):
@@ -45,6 +47,7 @@ class RoomListResponse(BaseModel):
     name: str
     short_name: str
     capacity: int | None
+    is_external: bool
     created_at: datetime
     updated_at: datetime
 
@@ -56,6 +59,7 @@ class RoomDetailResponse(BaseModel):
     name: str
     short_name: str
     capacity: int | None
+    is_external: bool
     suitability_subjects: list[SuitabilitySubjectResponse]
     availability: list[AvailabilityResponse]
     created_at: datetime

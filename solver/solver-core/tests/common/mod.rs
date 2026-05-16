@@ -87,6 +87,8 @@ pub fn feasible_problem(
                 teacher_pin: Some(teacher.id),
                 hours_per_week: hours_per_lesson,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             });
         }

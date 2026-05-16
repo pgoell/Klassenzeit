@@ -181,6 +181,10 @@
       "capacity": "Kapazität",
       "subjects": "Fächer"
     },
+    "fields": {
+      "isExternal": "Externer Raum",
+      "isExternalDescription": "Liegt außerhalb des Schulgebäudes, z. B. Schwimmbad"
+    },
     "empty": {
       "title": "Noch keine Räume",
       "body": "Lege einen Raum an, damit der Solver weiß, wo Unterricht stattfinden kann. Beginne mit allgemeinen Klassenräumen, danach Fachräume.",
@@ -561,7 +565,12 @@
       "blockSizeLabel": "Stundenformat",
       "blockSizeSingle": "Einzelstunden",
       "blockSizeDouble": "Doppelstunden (am Stück)",
-      "blockSizeHelp": "Wochenstunden auf separate Termine verteilen oder paarweise als Doppelstunden legen, wo möglich."
+      "blockSizeHelp": "Wochenstunden auf separate Termine verteilen oder paarweise als Doppelstunden legen, wo möglich.",
+      "preBufferMinutes": "Wegezeit hin (min)",
+      "postBufferMinutes": "Wegezeit zurück (min)"
+    },
+    "sections": {
+      "travelBuffer": "Wegezeiten"
     },
     "dialog": {
       "createTitle": "Neuer Unterricht",

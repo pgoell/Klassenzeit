@@ -77,7 +77,7 @@ prop_compose! {
                 teacher_candidates: vec![teachers[i % n_teachers].id],
                 teacher_pin: Some(teachers[i % n_teachers].id),
                 hours_per_week: h,
-                preferred_block_size: 1,
+                preferred_block_size: 1, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             })
         }).collect();
@@ -164,7 +164,7 @@ proptest! {
                 teacher_candidates: vec![teacher_id],
                 teacher_pin: Some(teacher_id),
                 hours_per_week: 1,
-                preferred_block_size: 1,
+                preferred_block_size: 1, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification { teacher_id, subject_id }],
@@ -217,7 +217,7 @@ proptest! {
                 teacher_candidates: vec![teacher_id],
                 teacher_pin: Some(teacher_id),
                 hours_per_week: 1,
-                preferred_block_size: 1,
+                preferred_block_size: 1, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification { teacher_id, subject_id }],
@@ -290,6 +290,8 @@ fn build_class_day_balance_problem() -> Problem {
             teacher_pin: Some(teacher_id),
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {

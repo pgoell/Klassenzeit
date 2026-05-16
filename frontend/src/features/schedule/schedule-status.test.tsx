@@ -32,6 +32,8 @@ const lesson: Lesson = {
   ],
   hours_per_week: 5,
   preferred_block_size: 1,
+  pre_buffer_minutes: 0,
+  post_buffer_minutes: 0,
   lesson_group_id: null,
   created_at: "2026-04-25T00:00:00Z",
   updated_at: "2026-04-25T00:00:00Z",

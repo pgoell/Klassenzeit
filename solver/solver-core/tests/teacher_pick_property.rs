@@ -72,6 +72,8 @@ fn pinned_problem_with_n_candidates(num_candidates: u8, pin_idx: u8) -> Problem 
             teacher_pin: Some(pin),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: candidates

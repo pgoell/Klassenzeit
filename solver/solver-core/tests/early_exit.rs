@@ -74,6 +74,8 @@ fn lahc_exits_at_objective_floor_well_before_deadline() {
             teacher_pin: Some(teacher_id),
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {

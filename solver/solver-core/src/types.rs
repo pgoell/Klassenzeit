@@ -456,6 +456,21 @@ pub struct Lesson {
     /// `None` value means the lesson is independent.
     #[serde(default)]
     pub lesson_group_id: Option<LessonGroupId>,
+    /// Travel time in minutes required before the lesson starts. When non-zero,
+    /// the time block immediately preceding any placement of this lesson on a
+    /// given day must either be a `kind == Break` slot or carry no placement
+    /// for the lesson's class and no placement for the lesson's teacher. A
+    /// lesson with `pre_buffer_minutes > 0` cannot be placed at day-position 0.
+    /// Wire format is additive: callers omitting the field deserialise to 0.
+    /// ADR 0044.
+    #[serde(default)]
+    pub pre_buffer_minutes: u8,
+    /// Travel time in minutes required after the lesson ends. Symmetric to
+    /// `pre_buffer_minutes`. A lesson with `post_buffer_minutes > 0` cannot be
+    /// placed at the last position of a day. Wire format is additive: callers
+    /// omitting the field deserialise to 0. ADR 0044.
+    #[serde(default)]
+    pub post_buffer_minutes: u8,
 }
 
 impl Lesson {
@@ -668,6 +683,15 @@ pub enum ViolationKind {
     /// `supervision::compute_supervision_full`; the accompanying
     /// `Violation.reason` carries `"day=<d> position=<p> candidates=0"`.
     SupervisionGap,
+    /// Hard violation: a lesson with non-zero pre or post buffer minutes was
+    /// placed adjacent to another placement for the same class or teacher
+    /// (or at the first or last slot of a day, where no preceding or
+    /// following slot exists). The diagnostic carried in `Violation.reason`
+    /// has the shape
+    /// `TravelBufferConflict: lesson=<id> [class=<id>|teacher=<id>]
+    /// day=<d> position=<p> [conflicting_lesson=<id>|reason=first_slot|reason=last_slot]
+    /// side=pre|post` (ADR 0044).
+    TravelBufferConflict,
 }
 
 #[cfg(test)]

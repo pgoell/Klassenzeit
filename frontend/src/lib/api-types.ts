@@ -1740,6 +1740,16 @@ export interface components {
              * @default 1
              */
             preferred_block_size: number;
+            /**
+             * Pre Buffer Minutes
+             * @default 0
+             */
+            pre_buffer_minutes: number;
+            /**
+             * Post Buffer Minutes
+             * @default 0
+             */
+            post_buffer_minutes: number;
             /** Lesson Group Id */
             lesson_group_id?: string | null;
         };
@@ -1761,6 +1771,10 @@ export interface components {
             hours_per_week: number;
             /** Preferred Block Size */
             preferred_block_size: number;
+            /** Pre Buffer Minutes */
+            pre_buffer_minutes: number;
+            /** Post Buffer Minutes */
+            post_buffer_minutes: number;
             /** Lesson Group Id */
             lesson_group_id: string | null;
             /**
@@ -1819,6 +1833,10 @@ export interface components {
             hours_per_week?: number | null;
             /** Preferred Block Size */
             preferred_block_size?: number | null;
+            /** Pre Buffer Minutes */
+            pre_buffer_minutes?: number | null;
+            /** Post Buffer Minutes */
+            post_buffer_minutes?: number | null;
             /** Lesson Group Id */
             lesson_group_id?: string | null;
         };
@@ -2099,6 +2117,11 @@ export interface components {
             short_name: string;
             /** Capacity */
             capacity?: number | null;
+            /**
+             * Is External
+             * @default false
+             */
+            is_external: boolean;
         };
         /**
          * RoomDetailResponse
@@ -2116,6 +2139,8 @@ export interface components {
             short_name: string;
             /** Capacity */
             capacity: number | null;
+            /** Is External */
+            is_external: boolean;
             /** Suitability Subjects */
             suitability_subjects: components["schemas"]["SuitabilitySubjectResponse"][];
             /** Availability */
@@ -2147,6 +2172,8 @@ export interface components {
             short_name: string;
             /** Capacity */
             capacity: number | null;
+            /** Is External */
+            is_external: boolean;
             /**
              * Created At
              * Format: date-time
@@ -2169,6 +2196,8 @@ export interface components {
             short_name?: string | null;
             /** Capacity */
             capacity?: number | null;
+            /** Is External */
+            is_external?: boolean | null;
         };
         /**
          * ScheduleReadResponse

@@ -73,6 +73,8 @@ fn caps_subject_hours_per_class_per_day_to_two_by_default() {
             teacher_pin: Some(teacher_id),
             hours_per_week: 4,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {
@@ -150,6 +152,8 @@ fn caps_total_lessons_per_class_per_day_when_set() {
             teacher_pin: Some(teacher_id),
             hours_per_week: 5,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         })
         .collect();

@@ -481,6 +481,8 @@ async def build_problem_json(
                 "teacher_pin": str(lesson.teacher_id) if lesson.teacher_id else None,
                 "hours_per_week": lesson.hours_per_week,
                 "preferred_block_size": lesson.preferred_block_size,
+                "pre_buffer_minutes": lesson.pre_buffer_minutes,
+                "post_buffer_minutes": lesson.post_buffer_minutes,
                 "lesson_group_id": (
                     str(lesson.lesson_group_id) if lesson.lesson_group_id else None
                 ),

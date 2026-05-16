@@ -3,7 +3,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, SmallInteger, String, func
+import sqlalchemy as sa
+from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -18,6 +19,9 @@ class Room(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
     short_name: Mapped[str] = mapped_column(String(20), unique=True)
     capacity: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    is_external: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa.text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

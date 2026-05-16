@@ -14,6 +14,8 @@ class LessonCreate(BaseModel):
     teacher_id: uuid.UUID | None = None
     hours_per_week: int = Field(ge=1)
     preferred_block_size: int = Field(default=1, ge=1, le=2)
+    pre_buffer_minutes: int = Field(default=0, ge=0, le=60)
+    post_buffer_minutes: int = Field(default=0, ge=0, le=60)
     lesson_group_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
@@ -36,6 +38,8 @@ class LessonUpdate(BaseModel):
     teacher_id: uuid.UUID | None = None
     hours_per_week: int | None = Field(default=None, ge=1)
     preferred_block_size: int | None = Field(default=None, ge=1, le=2)
+    pre_buffer_minutes: int | None = Field(default=None, ge=0, le=60)
+    post_buffer_minutes: int | None = Field(default=None, ge=0, le=60)
     lesson_group_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
@@ -80,6 +84,8 @@ class LessonResponse(BaseModel):
     teacher: LessonTeacherResponse | None
     hours_per_week: int
     preferred_block_size: int
+    pre_buffer_minutes: int
+    post_buffer_minutes: int
     lesson_group_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

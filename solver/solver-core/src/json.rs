@@ -222,6 +222,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(json_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -342,6 +344,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(json_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {

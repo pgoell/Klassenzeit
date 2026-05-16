@@ -98,6 +98,8 @@ fn capacity_probe_problem(max: u8, reserve: u8) -> Problem {
                 teacher_pin: Some(TeacherId(reserve_uuid(20))),
                 hours_per_week: 4,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -108,6 +110,8 @@ fn capacity_probe_problem(max: u8, reserve: u8) -> Problem {
                 teacher_pin: Some(TeacherId(reserve_uuid(20))),
                 hours_per_week: 4,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
         ],

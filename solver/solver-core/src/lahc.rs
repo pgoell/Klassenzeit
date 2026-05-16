@@ -469,6 +469,26 @@ fn try_change_move_n1(
         return false;
     }
 
+    // Travel-buffer pruning (ADR 0044). Reject the move if the destination
+    // would leave the buffered lesson adjacent to a same-class or
+    // same-teacher placement (or at a day edge) without an intervening
+    // break. `Some((old_tb.day_of_week, old_tb.position))` tells the helper
+    // to ignore the lesson's pre-move block when scanning class/teacher
+    // positions (else a simple shift would self-collide). Cheap for the
+    // unbuffered hot path: the helper short-circuits when
+    // pre+post == 0.
+    if crate::validate::would_violate_travel_buffer(
+        problem,
+        state,
+        placements,
+        lesson,
+        new_tb.id,
+        teacher,
+        Some((old_tb.day_of_week, old_tb.position)),
+    ) {
+        return false;
+    }
+
     // Per-day cap check at the destination day. When the move stays on the
     // same day, the (class, day, subject) hour count and (class, day) lesson
     // count both stay constant; the cap cannot newly become violated. When
@@ -861,6 +881,24 @@ fn try_change_block_move(
                 return false;
             }
         }
+    }
+
+    // Travel-buffer pruning (ADR 0044). The anchor of the destination window
+    // is `dest_tb_ids[0]`; the helper inspects only the buffer-adjacent
+    // slots (pre at start - 1, post at start + n) so a single anchor check
+    // covers the whole block. `Some((old_anchor_day, old_anchor_pos))`
+    // tells the helper the source block is leaving, so a same-day shift
+    // does not self-collide.
+    if crate::validate::would_violate_travel_buffer(
+        problem,
+        state,
+        placements,
+        lesson,
+        dest_tb_ids[0],
+        teacher,
+        Some((old_anchor_day, old_anchor_pos)),
+    ) {
+        return false;
     }
 
     // Daily caps (per-class total + per-subject-per-class-day). Same-day
@@ -1491,6 +1529,33 @@ fn try_swap_move(
                 }
             }
         }
+    }
+
+    // Travel-buffer pruning (ADR 0044). Both lessons land at each other's
+    // pre-swap time blocks; either side could newly violate the buffer
+    // constraint. `ignore_self` lets the helper skip the lesson's pre-swap
+    // position so a same-day shift does not self-collide.
+    if crate::validate::would_violate_travel_buffer(
+        problem,
+        state,
+        placements,
+        lesson_a,
+        tb_b.id,
+        teacher_a,
+        Some((tb_a.day_of_week, tb_a.position)),
+    ) {
+        return false;
+    }
+    if crate::validate::would_violate_travel_buffer(
+        problem,
+        state,
+        placements,
+        lesson_b,
+        tb_a.id,
+        teacher_b,
+        Some((tb_b.day_of_week, tb_b.position)),
+    ) {
+        return false;
     }
 
     // Snapshot the rows + state-map keys the apply step touches, then
@@ -4153,6 +4218,29 @@ fn kempe_attempt(
             failed = true;
             break;
         }
+        // Travel-buffer pruning (ADR 0044). By the time this loop runs, every
+        // chain member has been ruined, so the lesson's pre-move position is
+        // not in `state.class_positions` / `state.teacher_positions`; pass
+        // `ignore_self = None`. The anchor `tb_by_day_pos[&(dest, start_pos)]`
+        // covers the whole block window because the helper inspects only the
+        // pre / post adjacent slots. Reject the chain on violation so
+        // `failed = true` routes to `kempe_rollback`.
+        let Some(anchor_tb_id) = tb_by_day_pos.get(&(dest, start_pos)).copied() else {
+            failed = true;
+            break;
+        };
+        if crate::validate::would_violate_travel_buffer(
+            problem,
+            state,
+            placements,
+            lesson,
+            anchor_tb_id,
+            original_teacher_id,
+            None,
+        ) {
+            failed = true;
+            break;
+        }
         added_subject_pref = added_subject_pref.saturating_add(kempe_apply_subject_pref(
             problem,
             lesson,
@@ -4557,6 +4645,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
 
@@ -4623,6 +4713,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
 
@@ -4682,6 +4774,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
 
@@ -4749,6 +4843,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -4759,6 +4855,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -4769,6 +4867,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: Some(group_id),
             },
         ];
@@ -5021,6 +5121,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -5161,6 +5263,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 2,
                 preferred_block_size: 2,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -5358,6 +5462,8 @@ mod tests {
                     teacher_pin: Some(teacher_a),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: Some(group_id),
                 },
                 Lesson {
@@ -5368,6 +5474,8 @@ mod tests {
                     teacher_pin: Some(teacher_b),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: Some(group_id),
                 },
             ],
@@ -5664,6 +5772,8 @@ mod tests {
                     teacher_pin: Some(teacher_a),
                     hours_per_week: 4,
                     preferred_block_size: 2,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -5674,6 +5784,8 @@ mod tests {
                     teacher_pin: Some(teacher_b),
                     hours_per_week: 2,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -5841,6 +5953,8 @@ mod tests {
                 teacher_pin: Some(teachers_v[i as usize].id),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             })
             .collect();
@@ -6325,6 +6439,8 @@ mod tests {
                     teacher_pin: Some(t0),
                     hours_per_week: 2,
                     preferred_block_size: 2,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6335,6 +6451,8 @@ mod tests {
                     teacher_pin: Some(t1),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6345,6 +6463,8 @@ mod tests {
                     teacher_pin: Some(t2),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -6472,6 +6592,8 @@ mod tests {
                 teacher_pin: Some(teachers_v[i as usize].id),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             })
             .collect();
@@ -6666,6 +6788,8 @@ mod tests {
                     teacher_pin: Some(teacher0),
                     hours_per_week: 2,
                     preferred_block_size: 2,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6676,6 +6800,8 @@ mod tests {
                     teacher_pin: Some(teacher1),
                     hours_per_week: 2,
                     preferred_block_size: 2,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -6944,6 +7070,8 @@ mod tests {
                     teacher_pin: Some(teacher0),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6954,6 +7082,8 @@ mod tests {
                     teacher_pin: Some(teacher1),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6964,6 +7094,8 @@ mod tests {
                     teacher_pin: Some(teacher_lock),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -6974,6 +7106,8 @@ mod tests {
                     teacher_pin: Some(teacher_lock),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -7249,6 +7383,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -7398,6 +7534,8 @@ mod tests {
                     teacher_pin: None,
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -7408,6 +7546,8 @@ mod tests {
                     teacher_pin: None,
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -7707,6 +7847,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -7777,6 +7919,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let time_blocks = vec![
@@ -7907,6 +8051,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let time_blocks = vec![
@@ -8047,6 +8193,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let other_lesson = Lesson {
@@ -8057,6 +8205,8 @@ mod tests {
             teacher_pin: Some(other_teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8143,6 +8293,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8208,6 +8360,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8263,6 +8417,8 @@ mod tests {
             teacher_pin: Some(teacher_a),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let lesson_b_obj = Lesson {
@@ -8273,6 +8429,8 @@ mod tests {
             teacher_pin: Some(teacher_b),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8747,6 +8905,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8865,6 +9025,8 @@ mod tests {
             teacher_pin: Some(teacher_a),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: Some(group_id),
         };
         let lesson_b_obj = Lesson {
@@ -8875,6 +9037,8 @@ mod tests {
             teacher_pin: Some(teacher_b),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -8966,6 +9130,8 @@ mod tests {
             teacher_pin: Some(teacher_a),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let lesson_b_obj = Lesson {
@@ -8976,6 +9142,8 @@ mod tests {
             teacher_pin: Some(teacher_b),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         // Lesson C: class_a, day=1, pos=0. Conflicts with A's swap dest.
@@ -8987,6 +9155,8 @@ mod tests {
             teacher_pin: Some(teacher_c),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = block_move_problem(
@@ -9107,6 +9277,8 @@ mod tests {
             teacher_pin: Some(teacher_a),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let lesson_b_obj = Lesson {
@@ -9117,6 +9289,8 @@ mod tests {
             teacher_pin: Some(teacher_b),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let lesson_c_obj = Lesson {
@@ -9127,6 +9301,8 @@ mod tests {
             teacher_pin: Some(teacher_c),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut problem = block_move_problem(

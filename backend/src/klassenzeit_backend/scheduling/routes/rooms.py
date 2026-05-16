@@ -88,6 +88,7 @@ async def _build_room_detail(db: AsyncSession, room: Room) -> RoomDetailResponse
         name=room.name,
         short_name=room.short_name,
         capacity=room.capacity,
+        is_external=room.is_external,
         suitability_subjects=suitability_subjects,
         availability=availability,
         created_at=room.created_at,
@@ -118,6 +119,7 @@ async def create_room_route(
         name=body.name,
         short_name=body.short_name,
         capacity=body.capacity,
+        is_external=body.is_external,
     )
     db.add(room)
     try:
@@ -133,6 +135,7 @@ async def create_room_route(
         name=room.name,
         short_name=room.short_name,
         capacity=room.capacity,
+        is_external=room.is_external,
         created_at=room.created_at,
         updated_at=room.updated_at,
     )
@@ -159,6 +162,7 @@ async def list_rooms(
             name=r.name,
             short_name=r.short_name,
             capacity=r.capacity,
+            is_external=r.is_external,
             created_at=r.created_at,
             updated_at=r.updated_at,
         )
@@ -218,6 +222,8 @@ async def update_room_route(
         room.short_name = body.short_name
     if body.capacity is not None:
         room.capacity = body.capacity
+    if body.is_external is not None:
+        room.is_external = body.is_external
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -231,6 +237,7 @@ async def update_room_route(
         name=room.name,
         short_name=room.short_name,
         capacity=room.capacity,
+        is_external=room.is_external,
         created_at=room.created_at,
         updated_at=room.updated_at,
     )

@@ -83,6 +83,8 @@ fn ffd_never_places_a_lesson_on_a_break_time_block() {
             teacher_pin: Some(teacher_id),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {

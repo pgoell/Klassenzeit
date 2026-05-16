@@ -91,6 +91,8 @@ fn pessimal_input_problem() -> Problem {
                 teacher_pin: Some(TeacherId(ffd_uuid(21))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -101,6 +103,8 @@ fn pessimal_input_problem() -> Problem {
                 teacher_pin: Some(TeacherId(ffd_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
         ],
