@@ -105,25 +105,41 @@ def filter_solution_for_class(solution: dict, class_lesson_ids: set[UUID]) -> di
     }
 
 
-async def _resolve_anchor_class(db: AsyncSession, class_id: UUID | None) -> SchoolClass:
+async def _resolve_anchor_class(
+    db: AsyncSession, class_id: UUID | None, school_id: UUID
+) -> SchoolClass:
     """Return the anchor class used to scope the solver input.
 
     For a per-class solve this is the requested class. For a whole-school
-    solve (``class_id is None``) it is any one existing class, used solely
-    to anchor the ``week_scheme`` / ``time_blocks`` lookup; the
-    heterogeneous-week_scheme check downstream still rejects mixed schemes.
+    solve (``class_id is None``) it is any one existing class within the
+    requesting school, used solely to anchor the ``week_scheme`` /
+    ``time_blocks`` lookup; the heterogeneous-week_scheme check downstream
+    still rejects mixed schemes.
 
     Raises:
-        HTTPException: 404 if ``class_id`` is provided and missing; 422 if
-            ``class_id`` is None and no school classes exist.
+        HTTPException: 404 if ``class_id`` is provided and missing (or in a
+            different school); 422 if ``class_id`` is None and no school
+            classes exist in the school.
     """
     if class_id is not None:
-        existing = await db.get(SchoolClass, class_id)
+        result = await db.execute(
+            select(SchoolClass).where(
+                SchoolClass.id == class_id, SchoolClass.school_id == school_id
+            )
+        )
+        existing = result.scalar_one_or_none()
         if existing is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
         return existing
     first = (
-        (await db.execute(select(SchoolClass).order_by(SchoolClass.name).limit(1)))
+        (
+            await db.execute(
+                select(SchoolClass)
+                .where(SchoolClass.school_id == school_id)
+                .order_by(SchoolClass.name)
+                .limit(1)
+            )
+        )
         .scalars()
         .first()
     )
@@ -278,7 +294,7 @@ async def build_problem_json(
             existing classes; the time-blocks check is anchored on the
             first class found.
     """
-    requested_class = await _resolve_anchor_class(db, class_id)
+    requested_class = await _resolve_anchor_class(db, class_id, school_id)
 
     time_blocks = (
         (
@@ -314,7 +330,14 @@ async def build_problem_json(
         requested_class.id
     }
     involved_classes = (
-        (await db.execute(select(SchoolClass).where(SchoolClass.id.in_(involved_class_ids))))
+        (
+            await db.execute(
+                select(SchoolClass).where(
+                    SchoolClass.id.in_(involved_class_ids),
+                    SchoolClass.school_id == school_id,
+                )
+            )
+        )
         .scalars()
         .all()
     )

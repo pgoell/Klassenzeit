@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -376,9 +377,15 @@ def _positions_per_class_day(
     return positions
 
 
-async def _load_class_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID | None]:
-    """Return `{school_class_id: class_teacher_id_or_none}` over every SchoolClass row."""
-    rows = (await db.execute(select(SchoolClass.id, SchoolClass.class_teacher_id))).all()
+async def _load_class_teacher_lookup(db: AsyncSession, school_id: UUID) -> dict[UUID, UUID | None]:
+    """Return `{school_class_id: class_teacher_id_or_none}` for the requesting school."""
+    rows = (
+        await db.execute(
+            select(SchoolClass.id, SchoolClass.class_teacher_id).where(
+                SchoolClass.school_id == school_id
+            )
+        )
+    ).all()
     return {row.id: row.class_teacher_id for row in rows}
 
 
@@ -388,9 +395,15 @@ async def _load_placement_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID]:
     return {row.lesson_id: row.teacher_id for row in rows if row.teacher_id is not None}
 
 
-async def _load_home_room_lookup(db: AsyncSession) -> dict[UUID, UUID]:
-    """Return `{school_class_id: home_room_id}` for classes whose `home_room_id` is set."""
-    rows = (await db.execute(select(SchoolClass.id, SchoolClass.home_room_id))).all()
+async def _load_home_room_lookup(db: AsyncSession, school_id: UUID) -> dict[UUID, UUID]:
+    """Return `{school_class_id: home_room_id}` for the school's classes with home_room set."""
+    rows = (
+        await db.execute(
+            select(SchoolClass.id, SchoolClass.home_room_id).where(
+                SchoolClass.school_id == school_id
+            )
+        )
+    ).all()
     return {row.id: row.home_room_id for row in rows if row.home_room_id is not None}
 
 
@@ -411,6 +424,8 @@ async def _load_exempt_subjects(db: AsyncSession) -> set[UUID]:
 async def compute_quality_issues(
     db: AsyncSession,
     class_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[QualityIssue]:
     """Run all six quality predicates and return issues filtered to `class_id`.
 
@@ -419,18 +434,35 @@ async def compute_quality_issues(
     results, and filters by `school_class_id`. Returns `[]` when no
     schedule exists for the database.
 
+    The ``school_id`` kwarg scopes both the existence check (cross-school
+    classes return 404) and the per-tenant loader helpers, so quality
+    issues never leak between tenants.
+
     Each cell-emitting predicate already sorts its cells ascending by
     `(day, time_block_position)`, so the orchestrator does not re-sort.
+
+    Raises:
+        HTTPException: 404 if the class is missing or belongs to another school.
     """
+    cls = (
+        await db.execute(
+            select(SchoolClass).where(
+                SchoolClass.id == class_id, SchoolClass.school_id == school_id
+            )
+        )
+    ).scalar_one_or_none()
+    if cls is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+
     placements = await load_placements(db)
     if not placements:
         return []
 
     counts_per_class = _counts_per_class(placements)
     positions_per_class_day = _positions_per_class_day(placements)
-    home_rooms = await _load_home_room_lookup(db)
+    home_rooms = await _load_home_room_lookup(db, school_id)
     exempt_subjects = await _load_exempt_subjects(db)
-    class_teacher_lookup = await _load_class_teacher_lookup(db)
+    class_teacher_lookup = await _load_class_teacher_lookup(db, school_id)
     placement_teacher_lookup = await _load_placement_teacher_lookup(db)
 
     issues: list[QualityIssue] = []
@@ -464,6 +496,8 @@ async def compute_quality_issues(
 async def compute_quality_attribution_for_class(
     db: AsyncSession,
     class_id: UUID,
+    *,
+    school_id: UUID,
 ) -> QualityReportResponse:
     """Recompute per-class QualityReport attribution from persisted placements.
 
@@ -507,7 +541,7 @@ async def compute_quality_attribution_for_class(
         gap_total += max(0, unique[-1] - unique[0] + 1 - len(unique))
 
     # Per-class home-room miss accumulator for this class only.
-    home_rooms = await _load_home_room_lookup(db)
+    home_rooms = await _load_home_room_lookup(db, school_id)
     exempt = await _load_exempt_subjects(db)
     home_room_id = home_rooms.get(class_id)
     miss_total = 0
@@ -544,6 +578,8 @@ async def compute_quality_attribution_for_class(
 async def compute_quality_attribution_for_teacher(
     db: AsyncSession,
     teacher_id: UUID,
+    *,
+    school_id: UUID,
 ) -> QualityReportResponse:
     """Recompute per-teacher QualityReport attribution from persisted placements.
 

@@ -121,13 +121,19 @@ async def generate_schedule_for_class(
     await solver_io.persist_solution_for_class(db, class_id, filtered, pinned_keys=own_pinned_keys)
     # build_problem_json has already verified the class exists; the scalar
     # below resolves its WeekScheme so the supervision rota can be scoped
-    # to the affected scheme on a delete-and-rewrite basis.
+    # to the affected scheme on a delete-and-rewrite basis. Re-scoping by
+    # school_id here keeps the query consistent with the rest of the route.
     week_scheme_id = (
-        await db.execute(select(SchoolClass.week_scheme_id).where(SchoolClass.id == class_id))
+        await db.execute(
+            select(SchoolClass.week_scheme_id).where(
+                SchoolClass.id == class_id,
+                SchoolClass.school_id == current_user.school_id,
+            )
+        )
     ).scalar_one()
     await solver_io.persist_supervision_assignments(db, week_scheme_id, solution)
     await db.commit()
-    quality_issues = await compute_quality_issues(db, class_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
     return ScheduleResponse.model_validate(
         {**filtered, "quality_issues": _quality_issues_to_response(quality_issues)}
     )
@@ -195,14 +201,14 @@ async def generate_schedule_for_all_classes(
 @router.get("/classes/{class_id}/schedule")
 async def read_schedule_for_class_route(
     class_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements for this class.
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the class lookup to their school.
         db: Injected async database session.
 
     Returns:
@@ -210,11 +216,13 @@ async def read_schedule_for_class_route(
         ``placements`` means the class exists but has never been scheduled.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist.
+        HTTPException: 404 if the class doesn't exist in the user's school.
     """
     placements = await solver_io.read_schedule_for_class(db, class_id)
-    quality_issues = await compute_quality_issues(db, class_id)
-    quality_report = await compute_quality_attribution_for_class(db, class_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
+    quality_report = await compute_quality_attribution_for_class(
+        db, class_id, school_id=current_user.school_id
+    )
     return ScheduleReadResponse(
         placements=placements,
         quality_issues=_quality_issues_to_response(quality_issues),
@@ -225,7 +233,7 @@ async def read_schedule_for_class_route(
 @router.get("/classes/{class_id}/quality-issues")
 async def read_quality_issues_for_class_route(
     class_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[QualityIssueResponse]:
     """Return the soft-quality issues for the given class.
@@ -236,33 +244,31 @@ async def read_quality_issues_for_class_route(
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the class lookup to their school.
         db: Injected async database session.
 
     Returns:
         ``list[QualityIssueResponse]``; empty when no issues apply.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist.
+        HTTPException: 404 if the class doesn't exist in the user's school.
     """
-    cls = await db.get(SchoolClass, class_id)
-    if cls is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
-    quality_issues = await compute_quality_issues(db, class_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
     return _quality_issues_to_response(quality_issues)
 
 
 @router.get("/teachers/{teacher_id}/schedule")
 async def read_schedule_for_teacher_route(
     teacher_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements for every lesson where Lesson.teacher_id matches.
 
     Args:
         teacher_id: UUID path parameter identifying the teacher.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; passes school_id through to
+            quality attribution so the lookup is tenant-scoped.
         db: Injected async database session.
 
     Returns:
@@ -279,7 +285,9 @@ async def read_schedule_for_teacher_route(
     supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
         db, teacher_id
     )
-    quality_report = await compute_quality_attribution_for_teacher(db, teacher_id)
+    quality_report = await compute_quality_attribution_for_teacher(
+        db, teacher_id, school_id=current_user.school_id
+    )
     return ScheduleReadResponse(
         placements=placements,
         supervision_assignments=supervision_assignments,

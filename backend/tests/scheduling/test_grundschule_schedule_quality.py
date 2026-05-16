@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.main import app
@@ -67,7 +68,9 @@ async def test_grundschule_schedule_meets_quality_bar(
         assert body["violations"] == [], (school_class.name, body["violations"])
 
     for school_class in classes:
-        issues = await compute_quality_issues(db_session, school_class.id)
+        issues = await compute_quality_issues(
+            db_session, school_class.id, school_id=DEFAULT_SCHOOL_ID
+        )
         assert issues == [], (
             f"demo Grundschule class {school_class.name} failed quality checks:\n"
             + "\n".join(f"  - {issue}" for issue in issues)
