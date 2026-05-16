@@ -68,7 +68,10 @@ async def _build_teacher_detail(db: AsyncSession, teacher: Teacher) -> TeacherDe
     qual_result = await db.execute(
         select(Subject)
         .join(TeacherQualification, TeacherQualification.subject_id == Subject.id)
-        .where(TeacherQualification.teacher_id == teacher.id)
+        .where(
+            TeacherQualification.teacher_id == teacher.id,
+            Subject.school_id == teacher.school_id,
+        )
         .order_by(Subject.name)
     )
     qualifications = [

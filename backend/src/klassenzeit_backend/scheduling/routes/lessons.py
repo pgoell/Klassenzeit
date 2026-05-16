@@ -51,12 +51,15 @@ async def _get_lesson(db: AsyncSession, lesson_id: uuid.UUID) -> Lesson:
     return lesson
 
 
-async def _build_lesson_response(db: AsyncSession, lesson: Lesson) -> LessonResponse:
+async def _build_lesson_response(
+    db: AsyncSession, lesson: Lesson, *, school_id: uuid.UUID
+) -> LessonResponse:
     """Construct a LessonResponse with eager-loaded class memberships.
 
     Args:
         db: Active async database session.
         lesson: The Lesson ORM instance to build a response for.
+        school_id: Tenant school used to scope the Subject lookup.
 
     Returns:
         A fully populated LessonResponse including nested entities. School
@@ -86,7 +89,9 @@ async def _build_lesson_response(db: AsyncSession, lesson: Lesson) -> LessonResp
             .all()
         )
 
-    subj_result = await db.execute(select(Subject).where(Subject.id == lesson.subject_id))
+    subj_result = await db.execute(
+        select(Subject).where(Subject.id == lesson.subject_id, Subject.school_id == school_id)
+    )
     subject = subj_result.scalar_one()
 
     teacher_resp = None
@@ -153,14 +158,15 @@ async def _check_subject_class_collision(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_lesson(
     body: LessonCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> LessonResponse:
     """Create a new lesson with one or more class memberships.
 
     Args:
         body: Fields for the new lesson.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the response Subject lookup
+            to their school.
         db: Injected async database session.
 
     Returns:
@@ -190,12 +196,12 @@ async def create_lesson(
     )
     await db.commit()
     await db.refresh(lesson)
-    return await _build_lesson_response(db, lesson)
+    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
 
 
 @router.get("")
 async def list_lessons(
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
     class_id: uuid.UUID | None = None,
     teacher_id: uuid.UUID | None = None,
@@ -204,7 +210,8 @@ async def list_lessons(
     """Return all lessons, with optional filters by class, teacher or subject.
 
     Args:
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the response Subject lookup
+            to their school.
         db: Injected async database session.
         class_id: Optional filter; only lessons that include this school
             class in their memberships.
@@ -225,20 +232,24 @@ async def list_lessons(
         stmt = stmt.where(Lesson.subject_id == subject_id)
     result = await db.execute(stmt)
     lessons = result.scalars().all()
-    return [await _build_lesson_response(db, lesson) for lesson in lessons]
+    return [
+        await _build_lesson_response(db, lesson, school_id=current_user.school_id)
+        for lesson in lessons
+    ]
 
 
 @router.get("/{lesson_id}")
 async def get_lesson(
     lesson_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> LessonResponse:
     """Fetch a single lesson by ID with joined class, subject and teacher data.
 
     Args:
         lesson_id: UUID path parameter identifying the lesson.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the response Subject lookup
+            to their school.
         db: Injected async database session.
 
     Returns:
@@ -248,14 +259,14 @@ async def get_lesson(
         HTTPException: 404 if no lesson with that ID exists.
     """
     lesson = await _get_lesson(db, lesson_id)
-    return await _build_lesson_response(db, lesson)
+    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
 
 
 @router.patch("/{lesson_id}")
 async def update_lesson(
     lesson_id: uuid.UUID,
     body: LessonUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> LessonResponse:
     """Partially update a lesson's memberships, teacher, hours or block size.
@@ -263,7 +274,8 @@ async def update_lesson(
     Args:
         lesson_id: UUID path parameter identifying the lesson to patch.
         body: Fields to update; omitted fields remain unchanged.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the response Subject lookup
+            to their school.
         db: Injected async database session.
 
     Returns:
@@ -307,7 +319,7 @@ async def update_lesson(
         )
     await db.commit()
     await db.refresh(lesson)
-    return await _build_lesson_response(db, lesson)
+    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
 
 
 @router.delete("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -373,7 +385,7 @@ async def _validate_qualified_teacher_coverage(
             Teacher,
             (Teacher.id == TeacherQualification.teacher_id) & (Teacher.school_id == school_id),
         )
-        .where(Subject.id.in_(subject_ids))
+        .where(Subject.id.in_(subject_ids), Subject.school_id == school_id)
         .group_by(Subject.id, Subject.short_name)
         .having(func.count(Teacher.id) == 0)
     )
@@ -475,5 +487,5 @@ async def generate_lessons_from_stundentafel(
     responses = []
     for lesson in created:
         await db.refresh(lesson)
-        responses.append(await _build_lesson_response(db, lesson))
+        responses.append(await _build_lesson_response(db, lesson, school_id=current_user.school_id))
     return responses

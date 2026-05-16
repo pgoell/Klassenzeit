@@ -66,7 +66,10 @@ async def _build_room_detail(db: AsyncSession, room: Room) -> RoomDetailResponse
     suit_result = await db.execute(
         select(Subject)
         .join(RoomSubjectSuitability, RoomSubjectSuitability.subject_id == Subject.id)
-        .where(RoomSubjectSuitability.room_id == room.id)
+        .where(
+            RoomSubjectSuitability.room_id == room.id,
+            Subject.school_id == room.school_id,
+        )
         .order_by(Subject.name)
     )
     suitability_subjects = [
@@ -321,7 +324,12 @@ async def replace_room_suitability(
             unique_ids.append(sid)
 
     if unique_ids:
-        found = await db.execute(select(Subject.id).where(Subject.id.in_(unique_ids)))
+        found = await db.execute(
+            select(Subject.id).where(
+                Subject.id.in_(unique_ids),
+                Subject.school_id == current_user.school_id,
+            )
+        )
         found_ids = {row[0] for row in found}
         missing = [sid for sid in unique_ids if sid not in found_ids]
         if missing:

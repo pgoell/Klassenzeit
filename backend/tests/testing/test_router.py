@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models import Room as _Room
 from klassenzeit_backend.db.models import SchoolClass, Subject, Teacher, User
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 
 
 async def test_health_returns_ok(client: AsyncClient) -> None:
@@ -26,7 +27,7 @@ async def test_reset_truncates_entity_tables(
     await create_test_user(email="admin@reset-test.com", role="admin")
     await login_as("admin@reset-test.com", "testpassword123")
 
-    subject = Subject(name="Temp", short_name="TMP", color="chart-1")
+    subject = Subject(name="Temp", short_name="TMP", color="chart-1", school_id=DEFAULT_SCHOOL_ID)
     db_session.add(subject)
     await db_session.flush()
 

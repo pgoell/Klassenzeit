@@ -112,6 +112,7 @@ def create_subject(db_session: AsyncSession) -> CreateSubjectFn:
         name: str | None = None,
         short_name: str | None = None,
         color: str = "chart-1",
+        school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
     ) -> Subject:
         """Create and flush a Subject with auto-generated unique defaults.
 
@@ -119,6 +120,7 @@ def create_subject(db_session: AsyncSession) -> CreateSubjectFn:
             name: Subject name; auto-generated if omitted.
             short_name: Short abbreviation; auto-generated if omitted.
             color: Palette token or hex color; defaults to ``"chart-1"``.
+            school_id: Tenant school FK; defaults to the canonical default school.
 
         Returns:
             The newly created Subject ORM instance.
@@ -128,6 +130,7 @@ def create_subject(db_session: AsyncSession) -> CreateSubjectFn:
             name=name if name is not None else f"Subject {n}",
             short_name=short_name if short_name is not None else f"S{n}",
             color=color,
+            school_id=school_id,
         )
         db_session.add(subject)
         await db_session.flush()

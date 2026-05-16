@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 
@@ -18,7 +19,9 @@ from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 async def test_seed_rolls_back_on_duplicate_subject_name(
     db_session: AsyncSession,
 ) -> None:
-    pre_existing = Subject(name="Deutsch", short_name="PRE", color="chart-1")
+    pre_existing = Subject(
+        name="Deutsch", short_name="PRE", color="chart-1", school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(pre_existing)
     await db_session.flush()
 

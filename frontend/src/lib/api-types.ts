@@ -177,31 +177,32 @@ export interface paths {
         };
         /**
          * List Subjects
-         * @description Return all subjects ordered by name.
+         * @description Return all subjects in the current user's school, ordered by name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
-         *         List of all subjects sorted alphabetically by name.
+         *         List of subjects in the user's school sorted alphabetically by name.
          */
         get: operations["list_subjects_api_subjects_get"];
         put?: never;
         /**
          * Create Subject Route
-         * @description Create a new subject.
+         * @description Create a new subject in the requesting user's school.
          *
          *     Args:
          *         body: Name, short_name, and color for the new subject.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created subject as a SubjectResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if name or short_name conflicts with an existing subject.
+         *         HTTPException: 409 if name or short_name conflicts with an existing
+         *             subject in the user's school.
          */
         post: operations["create_subject_route_api_subjects_post"];
         delete?: never;
@@ -219,33 +220,33 @@ export interface paths {
         };
         /**
          * Get Subject
-         * @description Fetch a single subject by ID.
+         * @description Fetch a single subject by ID, scoped to the user's school.
          *
          *     Args:
          *         subject_id: UUID path parameter identifying the subject.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The matching subject as a SubjectResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists.
+         *         HTTPException: 404 if no subject with that ID exists in the user's school.
          */
         get: operations["get_subject_api_subjects__subject_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete Subject
-         * @description Delete a subject by ID.
+         * @description Delete a subject by ID, scoped to the user's school.
          *
          *     Args:
          *         subject_id: UUID path parameter identifying the subject to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists.
+         *         HTTPException: 404 if no subject with that ID exists in the user's school.
          *         HTTPException: 409 if the subject is referenced by other records (FK protection).
          */
         delete: operations["delete_subject_api_subjects__subject_id__delete"];
@@ -258,14 +259,14 @@ export interface paths {
          *     Args:
          *         subject_id: UUID path parameter identifying the subject to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated subject as a SubjectResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists.
+         *         HTTPException: 404 if no subject with that ID exists in the user's school.
          *         HTTPException: 409 if the new name or short_name conflicts.
          */
         patch: operations["update_subject_api_subjects__subject_id__patch"];
@@ -649,7 +650,7 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the class lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -657,7 +658,7 @@ export interface paths {
          *         ``placements`` means the class exists but has never been scheduled.
          *
          *     Raises:
-         *         HTTPException: 404 if the class doesn't exist.
+         *         HTTPException: 404 if the class doesn't exist in the user's school.
          */
         get: operations["read_schedule_for_class_route_api_classes__class_id__schedule_get"];
         put?: never;
@@ -747,14 +748,14 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the class lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         ``list[QualityIssueResponse]``; empty when no issues apply.
          *
          *     Raises:
-         *         HTTPException: 404 if the class doesn't exist.
+         *         HTTPException: 404 if the class doesn't exist in the user's school.
          */
         get: operations["read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get"];
         put?: never;
@@ -778,7 +779,8 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; passes school_id through to
+         *             quality attribution so the lookup is tenant-scoped.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -891,10 +893,10 @@ export interface paths {
         };
         /**
          * List Teachers
-         * @description Return all teachers ordered by last name, optionally filtered by active status.
+         * @description Return teachers in the requesting user's school ordered by last name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *         active: Optional filter; if True returns only active teachers, if False only inactive.
          *
@@ -906,18 +908,19 @@ export interface paths {
         put?: never;
         /**
          * Create Teacher Route
-         * @description Create a new teacher.
+         * @description Create a new teacher in the requesting user's school.
          *
          *     Args:
          *         body: First name, last name, short_code, and max_hours_per_week for the new teacher.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created teacher as a TeacherListResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if short_code conflicts with an existing teacher.
+         *         HTTPException: 409 if short_code conflicts with an existing teacher in
+         *             the user's school.
          */
         post: operations["create_teacher_route_api_teachers_post"];
         delete?: never;
@@ -939,14 +942,14 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The matching teacher with nested qualifications and availability as a TeacherDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists.
+         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
          */
         get: operations["get_teacher_api_teachers__teacher_id__get"];
         put?: never;
@@ -959,11 +962,11 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher to deactivate.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists.
+         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
          */
         delete: operations["delete_teacher_route_api_teachers__teacher_id__delete"];
         options?: never;
@@ -975,14 +978,14 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated teacher as a TeacherListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists.
+         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
          *         HTTPException: 409 if the new short_code conflicts with an existing teacher.
          */
         patch: operations["update_teacher_route_api_teachers__teacher_id__patch"];
@@ -1006,14 +1009,14 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
          *         body: List of subject UUIDs that define the new qualification set.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated teacher detail including the new qualifications list.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists.
+         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
          *         HTTPException: 409 if any subject_id is invalid (FK violation).
          */
         put: operations["replace_teacher_qualifications_api_teachers__teacher_id__qualifications_put"];
@@ -1042,14 +1045,14 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
          *         body: List of availability entries with time_block_id and status.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated teacher detail including the new availability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists.
+         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
          *         HTTPException: 409 if any time_block_id is invalid (FK violation).
          */
         put: operations["replace_teacher_availability_api_teachers__teacher_id__availability_put"];
@@ -1115,7 +1118,7 @@ export interface paths {
          *
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the entry Subject join to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1179,14 +1182,14 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         body: subject_id, hours_per_week, and preferred_block_size for the new entry.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the Subject lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created entry as a StundentafelEntryResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if the Stundentafel does not exist.
+         *         HTTPException: 404 if the Stundentafel or Subject does not exist.
          *         HTTPException: 409 if this subject is already in the Stundentafel.
          */
         post: operations["create_stundentafel_entry_route_api_stundentafeln__tafel_id__entries_post"];
@@ -1230,7 +1233,7 @@ export interface paths {
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         entry_id: UUID path parameter identifying the entry to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the Subject lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1251,24 +1254,25 @@ export interface paths {
         };
         /**
          * List School Classes
-         * @description Return all school classes ordered by name.
+         * @description Return all school classes in the user's school ordered by name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
-         *         List of all school classes sorted alphabetically by name.
+         *         List of school classes in the user's school sorted alphabetically by name.
          */
         get: operations["list_school_classes_api_classes_get"];
         put?: never;
         /**
          * Create School Class Route
-         * @description Create a new school class.
+         * @description Create a new school class scoped to the current user's school.
          *
          *     Args:
          *         body: Fields for the new school class including FK references.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; the new class's ``school_id`` is
+         *             stamped from ``current_user.school_id``.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1293,33 +1297,33 @@ export interface paths {
         };
         /**
          * Get School Class
-         * @description Fetch a single school class by ID.
+         * @description Fetch a single school class by ID scoped to the user's school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The matching school class as a SchoolClassResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists.
+         *         HTTPException: 404 if no school class with that ID exists in the user's school.
          */
         get: operations["get_school_class_api_classes__class_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete School Class Route
-         * @description Delete a school class by ID.
+         * @description Delete a school class by ID scoped to the user's school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists.
+         *         HTTPException: 404 if no school class with that ID exists in the user's school.
          *         HTTPException: 409 if the school class is referenced by lessons or other records.
          */
         delete: operations["delete_school_class_route_api_classes__class_id__delete"];
@@ -1327,19 +1331,19 @@ export interface paths {
         head?: never;
         /**
          * Update School Class Route
-         * @description Partially update a school class.
+         * @description Partially update a school class scoped to the user's school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated school class as a SchoolClassResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists.
+         *         HTTPException: 404 if no school class with that ID exists in the user's school.
          *         HTTPException: 409 if the new name conflicts or FK is invalid.
          */
         patch: operations["update_school_class_route_api_classes__class_id__patch"];
@@ -1357,7 +1361,8 @@ export interface paths {
          * @description Return all lessons, with optional filters by class, teacher or subject.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the response Subject lookup
+         *             to their school.
          *         db: Injected async database session.
          *         class_id: Optional filter; only lessons that include this school
          *             class in their memberships.
@@ -1375,7 +1380,8 @@ export interface paths {
          *
          *     Args:
          *         body: Fields for the new lesson.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the response Subject lookup
+         *             to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1405,7 +1411,8 @@ export interface paths {
          *
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the response Subject lookup
+         *             to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1439,7 +1446,8 @@ export interface paths {
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the response Subject lookup
+         *             to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -1471,14 +1479,15 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the class lookup and
+         *             qualified-teacher coverage check to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         List of newly created LessonResponse objects (may be empty if all exist).
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists.
+         *         HTTPException: 404 if no school class with that ID exists in the user's school.
          */
         post: operations["generate_lessons_from_stundentafel_api_classes__class_id__generate_lessons_post"];
         delete?: never;

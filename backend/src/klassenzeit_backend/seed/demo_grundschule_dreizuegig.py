@@ -477,6 +477,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             avoid_first_period=spec.avoid_first_period,
             avoid_last_period=spec.avoid_last_period,
             prefer_late_period=spec.prefer_late_period,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(subject)
         subjects_by_short[spec.short_name] = subject
@@ -486,6 +487,7 @@ async def seed_demo_grundschule_dreizuegig(session: AsyncSession) -> None:
             name=extra_spec.name,
             short_name=extra_spec.short_name,
             color=extra_spec.color,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(extra_subject)
         subjects_by_short[extra_spec.short_name] = extra_subject
