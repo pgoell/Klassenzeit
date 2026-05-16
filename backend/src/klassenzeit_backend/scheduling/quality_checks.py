@@ -43,6 +43,7 @@ from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.teacher import Teacher
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
 from klassenzeit_backend.scheduling.schemas.quality_report import QualityReportResponse
 
@@ -610,7 +611,18 @@ async def compute_quality_attribution_for_teacher(
     All other ``QualityReport`` fields default to neutral values: scalar
     ``int`` to ``0``, ``dict[str, int]`` to ``{}``. Returns an all-zero /
     empty-map report when the teacher has no placements yet.
+
+    Raises:
+        HTTPException: 404 if the teacher doesn't exist in the user's school.
     """
+    teacher_row = (
+        await db.execute(
+            select(Teacher).where(Teacher.id == teacher_id, Teacher.school_id == school_id)
+        )
+    ).scalar_one_or_none()
+    if teacher_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
+
     placements = await load_placements(db)
     placement_teacher_lookup = await _load_placement_teacher_lookup(db)
     placements_for_teacher = [

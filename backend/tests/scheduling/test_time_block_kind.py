@@ -304,6 +304,7 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
         short_code=f"TC-{uuid.uuid4().hex[:6]}",
         max_hours_per_week=24,
         reserve_hours_per_week=0,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(teacher)
     tafel = Stundentafel(name=f"Tafel-{uuid.uuid4().hex[:8]}", grade_level=5)

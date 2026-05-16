@@ -334,33 +334,48 @@ async def delete_lesson(
 async def _validate_qualified_teacher_coverage(
     db: AsyncSession,
     subject_ids: list[uuid.UUID],
+    *,
+    school_id: uuid.UUID,
 ) -> None:
-    """Raise 422 if any subject in the list has zero qualified teachers.
+    """Raise 422 if any subject in the list has zero qualified teachers in the school.
 
     Aggregates every offender into a single error so the admin can fix all
     data gaps in one batch. The 422 ``detail`` is a structured dict with a
     stable ``code`` plus the offending ``subject_ids`` and ``subject_short_names``
     for frontend display.
 
+    The double ``outerjoin`` chain (Subject -> TeacherQualification -> Teacher)
+    enforces both the FK link AND the school filter at JOIN time. Without the
+    second outerjoin, an unconditional ``WHERE Teacher.school_id = ...`` would
+    drop subjects that have no qualifications at all.
+
     Args:
         db: Active async database session.
         subject_ids: Curriculum subject UUIDs (typically one per StundentafelEntry
             for the class).
+        school_id: Tenant school whose teachers are eligible to cover the subject.
 
     Raises:
         HTTPException: 422 with detail
             ``{"code": "missing_qualified_teacher", "subject_ids": [...],
             "subject_short_names": [...]}`` if one or more subjects have no
-            qualified teacher (active or not).
+            qualified teacher in the school (active or not).
     """
     if not subject_ids:
         return
     result = await db.execute(
         select(Subject.id, Subject.short_name)
-        .outerjoin(TeacherQualification, TeacherQualification.subject_id == Subject.id)
+        .outerjoin(
+            TeacherQualification,
+            TeacherQualification.subject_id == Subject.id,
+        )
+        .outerjoin(
+            Teacher,
+            (Teacher.id == TeacherQualification.teacher_id) & (Teacher.school_id == school_id),
+        )
         .where(Subject.id.in_(subject_ids))
         .group_by(Subject.id, Subject.short_name)
-        .having(func.count(TeacherQualification.teacher_id) == 0)
+        .having(func.count(Teacher.id) == 0)
     )
     rows = result.all()
     if not rows:
@@ -378,7 +393,7 @@ async def _validate_qualified_teacher_coverage(
 @generate_router.post("/classes/{class_id}/generate-lessons", status_code=status.HTTP_201_CREATED)
 async def generate_lessons_from_stundentafel(
     class_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[LessonResponse]:
     """Bulk-create lessons for a class from its associated Stundentafel.
@@ -389,16 +404,21 @@ async def generate_lessons_from_stundentafel(
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the class lookup and
+            qualified-teacher coverage check to their school.
         db: Injected async database session.
 
     Returns:
         List of newly created LessonResponse objects (may be empty if all exist).
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists.
+        HTTPException: 404 if no school class with that ID exists in the user's school.
     """
-    result = await db.execute(select(SchoolClass).where(SchoolClass.id == class_id))
+    result = await db.execute(
+        select(SchoolClass).where(
+            SchoolClass.id == class_id, SchoolClass.school_id == current_user.school_id
+        )
+    )
     school_class = result.scalar_one_or_none()
     if school_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
@@ -411,7 +431,9 @@ async def generate_lessons_from_stundentafel(
     entries = entries_result.scalars().all()
 
     curriculum_subject_ids = [entry.subject_id for entry in entries]
-    await _validate_qualified_teacher_coverage(db, curriculum_subject_ids)
+    await _validate_qualified_teacher_coverage(
+        db, curriculum_subject_ids, school_id=current_user.school_id
+    )
 
     existing_result = await db.execute(
         select(Lesson.subject_id)

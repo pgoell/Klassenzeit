@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from klassenzeit_backend.db.models import SupervisionAssignment, Teacher
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind, WeekScheme
 
 
@@ -34,6 +35,7 @@ async def _make_break_block_and_teacher(db_session) -> tuple[TimeBlock, Teacher]
         last_name="Visor",
         short_code="SV1",
         max_hours_per_week=24,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(teacher)
     await db_session.flush()
@@ -69,6 +71,7 @@ async def test_supervision_assignment_time_block_unique(db_session):
         last_name="Visor2",
         short_code="SV2",
         max_hours_per_week=24,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(second_teacher)
     await db_session.flush()

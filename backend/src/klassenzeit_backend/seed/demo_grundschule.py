@@ -264,6 +264,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
             short_code=teacher_spec.short_code,
             max_hours_per_week=teacher_spec.max_hours_per_week,
             is_active=True,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(teacher)
         await session.flush()

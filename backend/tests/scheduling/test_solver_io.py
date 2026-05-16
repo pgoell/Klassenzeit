@@ -1559,7 +1559,7 @@ async def test_read_schedule_for_teacher_404_when_missing(
     db_session: AsyncSession,
 ) -> None:
     with pytest.raises(HTTPException) as excinfo:
-        await read_schedule_for_teacher(db_session, uuid.uuid4())
+        await read_schedule_for_teacher(db_session, uuid.uuid4(), school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 404
 
 
@@ -1568,7 +1568,7 @@ async def test_read_schedule_for_teacher_returns_empty_when_no_placements(
     create_teacher: CreateTeacherFn,
 ) -> None:
     teacher = await create_teacher()
-    rows = await read_schedule_for_teacher(db_session, teacher.id)
+    rows = await read_schedule_for_teacher(db_session, teacher.id, school_id=DEFAULT_SCHOOL_ID)
     assert rows == []
 
 
@@ -1618,14 +1618,16 @@ async def test_read_schedule_for_teacher_returns_placements_for_teachers_lessons
     )
     await db_session.flush()
 
-    rows = await read_schedule_for_teacher(db_session, teacher.id)
+    rows = await read_schedule_for_teacher(db_session, teacher.id, school_id=DEFAULT_SCHOOL_ID)
     assert len(rows) == 1
     assert rows[0].lesson_id == lesson.id
     assert rows[0].time_block_id == block.id
     assert rows[0].room_id == room.id
 
     # Other teacher sees nothing.
-    other_rows = await read_schedule_for_teacher(db_session, other_teacher.id)
+    other_rows = await read_schedule_for_teacher(
+        db_session, other_teacher.id, school_id=DEFAULT_SCHOOL_ID
+    )
     assert other_rows == []
 
 
