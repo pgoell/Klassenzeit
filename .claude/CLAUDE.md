@@ -15,7 +15,7 @@
 - `solver/` — Rust workspace: `solver-core` (pure), `solver-py` (PyO3 via maturin), `solver-bench` (bake-off binary).
 - `deploy/` — staging compose for the Hetzner VPS. Runbook: `deploy/README.md`. Decisions: `docs/adr/0009-deployment-topology.md`.
 - Dev loop via `mise` tasks; Postgres via `podman compose` from root `compose.yaml` (local dev only, distinct from `deploy/compose.yaml`).
-- **Multi-tenant by `school_id`.** Every aggregate root carries a NOT NULL `school_id` FK to `schools.id`; users belong to exactly one school. Readers scope by `current_user.school_id`; cross-tenant access returns 404, not 403. The tracer covered `rooms` only (ADR 0045 / OPEN_THINGS item 10); remaining aggregates follow as mechanical per-aggregate PRs under item 10a.
+- **Multi-tenant by `school_id`.** Every aggregate root carries a NOT NULL `school_id` FK to `schools.id`; users belong to exactly one school. Readers scope by `current_user.school_id`; cross-tenant access returns 404, not 403. See ADR 0045 for tenancy decisions; OPEN_THINGS item 10 tracks which aggregates have been scoped, item 10a holds the per-aggregate follow-up PRs.
 
 ## Development Workflow
 
