@@ -111,6 +111,8 @@ async def _build_lesson_response(db: AsyncSession, lesson: Lesson) -> LessonResp
         teacher=teacher_resp,
         hours_per_week=lesson.hours_per_week,
         preferred_block_size=lesson.preferred_block_size,
+        pre_buffer_minutes=lesson.pre_buffer_minutes,
+        post_buffer_minutes=lesson.post_buffer_minutes,
         lesson_group_id=lesson.lesson_group_id,
         created_at=lesson.created_at,
         updated_at=lesson.updated_at,
@@ -174,6 +176,8 @@ async def create_lesson(
         teacher_id=body.teacher_id,
         hours_per_week=body.hours_per_week,
         preferred_block_size=body.preferred_block_size,
+        pre_buffer_minutes=body.pre_buffer_minutes,
+        post_buffer_minutes=body.post_buffer_minutes,
         lesson_group_id=body.lesson_group_id,
     )
     db.add(lesson)
@@ -290,6 +294,10 @@ async def update_lesson(
         lesson.hours_per_week = body.hours_per_week
     if body.preferred_block_size is not None:
         lesson.preferred_block_size = body.preferred_block_size
+    if body.pre_buffer_minutes is not None:
+        lesson.pre_buffer_minutes = body.pre_buffer_minutes
+    if body.post_buffer_minutes is not None:
+        lesson.post_buffer_minutes = body.post_buffer_minutes
     if body.lesson_group_id is not None:
         lesson.lesson_group_id = body.lesson_group_id
     if lesson.hours_per_week % lesson.preferred_block_size != 0:
