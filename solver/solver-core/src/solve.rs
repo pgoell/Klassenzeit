@@ -987,6 +987,33 @@ pub(crate) fn try_place_block(
                 continue;
             }
 
+            // Travel-buffer pruning (ADR 0044). Reject this (window, room,
+            // teacher) candidate if the buffered lesson would land adjacent
+            // to a same-class or same-teacher placement (or at a day edge)
+            // without an intervening break. Placed AFTER the lock and
+            // capacity filters, BEFORE the soft-score scoring, mirroring
+            // the `validate_travel_buffer` post-condition. Cheap fall-through
+            // for unbuffered lessons (the helper short-circuits on
+            // pre+post == 0).
+            if crate::validate::would_violate_travel_buffer(
+                problem,
+                state,
+                lesson,
+                first_tb.id,
+                candidate_teacher,
+                None,
+            ) {
+                #[cfg(feature = "solver-trace")]
+                trace::ffd_trace(
+                    lesson.id,
+                    first_tb.day_of_week,
+                    first_tb.position,
+                    None,
+                    "travel_buffer_conflict",
+                );
+                continue;
+            }
+
             // Teacher-side score delta.
             let teacher_partition = state
                 .teacher_positions

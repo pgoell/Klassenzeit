@@ -753,13 +753,20 @@ pub fn validate_travel_buffer(problem: &Problem, placements: &[Placement]) -> Re
 /// `teacher` is the teacher to score the placement against (caller threads
 /// `lesson_teacher_in_state` for LAHC, or `lesson.assigned_teacher_id()` for
 /// FFD, depending on the lock-map state).
-#[allow(dead_code)] // Reason: Task 3 lands the helper; Task 4 wires the FFD/LAHC call sites.
+///
+/// `ignore_self` overlays a "the lesson's own placement at this `(day,
+/// position..position+block_size)` window is being removed by the move and
+/// MUST NOT count as a conflict". FFD callers pass `None` because the
+/// lesson is not yet in `state`; LAHC Change/Swap/Block-move callers pass
+/// `Some((old_day, old_start_pos))` so the adjacent-slot check does not
+/// fire against the lesson's own pre-move position.
 pub(crate) fn would_violate_travel_buffer(
     problem: &Problem,
     state: &crate::solve::GreedyState,
     lesson: &Lesson,
     tb_id: TimeBlockId,
     teacher: TeacherId,
+    ignore_self: Option<(u8, u8)>,
 ) -> bool {
     if lesson.pre_buffer_minutes == 0 && lesson.post_buffer_minutes == 0 {
         return false;
@@ -769,6 +776,20 @@ pub(crate) fn would_violate_travel_buffer(
     };
     let day = tb.day_of_week;
     let pos = tb.position;
+
+    // The lesson's own pre-move block spans `[ignore_start, ignore_end]` on
+    // `ignore_day`. A class/teacher position in this range is the lesson
+    // being moved, not a foreign placement.
+    let is_self = |check_day: u8, check_pos: u8| -> bool {
+        let Some((ignore_day, ignore_start)) = ignore_self else {
+            return false;
+        };
+        if check_day != ignore_day {
+            return false;
+        }
+        let n = lesson.preferred_block_size;
+        check_pos >= ignore_start && check_pos < ignore_start.saturating_add(n)
+    };
 
     if lesson.pre_buffer_minutes > 0 {
         if pos == 0 {
@@ -780,7 +801,7 @@ pub(crate) fn would_violate_travel_buffer(
             .iter()
             .find(|t| t.day_of_week == day && t.position == prev_pos);
         let prev_is_break = prev_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
-        if !prev_is_break {
+        if !prev_is_break && !is_self(day, prev_pos) {
             for class_id in &lesson.school_class_ids {
                 if let Some(positions) = state.class_positions.get(&(*class_id, day)) {
                     if positions.contains(&prev_pos) {
@@ -806,7 +827,7 @@ pub(crate) fn would_violate_travel_buffer(
             return true;
         }
         let next_is_break = next_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
-        if !next_is_break {
+        if !next_is_break && !is_self(day, next_pos) {
             for class_id in &lesson.school_class_ids {
                 if let Some(positions) = state.class_positions.get(&(*class_id, day)) {
                     if positions.contains(&next_pos) {

@@ -19,10 +19,13 @@
 //! by the lesson itself, not by a foreign placement. The validator must
 //! skip same-`lesson_id` conflicts.
 
+use std::time::Duration;
+
 use solver_core::ids::{LessonId, RoomId, SchoolClassId, SubjectId, TeacherId, TimeBlockId};
+use solver_core::solve_with_config;
 use solver_core::types::{
-    Lesson, Placement, Problem, Room, SchoolClass, Subject, Teacher, TeacherQualification,
-    TimeBlock, TimeBlockKind,
+    ConstraintWeights, Lesson, PinKind, PinnedPlacement, Placement, Problem, Room, SchoolClass,
+    SolveConfig, Subject, Teacher, TeacherQualification, TimeBlock, TimeBlockKind,
 };
 use solver_core::validate::validate_travel_buffer;
 use uuid::Uuid;
@@ -441,4 +444,306 @@ fn test_validate_travel_buffer_zero_buffers_no_op() {
         },
     ];
     validate_travel_buffer(&problem, &placements).unwrap();
+}
+
+// -- Move-site pruning tests (Task 4). The FFD picker, the LAHC Change move,
+//    the LAHC Swap move, and the Kempe-chain destination must each reject a
+//    placement that would violate the travel-buffer constraint at apply time.
+//    The post-condition validator runs in `solve_with_config_stats`'s tail and
+//    promotes a missed prune into `Err(Error::Input)`; the tests therefore
+//    assert solver success on inputs that force each move type to encounter
+//    a buffered lesson.
+
+/// Build a one-day problem with `lesson_count` `pre_buffer_minutes=15`
+/// lessons of `hours_per_week=1, preferred_block_size=1`. Five Lesson-kind
+/// positions on day 0. FFD's naive lowest-position pick would place the
+/// first buffered lesson at pos 0; pruning forces pos >= 1.
+fn build_ffd_buffered_problem() -> Problem {
+    let time_blocks: Vec<TimeBlock> = (0..5)
+        .map(|p| TimeBlock {
+            id: TimeBlockId(tb_uuid(p)),
+            day_of_week: 0,
+            position: p,
+            kind: TimeBlockKind::Lesson,
+        })
+        .collect();
+    let teacher = Teacher {
+        id: TeacherId(teacher_uuid(1)),
+        max_hours_per_week: 30,
+        reserve_hours_per_week: 0,
+    };
+    let subject = Subject {
+        id: SubjectId(subject_uuid(1)),
+        prefer_early_period: 0,
+        avoid_first_period: 0,
+        avoid_last_period: 0,
+        prefer_late_period: 0,
+        max_hours_per_day: 8,
+    };
+    let class_one = SchoolClass {
+        id: SchoolClassId(class_uuid(1)),
+        home_room_id: None,
+        max_lessons_per_day: None,
+        class_teacher_id: None,
+    };
+    let room = Room {
+        id: RoomId(room_uuid(1)),
+    };
+    // One buffered lesson (pre side only) for class A.
+    let lesson = Lesson {
+        id: LessonId(lesson_uuid(1)),
+        school_class_ids: vec![class_one.id],
+        subject_id: subject.id,
+        teacher_candidates: vec![teacher.id],
+        teacher_pin: Some(teacher.id),
+        hours_per_week: 1,
+        preferred_block_size: 1,
+        pre_buffer_minutes: 15,
+        post_buffer_minutes: 0,
+        lesson_group_id: None,
+    };
+    Problem {
+        time_blocks,
+        teachers: vec![teacher.clone()],
+        rooms: vec![room],
+        subjects: vec![subject.clone()],
+        school_classes: vec![class_one],
+        lessons: vec![lesson],
+        teacher_qualifications: vec![TeacherQualification {
+            teacher_id: teacher.id,
+            subject_id: subject.id,
+        }],
+        teacher_blocked_times: vec![],
+        room_blocked_times: vec![],
+        room_subject_suitabilities: vec![],
+        pinned_placements: vec![],
+    }
+}
+
+#[test]
+fn test_ffd_skips_first_slot_for_buffered_lesson() {
+    // FFD-only (deadline=None). Without the pruning at try_place_block, FFD
+    // picks pos 0 (lowest position in tb_order) and the tail validator
+    // rejects the run with Err(Error::Input). With pruning, FFD walks to
+    // pos 1 and the run succeeds. Assert success plus pos >= 1.
+    let problem = build_ffd_buffered_problem();
+    let cfg = SolveConfig::default();
+    let solution = solve_with_config(&problem, &cfg)
+        .expect("FFD must place the buffered lesson at a buffer-legal slot");
+    assert_eq!(solution.placements.len(), 1);
+    let tb_id = solution.placements[0].time_block_id;
+    let tb = problem
+        .time_blocks
+        .iter()
+        .find(|t| t.id == tb_id)
+        .expect("tb resolves");
+    assert!(
+        tb.position >= 1,
+        "buffered lesson placed at pos {} but pre-buffer forbids pos 0",
+        tb.position
+    );
+}
+
+/// Build a tiny problem that, after FFD, has one unpinned buffered lesson
+/// the LAHC loop can shuffle. The placement floor leaves the lesson with
+/// candidate moves on day 0; without pruning at the move site, an accepted
+/// move to a forbidden slot becomes the running-best and the tail validator
+/// rejects the final solution.
+fn build_lahc_move_site_problem() -> Problem {
+    // Five positions on day 0, all Lesson-kind. One buffered lesson
+    // (schwimm, pre+post). One companion lesson on the same class so the
+    // FFD seed deterministically places schwimm at a legal slot and LAHC
+    // has somewhere to move it. Companion is hard-pinned at pos 0 so the
+    // only LAHC move target is schwimm itself; the buffered lesson cannot
+    // legally sit at pos 1 (pre violates against companion at pos 0).
+    let time_blocks: Vec<TimeBlock> = (0..5)
+        .map(|p| TimeBlock {
+            id: TimeBlockId(tb_uuid(p)),
+            day_of_week: 0,
+            position: p,
+            kind: TimeBlockKind::Lesson,
+        })
+        .collect();
+    let teacher_a = Teacher {
+        id: TeacherId(teacher_uuid(1)),
+        max_hours_per_week: 30,
+        reserve_hours_per_week: 0,
+    };
+    let teacher_b = Teacher {
+        id: TeacherId(teacher_uuid(2)),
+        max_hours_per_week: 30,
+        reserve_hours_per_week: 0,
+    };
+    let subject_schwimm = Subject {
+        id: SubjectId(subject_uuid(1)),
+        prefer_early_period: 0,
+        avoid_first_period: 0,
+        avoid_last_period: 0,
+        prefer_late_period: 0,
+        max_hours_per_day: 8,
+    };
+    let subject_math = Subject {
+        id: SubjectId(subject_uuid(2)),
+        prefer_early_period: 0,
+        avoid_first_period: 0,
+        avoid_last_period: 0,
+        prefer_late_period: 0,
+        max_hours_per_day: 8,
+    };
+    let class_one = SchoolClass {
+        id: SchoolClassId(class_uuid(1)),
+        home_room_id: None,
+        max_lessons_per_day: None,
+        class_teacher_id: None,
+    };
+    let room_one = Room {
+        id: RoomId(room_uuid(1)),
+    };
+    let room_two = Room {
+        id: RoomId(room_uuid(2)),
+    };
+    let lesson_schwimm = Lesson {
+        id: LessonId(lesson_uuid(1)),
+        school_class_ids: vec![class_one.id],
+        subject_id: subject_schwimm.id,
+        teacher_candidates: vec![teacher_a.id],
+        teacher_pin: Some(teacher_a.id),
+        hours_per_week: 1,
+        preferred_block_size: 1,
+        pre_buffer_minutes: 15,
+        post_buffer_minutes: 15,
+        lesson_group_id: None,
+    };
+    let lesson_math = Lesson {
+        id: LessonId(lesson_uuid(2)),
+        school_class_ids: vec![class_one.id],
+        subject_id: subject_math.id,
+        teacher_candidates: vec![teacher_b.id],
+        teacher_pin: Some(teacher_b.id),
+        hours_per_week: 1,
+        preferred_block_size: 1,
+        pre_buffer_minutes: 0,
+        post_buffer_minutes: 0,
+        lesson_group_id: None,
+    };
+    // Pin math at pos 0 so FFD must seat schwimm at pos >= 2 (post-buffer
+    // also forbids pos 4-last and pre-buffer forbids pos 0..=1 because of
+    // class A's math at pos 0). Schwimm will land at pos 2 or 3. LAHC then
+    // explores moves on the unpinned schwimm placement; a move to pos 1
+    // (adjacent to math at pos 0) violates pre-buffer, a move to pos 4
+    // violates post-buffer.
+    let pinned = vec![PinnedPlacement {
+        lesson_id: lesson_math.id,
+        time_block_id: time_blocks[0].id,
+        room_id: room_two.id,
+        teacher_id: Some(teacher_b.id),
+        kind: PinKind::Hard,
+    }];
+    Problem {
+        time_blocks,
+        teachers: vec![teacher_a.clone(), teacher_b.clone()],
+        rooms: vec![room_one, room_two],
+        subjects: vec![subject_schwimm.clone(), subject_math.clone()],
+        school_classes: vec![class_one],
+        lessons: vec![lesson_schwimm, lesson_math],
+        teacher_qualifications: vec![
+            TeacherQualification {
+                teacher_id: teacher_a.id,
+                subject_id: subject_schwimm.id,
+            },
+            TeacherQualification {
+                teacher_id: teacher_b.id,
+                subject_id: subject_math.id,
+            },
+        ],
+        teacher_blocked_times: vec![],
+        room_blocked_times: vec![],
+        room_subject_suitabilities: vec![],
+        pinned_placements: pinned,
+    }
+}
+
+#[test]
+fn test_lahc_change_move_rejects_buffer_violation() {
+    // LAHC Change-only (rr/kempe periods both None). With class_gap weighted,
+    // an accepted move that pulls schwimm next to the pinned math lesson
+    // improves canonical and becomes running-best; without pruning at
+    // try_change_move_n1, the tail validator rejects with Err(Error::Input).
+    let problem = build_lahc_move_site_problem();
+    let cfg = SolveConfig {
+        deadline: Some(Duration::from_millis(50)),
+        seed: 0,
+        weights: ConstraintWeights {
+            class_gap: 10,
+            ..ConstraintWeights::default()
+        },
+        max_iterations: Some(1024),
+        lahc_rr_period: None,
+        lahc_kempe_period: None,
+        lahc_rr_k: 5,
+        lahc_kempe_max_chain: 8,
+    };
+    let solution = solve_with_config(&problem, &cfg)
+        .expect("LAHC Change move must respect travel-buffer at every accepted move");
+    // Double-check via the validator on the returned placements.
+    validate_travel_buffer(&problem, &solution.placements)
+        .expect("returned solution must satisfy travel-buffer");
+}
+
+#[test]
+fn test_lahc_swap_move_rejects_buffer_violation() {
+    // Swap fires on the 6th selector of the change_rng draw; we widen the
+    // iteration budget so the bias toward Change (5:1) still produces swap
+    // attempts across multiple seeds. Without pruning at try_swap_move, an
+    // accepted swap can park schwimm at a buffer-violating slot.
+    let problem = build_lahc_move_site_problem();
+    for seed in 0..4u64 {
+        let cfg = SolveConfig {
+            deadline: Some(Duration::from_millis(50)),
+            seed,
+            weights: ConstraintWeights {
+                class_gap: 10,
+                ..ConstraintWeights::default()
+            },
+            max_iterations: Some(2048),
+            lahc_rr_period: None,
+            lahc_kempe_period: None,
+            lahc_rr_k: 5,
+            lahc_kempe_max_chain: 8,
+        };
+        let solution = solve_with_config(&problem, &cfg)
+            .unwrap_or_else(|e| panic!("seed {seed}: LAHC Swap must respect travel-buffer: {e:?}"));
+        validate_travel_buffer(&problem, &solution.placements)
+            .unwrap_or_else(|e| panic!("seed {seed}: validator rejected returned solution: {e:?}"));
+    }
+}
+
+#[test]
+fn test_lahc_kempe_chain_rejects_buffer_violation() {
+    // Enable Kempe (period=1 so every iteration is a Kempe attempt). The
+    // buffered schwimm lesson is one of two anchors; chain destinations
+    // include slots that would violate its pre/post buffer. Without pruning
+    // in the chain build/apply path, an accepted chain leaves the buffered
+    // lesson at a violating slot and the tail validator rejects.
+    let problem = build_lahc_move_site_problem();
+    for seed in 0..4u64 {
+        let cfg = SolveConfig {
+            deadline: Some(Duration::from_millis(50)),
+            seed,
+            weights: ConstraintWeights {
+                class_gap: 10,
+                ..ConstraintWeights::default()
+            },
+            max_iterations: Some(2048),
+            lahc_rr_period: None,
+            lahc_kempe_period: Some(1),
+            lahc_rr_k: 5,
+            lahc_kempe_max_chain: 8,
+        };
+        let solution = solve_with_config(&problem, &cfg).unwrap_or_else(|e| {
+            panic!("seed {seed}: LAHC Kempe must respect travel-buffer: {e:?}")
+        });
+        validate_travel_buffer(&problem, &solution.placements)
+            .unwrap_or_else(|e| panic!("seed {seed}: validator rejected returned solution: {e:?}"));
+    }
 }
