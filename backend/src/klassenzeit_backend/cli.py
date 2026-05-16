@@ -18,6 +18,7 @@ from klassenzeit_backend.auth.passwords import (
 )
 from klassenzeit_backend.auth.sessions import cleanup_expired_sessions
 from klassenzeit_backend.core.settings import get_settings
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 from klassenzeit_backend.seed.demo_grundschule_dreizuegig import (
@@ -67,6 +68,7 @@ async def create_admin_in_db(
         email=email,
         password_hash=hash_password(password),
         role="admin",
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db.add(user)
     await db.flush()

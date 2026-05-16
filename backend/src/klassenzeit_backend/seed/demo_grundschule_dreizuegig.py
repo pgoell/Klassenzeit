@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room, RoomSubjectSuitability
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import (
     SchoolType,
@@ -661,6 +662,7 @@ async def _insert_rooms_dreizuegig(
             name=room_spec.name,
             short_name=room_spec.short_name,
             capacity=room_spec.capacity,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(room)
         await session.flush()
@@ -677,6 +679,7 @@ async def _insert_rooms_dreizuegig(
             short_name=extra_room_spec.short_name,
             capacity=extra_room_spec.capacity,
             is_external=extra_room_spec.is_external,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(extra_room)
         await session.flush()

@@ -19,11 +19,13 @@ from klassenzeit_backend.seed.demo_grundschule import seed_demo_grundschule
 testing_router = APIRouter(prefix="/__test__", tags=["testing"])
 
 # Tables that must survive a reset. ``users`` and ``sessions`` stay so the
-# Playwright storageState cookie remains valid between tests.
+# Playwright storageState cookie remains valid between tests. ``schools`` stays
+# because ``users.school_id`` FK-references it; truncating with CASCADE would
+# wipe users transitively.
 # ``alembic_version`` is managed outside ``Base.metadata`` and will never
 # appear in ``sorted_tables``; it is listed here as explicit documentation
 # of intent and as a guard should it ever be registered as a mapped table.
-PRESERVED_TABLES: frozenset[str] = frozenset({"users", "sessions", "alembic_version"})
+PRESERVED_TABLES: frozenset[str] = frozenset({"users", "sessions", "schools", "alembic_version"})
 
 
 @testing_router.get("/health")

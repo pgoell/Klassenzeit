@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -14,13 +14,23 @@ class Room(Base):
     """A physical room (classroom, lab, gym, pool, etc.)."""
 
     __tablename__ = "rooms"
+    __table_args__ = (
+        UniqueConstraint("school_id", "name", name="uq_rooms_school_id_name"),
+        UniqueConstraint("school_id", "short_name", name="uq_rooms_school_id_short_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
-    name: Mapped[str] = mapped_column(String(100), unique=True)
-    short_name: Mapped[str] = mapped_column(String(20), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    short_name: Mapped[str] = mapped_column(String(20))
     capacity: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     is_external: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa.text("false")
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("schools.id"),
+        nullable=False,
+        index=True,
+        server_default=sa.text("'00000000-0000-0000-0000-000000000001'::uuid"),
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

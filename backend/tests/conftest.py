@@ -36,6 +36,7 @@ import logging
 import os
 import subprocess
 import sys
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
@@ -82,6 +83,7 @@ if _WORKER != "master":
 from klassenzeit_backend.auth.passwords import hash_password  # noqa: E402
 from klassenzeit_backend.auth.rate_limit import LoginRateLimiter  # noqa: E402
 from klassenzeit_backend.core.settings import Settings  # noqa: E402
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID  # noqa: E402
 from klassenzeit_backend.db.models.user import User  # noqa: E402
 from klassenzeit_backend.db.session import get_session  # noqa: E402
 from klassenzeit_backend.main import app  # noqa: E402
@@ -225,6 +227,7 @@ def create_test_user(db_session: AsyncSession) -> CreateUserFn:
         role: str = "user",
         is_active: bool = True,
         force_password_change: bool = False,
+        school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
     ) -> tuple[User, str]:
         user = User(
             email=email.lower(),
@@ -232,6 +235,7 @@ def create_test_user(db_session: AsyncSession) -> CreateUserFn:
             role=role,
             is_active=is_active,
             force_password_change=force_password_change,
+            school_id=school_id,
         )
         db_session.add(user)
         await db_session.flush()
