@@ -112,6 +112,8 @@ fn forced_hop_problem() -> Problem {
             teacher_pin: Some(teacher),
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {
@@ -232,6 +234,8 @@ fn same_room_grundschule() -> Problem {
                 teacher_pin: Some(teacher.id),
                 hours_per_week: hours,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             });
             lesson_idx += 1;

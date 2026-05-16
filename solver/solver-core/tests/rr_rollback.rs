@@ -89,6 +89,8 @@ fn rr_rollback_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 5,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -99,6 +101,8 @@ fn rr_rollback_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -109,6 +113,8 @@ fn rr_rollback_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -119,6 +125,8 @@ fn rr_rollback_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
         ],

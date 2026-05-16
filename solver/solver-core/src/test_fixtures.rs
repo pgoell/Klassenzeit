@@ -101,6 +101,8 @@ pub fn grundschule_fixture() -> Problem {
                 // demo_grundschule seed; all other subjects are length-1.
                 preferred_block_size: if s_idx == 2 { 2 } else { 1 },
                 lesson_group_id: None,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
             });
             lesson_idx += 1;
             quals.push(TeacherQualification {
@@ -250,6 +252,8 @@ pub fn zweizuegig_fixture() -> Problem {
                 teacher_pin: Some(teacher.id),
                 hours_per_week: hours,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             });
             lesson_idx += 1;
@@ -462,6 +466,8 @@ pub fn dreizuegig_fixture() -> Problem {
                 teacher_pin: Some(teacher.id),
                 hours_per_week: hours,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             });
             lesson_idx += 1;
@@ -506,6 +512,8 @@ pub fn dreizuegig_fixture() -> Problem {
                 teacher_pin: Some(teacher.id),
                 hours_per_week: 2,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: Some(group_id),
             });
             lesson_idx += 1;
@@ -1123,6 +1131,8 @@ pub fn ffd_lock_in_grundschule() -> Problem {
             hours_per_week: r.hours,
             preferred_block_size: r.block_size,
             lesson_group_id: None,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
         })
         .collect();
 

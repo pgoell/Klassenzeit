@@ -853,6 +853,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 2,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -1226,6 +1228,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(score_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -1350,6 +1354,8 @@ mod tests {
             teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
@@ -1373,6 +1379,8 @@ mod tests {
             teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
@@ -1397,6 +1405,8 @@ mod tests {
             teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
@@ -1422,6 +1432,8 @@ mod tests {
             teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
@@ -1451,6 +1463,8 @@ mod tests {
             teacher_pin: Some(TeacherId(score_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let mut lookup: HashMap<SchoolClassId, Option<RoomId>> = HashMap::new();
@@ -1739,6 +1753,8 @@ mod tests {
                 teacher_pin: Some(teacher_id),
                 hours_per_week: 4,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -2023,6 +2039,8 @@ mod tests {
                 teacher_pin: None,
                 hours_per_week: 2,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: qualifications,
@@ -2215,6 +2233,8 @@ mod tests {
                     teacher_pin: Some(teacher_a),
                     hours_per_week: u8::max(1, width * 5),
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -2225,6 +2245,8 @@ mod tests {
                     teacher_pin: Some(teacher_b),
                     hours_per_week: u8::max(1, width * 5),
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],

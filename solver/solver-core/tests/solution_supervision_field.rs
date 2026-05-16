@@ -90,6 +90,8 @@ fn solve_produces_supervision_assignments_for_break_blocks() {
         teacher_pin: Some(ssf_tid(10)),
         hours_per_week: 1,
         preferred_block_size: 1,
+        pre_buffer_minutes: 0,
+        post_buffer_minutes: 0,
         lesson_group_id: None,
     };
     let problem = Problem {

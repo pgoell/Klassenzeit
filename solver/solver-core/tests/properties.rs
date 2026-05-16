@@ -241,7 +241,7 @@ proptest! {
                 teacher_candidates: vec![teacher.id],
                 teacher_pin: Some(teacher.id),
                 hours_per_week: 1,
-                preferred_block_size: 1,
+                preferred_block_size: 1, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -251,7 +251,7 @@ proptest! {
                 teacher_candidates: vec![teacher.id],
                 teacher_pin: Some(teacher.id),
                 hours_per_week: 2,
-                preferred_block_size: 2,
+                preferred_block_size: 2, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -261,7 +261,7 @@ proptest! {
                 teacher_candidates: vec![teacher.id],
                 teacher_pin: Some(teacher.id),
                 hours_per_week: 4,
-                preferred_block_size: 2,
+                preferred_block_size: 2, pre_buffer_minutes: 0, post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
         ];

@@ -95,6 +95,8 @@ fn supscore_lesson_for(id: u128, class: u128, subject: u128, teacher_n: u128) ->
         teacher_pin: Some(supscore_tid(teacher_n)),
         hours_per_week: 1,
         preferred_block_size: 1,
+        pre_buffer_minutes: 0,
+        post_buffer_minutes: 0,
         lesson_group_id: None,
     }
 }

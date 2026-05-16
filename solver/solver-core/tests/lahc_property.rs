@@ -173,6 +173,8 @@ prop_compose! {
                     hours_per_week: hours,
                     preferred_block_size,
                     lesson_group_id: None,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                 }
             })
             .collect();
@@ -680,6 +682,8 @@ fn canonical_score_test_problem() -> Problem {
             teacher_pin: Some(teacher_a),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
     }
@@ -692,6 +696,8 @@ fn canonical_score_test_problem() -> Problem {
             teacher_pin: Some(teacher_b),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
     }
@@ -824,6 +830,8 @@ fn build_lahc_pinned_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -834,6 +842,8 @@ fn build_lahc_pinned_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
             Lesson {
@@ -844,6 +854,8 @@ fn build_lahc_pinned_problem() -> Problem {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             },
         ],

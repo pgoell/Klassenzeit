@@ -123,6 +123,8 @@ prop_compose! {
                     hours_per_week: hours,
                     preferred_block_size,
                     lesson_group_id: None,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                 }
             })
             .collect();

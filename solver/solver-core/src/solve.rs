@@ -18,7 +18,7 @@ use crate::types::{
 use crate::validate::{
     pre_solve_violations, validate_class_subject_teacher_uniformity, validate_daily_caps,
     validate_no_double_booking, validate_no_lesson_on_break_slot, validate_no_room_hopping,
-    validate_placement_teacher_in_candidates, validate_structural,
+    validate_placement_teacher_in_candidates, validate_structural, validate_travel_buffer,
 };
 
 #[cfg(feature = "solver-trace")]
@@ -386,6 +386,7 @@ fn solve_with_config_stats_inner(
     validate_placement_teacher_in_candidates(problem, &solution.placements)?;
     validate_class_subject_teacher_uniformity(problem, &solution.placements)?;
     validate_no_lesson_on_break_slot(problem, &solution.placements)?;
+    validate_travel_buffer(problem, &solution.placements)?;
 
     // Hofpause supervision finalisation (item 3). Run after placements are
     // frozen but before quality_report so SupervisionGap violations land in
@@ -2095,6 +2096,8 @@ mod tests {
                 teacher_pin: Some(TeacherId(solve_uuid(20))),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -2210,6 +2213,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         p.teacher_blocked_times.push(TeacherBlockedTime {
@@ -2245,6 +2250,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let s = greedy_solve(&p).unwrap();
@@ -2282,6 +2289,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let s = greedy_solve(&p).unwrap();
@@ -2362,6 +2371,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
 
@@ -2434,6 +2445,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         p.teachers[0].max_hours_per_week = 10;
@@ -2734,6 +2747,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
 
@@ -2799,6 +2814,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(21))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: Some(group_id),
         });
         p
@@ -2902,6 +2919,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(22))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let s = greedy_solve(&p).unwrap();
@@ -2975,6 +2994,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         // Pin lesson 0 to TB1 (position 1) so without the pin FFD would pick
@@ -3167,6 +3188,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 4,
             preferred_block_size: 2,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }];
         p.pinned_placements = vec![
@@ -3277,6 +3300,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         p.lessons.push(Lesson {
@@ -3287,6 +3312,8 @@ mod tests {
             teacher_pin: Some(TeacherId(solve_uuid(20))),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
         let cfg = SolveConfig {
@@ -3385,6 +3412,8 @@ mod tests {
                 school_class_ids: vec![class_id],
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -3527,6 +3556,8 @@ mod tests {
                 school_class_ids: vec![class_id],
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             teacher_qualifications: vec![TeacherQualification {
@@ -3731,6 +3762,8 @@ mod tests {
                     teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -3741,6 +3774,8 @@ mod tests {
                     teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -3751,6 +3786,8 @@ mod tests {
                     teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -3761,6 +3798,8 @@ mod tests {
                     teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -3771,6 +3810,8 @@ mod tests {
                     teacher_pin: Some(teacher_id),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -3941,6 +3982,8 @@ mod tests {
             teacher_pin: None,
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
 
@@ -4097,6 +4140,8 @@ mod tests {
             teacher_pin: None,
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
 
@@ -4268,6 +4313,8 @@ mod tests {
                 teacher_pin: None,
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: Some(group_id),
             })
             .collect();

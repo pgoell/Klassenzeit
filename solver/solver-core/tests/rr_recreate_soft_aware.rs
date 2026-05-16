@@ -88,6 +88,8 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
             school_class_ids: vec![c0],
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {

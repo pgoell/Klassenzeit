@@ -92,6 +92,8 @@ fn build_anchor_filter_fixture() -> Problem {
             teacher_pin: Some(teacher_a),
             hours_per_week: 2,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         }],
         teacher_qualifications: vec![TeacherQualification {
@@ -250,6 +252,8 @@ fn build_many_anchors_fixture() -> Problem {
             teacher_pin: Some(teacher_id),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         });
     }

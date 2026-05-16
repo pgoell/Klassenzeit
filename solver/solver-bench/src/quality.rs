@@ -517,6 +517,8 @@ mod tests {
                 teacher_pin: Some(solver_core::TeacherId(quality_test_uuid(99))),
                 hours_per_week: 3,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             ..empty_problem()
@@ -586,6 +588,8 @@ mod tests {
             teacher_pin: Some(teacher),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = solver_core::Problem {
@@ -739,6 +743,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 3,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             ..empty_problem()
@@ -818,6 +824,8 @@ mod tests {
                 teacher_pin: Some(teacher),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             ..empty_problem()
@@ -876,6 +884,8 @@ mod tests {
             teacher_pin: Some(klassenlehrer),
             hours_per_week: 1,
             preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
             lesson_group_id: None,
         };
         let problem = solver_core::Problem {
@@ -980,6 +990,8 @@ mod tests {
                     teacher_pin: Some(klassenlehrer),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -990,6 +1002,8 @@ mod tests {
                     teacher_pin: Some(other),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
@@ -1058,6 +1072,8 @@ mod tests {
                 teacher_pin: Some(other),
                 hours_per_week: 1,
                 preferred_block_size: 1,
+                pre_buffer_minutes: 0,
+                post_buffer_minutes: 0,
                 lesson_group_id: None,
             }],
             ..empty_problem()
@@ -1139,6 +1155,8 @@ mod tests {
                     teacher_pin: Some(klassenlehrer_c1),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
                 Lesson {
@@ -1149,6 +1167,8 @@ mod tests {
                     teacher_pin: Some(other),
                     hours_per_week: 1,
                     preferred_block_size: 1,
+                    pre_buffer_minutes: 0,
+                    post_buffer_minutes: 0,
                     lesson_group_id: None,
                 },
             ],
