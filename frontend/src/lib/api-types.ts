@@ -464,31 +464,34 @@ export interface paths {
         };
         /**
          * List Rooms
-         * @description Return all rooms ordered by name.
+         * @description Return all rooms in the current user's school, ordered by name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
-         *         List of all rooms sorted alphabetically by name (no nested suitability or availability).
+         *         List of rooms in the user's school sorted alphabetically by name
+         *         (no nested suitability or availability).
          */
         get: operations["list_rooms_api_rooms_get"];
         put?: never;
         /**
          * Create Room Route
-         * @description Create a new room.
+         * @description Create a new room scoped to the current user's school.
          *
          *     Args:
          *         body: Name, short_name, and capacity for the new room.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; the new room's ``school_id`` is
+         *             stamped from ``current_user.school_id``.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created room as a RoomListResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if name or short_name conflicts with an existing room.
+         *         HTTPException: 409 if name or short_name conflicts with an existing
+         *             room in the same school.
          */
         post: operations["create_room_route_api_rooms_post"];
         delete?: never;
@@ -506,35 +509,35 @@ export interface paths {
         };
         /**
          * Get Room
-         * @description Fetch a single room by ID, including suitability subjects and availability time blocks.
+         * @description Fetch a single room by ID, scoped to the user's school, with suitability and availability.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The matching room with nested suitability and availability as a RoomDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists.
+         *         HTTPException: 404 if no room with that ID exists in the user's school.
          */
         get: operations["get_room_api_rooms__room_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete Room Route
-         * @description Delete a room by ID.
+         * @description Delete a room by ID, scoped to the user's school.
          *
          *     Suitability and availability rows are removed automatically by FK ondelete CASCADE.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists.
+         *         HTTPException: 404 if no room with that ID exists in the user's school.
          *         HTTPException: 409 if the room is referenced by other records (FK protection).
          */
         delete: operations["delete_room_route_api_rooms__room_id__delete"];
@@ -542,19 +545,19 @@ export interface paths {
         head?: never;
         /**
          * Update Room Route
-         * @description Partially update a room's fields.
+         * @description Partially update a room's fields, scoped to the user's school.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated room as a RoomListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists.
+         *         HTTPException: 404 if no room with that ID exists in the user's school.
          *         HTTPException: 409 if the new name or short_name conflicts.
          */
         patch: operations["update_room_route_api_rooms__room_id__patch"];
@@ -570,7 +573,7 @@ export interface paths {
         get?: never;
         /**
          * Replace Room Suitability
-         * @description Replace the entire suitability subject list for a room.
+         * @description Replace the entire suitability subject list for a room, scoped to the user's school.
          *
          *     Deletes all existing RoomSubjectSuitability rows for the room and inserts
          *     new ones from the supplied subject_ids list. Deduplicates input server-side.
@@ -578,14 +581,14 @@ export interface paths {
          *     Args:
          *         room_id: UUID path parameter identifying the room.
          *         body: List of subject UUIDs that define the new suitability set.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated room detail including the new suitability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists.
+         *         HTTPException: 404 if no room with that ID exists in the user's school.
          *         HTTPException: 400 if any subject_id does not exist; body contains
          *             ``missing_subject_ids`` list.
          */
@@ -607,7 +610,7 @@ export interface paths {
         get?: never;
         /**
          * Replace Room Availability
-         * @description Replace the entire availability time block list for a room.
+         * @description Replace the entire availability time block list for a room, scoped to the user's school.
          *
          *     Deletes all existing RoomAvailability rows for the room and inserts new
          *     ones from the supplied time_block_ids list.
@@ -615,14 +618,14 @@ export interface paths {
          *     Args:
          *         room_id: UUID path parameter identifying the room.
          *         body: List of time block UUIDs that define the new availability set.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated room detail including the new availability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists.
+         *         HTTPException: 404 if no room with that ID exists in the user's school.
          *         HTTPException: 409 if any time_block_id is invalid (FK violation).
          */
         put: operations["replace_room_availability_api_rooms__room_id__availability_put"];
@@ -666,7 +669,7 @@ export interface paths {
          *         class_id: UUID path parameter identifying the school class.
          *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
          *             ``app.state.settings``.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the room query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -706,7 +709,7 @@ export interface paths {
          *
          *     Args:
          *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the room query to their school.
          *         db: Injected async database session.
          *         respect_pins: When true, pinned rows are threaded as solver input
          *             pins. Defaults to true.
@@ -1869,6 +1872,13 @@ export interface components {
             role: string;
             /** Force Password Change */
             force_password_change: boolean;
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
+            /** School Name */
+            school_name: string;
         };
         /**
          * MovePlacementRequest

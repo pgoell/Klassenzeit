@@ -157,7 +157,12 @@ export function AppSidebar() {
             <div className="grid h-7 w-7 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold">
               {initials(me.data?.email)}
             </div>
-            <span className="text-xs text-muted-foreground">{me.data?.email ?? "…"}</span>
+            <div className="flex flex-col gap-0 leading-tight">
+              <span className="text-xs text-muted-foreground">{me.data?.email ?? "…"}</span>
+              {me.data?.school_name ? (
+                <span className="text-[10px] text-muted-foreground/80">{me.data.school_name}</span>
+              ) : null}
+            </div>
           </div>
         ) : null}
         <Button

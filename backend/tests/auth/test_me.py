@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.sessions import create_session, lookup_session
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.session import UserSession
 
 
@@ -23,6 +24,21 @@ async def test_me_returns_user_info(
     assert body["role"] == "user"
     assert body["force_password_change"] is False
     assert "id" in body
+
+
+async def test_me_includes_school_info(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+) -> None:
+    """The /auth/me response carries the requesting user's school id and name."""
+    await create_test_user(email="me-school@test.com")
+    await login_as("me-school@test.com", "testpassword123")
+    response = await client.get("/api/auth/me")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["school_id"] == str(DEFAULT_SCHOOL_ID)
+    assert body["school_name"] == "Default Schule"
 
 
 async def test_me_without_cookie_returns_401(client: AsyncClient) -> None:
