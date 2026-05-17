@@ -12,6 +12,7 @@ from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.db.models.week_scheme import WeekScheme
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.school_class import (
     SchoolClassCreate,
@@ -102,6 +103,14 @@ async def create_school_class_route(
     )
     if tafel_check.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stundentafel not found")
+    week_scheme_check = await db.execute(
+        select(WeekScheme.id).where(
+            WeekScheme.id == body.week_scheme_id,
+            WeekScheme.school_id == current_user.school_id,
+        )
+    )
+    if week_scheme_check.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="WeekScheme not found")
     school_class = SchoolClass(
         name=body.name,
         grade_level=body.grade_level,
@@ -212,6 +221,16 @@ async def update_school_class_route(
             )
         school_class.stundentafel_id = body.stundentafel_id
     if body.week_scheme_id is not None:
+        week_scheme_check = await db.execute(
+            select(WeekScheme.id).where(
+                WeekScheme.id == body.week_scheme_id,
+                WeekScheme.school_id == current_user.school_id,
+            )
+        )
+        if week_scheme_check.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="WeekScheme not found"
+            )
         school_class.week_scheme_id = body.week_scheme_id
     if "home_room_id" in body.model_fields_set:
         school_class.home_room_id = body.home_room_id

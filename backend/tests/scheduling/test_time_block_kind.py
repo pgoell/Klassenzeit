@@ -40,7 +40,9 @@ type LoginFn = Callable[[str, str], Awaitable[None]]
 @pytest.mark.asyncio
 async def test_time_block_kind_defaults_to_lesson(db_session: AsyncSession) -> None:
     """A TimeBlock with no explicit kind defaults to LESSON after flush+refresh."""
-    ws = WeekScheme(name=f"orm-default-{uuid.uuid4().hex[:8]}", description=None)
+    ws = WeekScheme(
+        name=f"orm-default-{uuid.uuid4().hex[:8]}", description=None, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(ws)
     await db_session.flush()
     tb = TimeBlock(
@@ -59,7 +61,9 @@ async def test_time_block_kind_defaults_to_lesson(db_session: AsyncSession) -> N
 @pytest.mark.asyncio
 async def test_time_block_kind_persists_break(db_session: AsyncSession) -> None:
     """An explicit kind=BREAK round-trips through the native Postgres enum."""
-    ws = WeekScheme(name=f"orm-break-{uuid.uuid4().hex[:8]}", description=None)
+    ws = WeekScheme(
+        name=f"orm-break-{uuid.uuid4().hex[:8]}", description=None, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(ws)
     await db_session.flush()
     tb = TimeBlock(
@@ -268,7 +272,9 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
         school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(subject)
-    scheme = WeekScheme(name=f"ws-mixed-{uuid.uuid4().hex[:8]}", description=None)
+    scheme = WeekScheme(
+        name=f"ws-mixed-{uuid.uuid4().hex[:8]}", description=None, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(scheme)
     await db_session.flush()
 

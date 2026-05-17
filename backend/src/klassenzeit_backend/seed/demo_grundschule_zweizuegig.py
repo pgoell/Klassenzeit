@@ -228,6 +228,7 @@ async def seed_demo_grundschule_zweizuegig(session: AsyncSession) -> None:
     week_scheme = WeekScheme(
         name=WEEK_SCHEME_NAME,
         description=WEEK_SCHEME_DESCRIPTION,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     session.add(week_scheme)
     await session.flush()

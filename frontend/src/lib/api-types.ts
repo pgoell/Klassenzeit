@@ -281,31 +281,32 @@ export interface paths {
         };
         /**
          * List Week Schemes
-         * @description Return all week schemes ordered by name.
+         * @description Return all week schemes in the current user's school ordered by name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
-         *         List of all week schemes sorted alphabetically by name.
+         *         List of week schemes in the user's school sorted alphabetically by name.
          */
         get: operations["list_week_schemes_api_week_schemes_get"];
         put?: never;
         /**
          * Create Week Scheme Route
-         * @description Create a new week scheme.
+         * @description Create a new week scheme in the current user's school.
          *
          *     Args:
          *         body: Name and optional description for the new week scheme.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; stamps ``school_id`` from the
+         *             current user onto the new row.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created week scheme as a WeekSchemeListResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if a scheme with this name already exists.
+         *         HTTPException: 409 if a scheme with this name already exists in the school.
          */
         post: operations["create_week_scheme_route_api_week_schemes_post"];
         delete?: never;
@@ -327,14 +328,14 @@ export interface paths {
          *
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The matching week scheme with nested time blocks as a WeekSchemeDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists.
+         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
          */
         get: operations["get_week_scheme_route_api_week_schemes__scheme_id__get"];
         put?: never;
@@ -345,11 +346,11 @@ export interface paths {
          *
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists.
+         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
          *         HTTPException: 409 if the scheme is referenced by classes (FK protection).
          */
         delete: operations["delete_week_scheme_route_api_week_schemes__scheme_id__delete"];
@@ -362,14 +363,14 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated week scheme as a WeekSchemeListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists.
+         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
          *         HTTPException: 409 if the new name conflicts with an existing scheme.
          */
         patch: operations["update_week_scheme_route_api_week_schemes__scheme_id__patch"];
@@ -391,14 +392,15 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         body: day_of_week, position, start_time, and end_time for the new block.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; the parent scheme is gated by their
+         *             school before the time block is created.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created time block as a TimeBlockResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if the week scheme does not exist.
+         *         HTTPException: 404 if the week scheme does not exist in the user's school.
          *         HTTPException: 409 if a block with the same day_of_week+position already exists.
          */
         post: operations["create_time_block_route_api_week_schemes__scheme_id__time_blocks_post"];
@@ -425,11 +427,13 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         block_id: UUID path parameter identifying the time block to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; the parent scheme is gated by their
+         *             school before the time block is deleted.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if the time block does not exist or belongs to a different scheme.
+         *         HTTPException: 404 if the parent scheme is in a different school, or if
+         *             the time block does not exist or belongs to a different scheme.
          *         HTTPException: 409 if the block is referenced by availabilities (FK protection).
          */
         delete: operations["delete_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__delete"];
@@ -443,14 +447,16 @@ export interface paths {
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         block_id: UUID path parameter identifying the time block to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; the parent scheme is gated by their
+         *             school before the time block is patched.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated time block as a TimeBlockResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if the time block does not exist or belongs to a different scheme.
+         *         HTTPException: 404 if the parent scheme is in a different school, or if
+         *             the time block does not exist or belongs to a different scheme.
          *         HTTPException: 409 if the new day+position conflicts with an existing block.
          */
         patch: operations["update_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__patch"];

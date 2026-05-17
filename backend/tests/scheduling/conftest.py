@@ -154,12 +154,14 @@ def create_week_scheme(db_session: AsyncSession) -> CreateWeekSchemeFn:
         *,
         name: str | None = None,
         description: str | None = None,
+        school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
     ) -> WeekScheme:
         """Create and flush a WeekScheme with auto-generated unique defaults.
 
         Args:
             name: Scheme name; auto-generated if omitted.
             description: Optional free-text description.
+            school_id: Tenant school FK; defaults to the canonical default school.
 
         Returns:
             The newly created WeekScheme ORM instance.
@@ -168,6 +170,7 @@ def create_week_scheme(db_session: AsyncSession) -> CreateWeekSchemeFn:
         scheme = WeekScheme(
             name=name if name is not None else f"Week Scheme {n}",
             description=description,
+            school_id=school_id,
         )
         db_session.add(scheme)
         await db_session.flush()

@@ -44,7 +44,7 @@ from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher
-from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind, WeekScheme
 from klassenzeit_backend.scheduling.schemas.quality_report import QualityReportResponse
 
 
@@ -116,7 +116,7 @@ def build_lesson_ordinal_map(
     return ordinals
 
 
-async def load_placements(db: AsyncSession) -> list[Placement]:
+async def load_placements(db: AsyncSession, *, school_id: UUID) -> list[Placement]:
     """Project persisted ScheduledLesson rows into Placement records.
 
     A lesson can serve multiple classes via lesson_school_classes; each
@@ -127,6 +127,11 @@ async def load_placements(db: AsyncSession) -> list[Placement]:
     lesson slot, 2 = second, ...); ``Placement.time_block_position`` is the
     raw ``TimeBlock.position``. Break rows occupy raw positions but not
     ordinal positions.
+
+    Args:
+        db: Active async database session.
+        school_id: Tenant filter; restricts the TimeBlock ordinal map and the
+            placement rows to a single school via a join through ``WeekScheme``.
     """
     rows = (
         await db.execute(
@@ -142,9 +147,21 @@ async def load_placements(db: AsyncSession) -> list[Placement]:
             .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
             .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
             .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
+            .join(WeekScheme, WeekScheme.id == TimeBlock.week_scheme_id)
+            .where(WeekScheme.school_id == school_id)
         )
     ).all()
-    time_blocks = (await db.execute(select(TimeBlock))).scalars().all()
+    time_blocks = (
+        (
+            await db.execute(
+                select(TimeBlock)
+                .join(WeekScheme, WeekScheme.id == TimeBlock.week_scheme_id)
+                .where(WeekScheme.school_id == school_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     lesson_ordinal_by_day_pos = build_lesson_ordinal_map(time_blocks)
     return [
         Placement(
@@ -463,7 +480,7 @@ async def compute_quality_issues(
     if cls is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
 
-    placements = await load_placements(db)
+    placements = await load_placements(db, school_id=school_id)
     if not placements:
         return []
 
@@ -535,7 +552,7 @@ async def compute_quality_attribution_for_class(
     Returns an all-zero / empty-map report when the class has no
     placements yet.
     """
-    placements = await load_placements(db)
+    placements = await load_placements(db, school_id=school_id)
     placements_for_class = [p for p in placements if p.class_id == class_id]
 
     # Per-day interior-gap accumulator for this class only.
@@ -631,7 +648,7 @@ async def compute_quality_attribution_for_teacher(
     if teacher_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
 
-    placements = await load_placements(db)
+    placements = await load_placements(db, school_id=school_id)
     placement_teacher_lookup = await _load_placement_teacher_lookup(db)
     placements_for_teacher = [
         p for p in placements if placement_teacher_lookup.get(p.lesson_id) == teacher_id
