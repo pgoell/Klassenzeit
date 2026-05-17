@@ -274,6 +274,7 @@ async def seed_demo_grundschule_zweizuegig(session: AsyncSession) -> None:
             name=f"Grundschule {grade}",
             grade_level=grade,
             school_type=SchoolType.GRUNDSCHULE,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(tafel)
         tafeln_by_grade[grade] = tafel

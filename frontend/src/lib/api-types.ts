@@ -1072,31 +1072,32 @@ export interface paths {
         };
         /**
          * List Stundentafeln
-         * @description Return all Stundentafeln ordered by name.
+         * @description Return all Stundentafeln in the user's school ordered by name.
          *
          *     Args:
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
          *
          *     Returns:
-         *         List of all Stundentafeln sorted alphabetically by name.
+         *         List of all Stundentafeln in the user's school sorted alphabetically by name.
          */
         get: operations["list_stundentafeln_api_stundentafeln_get"];
         put?: never;
         /**
          * Create Stundentafel Route
-         * @description Create a new Stundentafel.
+         * @description Create a new Stundentafel in the requesting user's school.
          *
          *     Args:
          *         body: Name and grade_level for the new Stundentafel.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created Stundentafel as a StundentafelListResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if a Stundentafel with this name already exists.
+         *         HTTPException: 409 if a Stundentafel with this name already exists
+         *             in the user's school.
          */
         post: operations["create_stundentafel_route_api_stundentafeln_post"];
         delete?: never;
@@ -1132,15 +1133,15 @@ export interface paths {
         post?: never;
         /**
          * Delete Stundentafel Route
-         * @description Delete a Stundentafel by ID.
+         * @description Delete a Stundentafel by ID scoped to the user's school.
          *
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no Stundentafel with that ID exists.
+         *         HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
          *         HTTPException: 409 if the Stundentafel is referenced by classes (FK protection).
          */
         delete: operations["delete_stundentafel_route_api_stundentafeln__tafel_id__delete"];
@@ -1153,14 +1154,14 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The updated Stundentafel as a StundentafelListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no Stundentafel with that ID exists.
+         *         HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
          *         HTTPException: 409 if the new name conflicts with an existing Stundentafel.
          */
         patch: operations["update_stundentafel_route_api_stundentafeln__tafel_id__patch"];
@@ -1216,7 +1217,7 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         entry_id: UUID path parameter identifying the entry to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the parent Stundentafel lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:

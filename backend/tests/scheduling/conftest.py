@@ -333,12 +333,14 @@ def create_stundentafel(db_session: AsyncSession) -> CreateStundentafelFn:
         *,
         name: str | None = None,
         grade_level: int = 5,
+        school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
     ) -> Stundentafel:
         """Create and flush a Stundentafel with auto-generated unique defaults.
 
         Args:
             name: Curriculum template name; auto-generated if omitted.
             grade_level: School year level (e.g. 5 for year 5).
+            school_id: Tenant school FK; defaults to the canonical default school.
 
         Returns:
             The newly created Stundentafel ORM instance.
@@ -347,6 +349,7 @@ def create_stundentafel(db_session: AsyncSession) -> CreateStundentafelFn:
         tafel = Stundentafel(
             name=name if name is not None else f"Stundentafel {n}",
             grade_level=grade_level,
+            school_id=school_id,
         )
         db_session.add(tafel)
         await db_session.flush()

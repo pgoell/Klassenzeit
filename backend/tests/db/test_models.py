@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, String
 
 from klassenzeit_backend.db.base import Base
 from klassenzeit_backend.db.models import User, UserSession
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.stundentafel import SchoolType, Stundentafel
 
 
@@ -90,6 +91,7 @@ async def test_stundentafel_school_type_round_trip(db_session):
         name="Gymnasium Klasse 5",
         grade_level=5,
         school_type=SchoolType.GYMNASIUM,
+        school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(tafel)
     await db_session.flush()
