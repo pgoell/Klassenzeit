@@ -6,6 +6,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
@@ -469,3 +470,18 @@ async def test_build_problem_json_omits_other_school_lessons(
     lesson_ids_in_problem = {lesson["id"] for lesson in problem["lessons"]}
     assert str(own_lesson.id) in lesson_ids_in_problem
     assert str(foreign_lesson.id) not in lesson_ids_in_problem
+
+
+async def test_lesson_school_id_required_after_default_drop(
+    db_session: AsyncSession,
+    create_subject,
+) -> None:
+    """After commit B drops the model server_default, omitting `school_id` on a
+    direct Lesson(...) constructor IntegrityErrors. Pins the contract so future
+    contributors can't silently drop into the default tenant."""
+    subj = await create_subject(name="Required-school", short_name="Rsc")
+    async with db_session.begin_nested():
+        with pytest.raises(IntegrityError):
+            no_school = Lesson(subject_id=subj.id, hours_per_week=2, preferred_block_size=1)
+            db_session.add(no_school)
+            await db_session.flush()
