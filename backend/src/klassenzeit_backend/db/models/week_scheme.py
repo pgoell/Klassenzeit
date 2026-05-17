@@ -31,9 +31,13 @@ class WeekScheme(Base):
     """An admin-defined weekly time grid."""
 
     __tablename__ = "week_schemes"
+    __table_args__ = (UniqueConstraint("school_id", "name", name="uq_week_schemes_school_id_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("schools.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

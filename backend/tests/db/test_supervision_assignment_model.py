@@ -16,7 +16,7 @@ from klassenzeit_backend.db.models.week_scheme import TimeBlock, TimeBlockKind, 
 
 async def _make_break_block_and_teacher(db_session) -> tuple[TimeBlock, Teacher]:
     """Insert a WeekScheme + break TimeBlock + Teacher inline (no factories)."""
-    scheme = WeekScheme(name="Test Scheme")
+    scheme = WeekScheme(name="Test Scheme", school_id=DEFAULT_SCHOOL_ID)
     db_session.add(scheme)
     await db_session.flush()
 
