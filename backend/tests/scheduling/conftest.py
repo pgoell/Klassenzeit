@@ -540,6 +540,7 @@ async def seeded_class_with_two_placements(
                 time_block_id=tb_pinned.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=PinKind.HARD,
             ),
             ScheduledLesson(
@@ -547,6 +548,7 @@ async def seeded_class_with_two_placements(
                 time_block_id=tb_unpinned.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=None,
             ),
         ]
@@ -618,6 +620,7 @@ async def seeded_movable_placement(
             time_block_id=source_tb.id,
             room_id=room.id,
             teacher_id=teacher.id,
+            school_id=DEFAULT_SCHOOL_ID,
             pin_kind=None,
         )
     )
@@ -673,6 +676,7 @@ async def seeded_movable_placement_cross_week(
             time_block_id=source_tb.id,
             room_id=room.id,
             teacher_id=teacher.id,
+            school_id=DEFAULT_SCHOOL_ID,
             pin_kind=None,
         )
     )
@@ -739,6 +743,7 @@ async def seeded_two_placements_for_swap(
                 time_block_id=tb_a.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=None,
             ),
             ScheduledLesson(
@@ -746,6 +751,7 @@ async def seeded_two_placements_for_swap(
                 time_block_id=tb_b.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=None,
             ),
         ]
@@ -847,6 +853,7 @@ def seed_placements_for_attribution(
                 time_block_id=tb_by_pos[pos_first].id,
                 room_id=home_room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
             )
         )
         db_session.add(
@@ -855,6 +862,7 @@ def seed_placements_for_attribution(
                 time_block_id=tb_by_pos[pos_second].id,
                 room_id=(other_room.id if place_one_outside_home_room else home_room.id),
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
             )
         )
         await db_session.flush()
@@ -955,6 +963,7 @@ async def seeded_dreizuegig_with_one_pin(
                 time_block_id=tb_1.id,
                 room_id=room_a.id,
                 teacher_id=teacher_a.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=PinKind.HARD,
             ),
         ]

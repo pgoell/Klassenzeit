@@ -308,6 +308,7 @@ async def test_move_placement_with_cross_school_lesson_id_returns_404(
             time_block_id=foreign_tb_a.id,
             room_id=foreign_room.id,
             teacher_id=foreign_teacher.id,
+            school_id=school_b_lessons.id,
             pin_kind=None,
         )
     )
@@ -387,6 +388,7 @@ async def test_swap_placements_rejects_cross_school_lesson_id_with_404(
                 time_block_id=foreign_tb_a.id,
                 room_id=foreign_room.id,
                 teacher_id=foreign_teacher.id,
+                school_id=school_b_lessons.id,
                 pin_kind=PinKind.HARD,
             ),
             ScheduledLesson(
@@ -394,6 +396,7 @@ async def test_swap_placements_rejects_cross_school_lesson_id_with_404(
                 time_block_id=foreign_tb_b.id,
                 room_id=foreign_room.id,
                 teacher_id=foreign_teacher.id,
+                school_id=school_b_lessons.id,
                 pin_kind=PinKind.HARD,
             ),
         ]

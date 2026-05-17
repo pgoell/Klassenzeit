@@ -148,7 +148,11 @@ async def load_placements(db: AsyncSession, *, school_id: UUID) -> list[Placemen
             .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
             .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
             .join(WeekScheme, WeekScheme.id == TimeBlock.week_scheme_id)
-            .where(WeekScheme.school_id == school_id, Lesson.school_id == school_id)
+            .where(
+                WeekScheme.school_id == school_id,
+                Lesson.school_id == school_id,
+                ScheduledLesson.school_id == school_id,
+            )
         )
     ).all()
     time_blocks = (
@@ -407,9 +411,18 @@ async def _load_class_teacher_lookup(db: AsyncSession, school_id: UUID) -> dict[
     return {row.id: row.class_teacher_id for row in rows}
 
 
-async def _load_placement_teacher_lookup(db: AsyncSession) -> dict[UUID, UUID]:
-    """Return `{lesson_id: teacher_id}` over every persisted ScheduledLesson row."""
-    rows = (await db.execute(select(ScheduledLesson.lesson_id, ScheduledLesson.teacher_id))).all()
+async def _load_placement_teacher_lookup(db: AsyncSession, *, school_id: UUID) -> dict[UUID, UUID]:
+    """Return `{lesson_id: teacher_id}` over every persisted ScheduledLesson row.
+
+    Scoped to ``school_id`` so cross-tenant placements are dropped.
+    """
+    rows = (
+        await db.execute(
+            select(ScheduledLesson.lesson_id, ScheduledLesson.teacher_id).where(
+                ScheduledLesson.school_id == school_id
+            )
+        )
+    ).all()
     return {row.lesson_id: row.teacher_id for row in rows if row.teacher_id is not None}
 
 
@@ -489,7 +502,7 @@ async def compute_quality_issues(
     home_rooms = await _load_home_room_lookup(db, school_id)
     exempt_subjects = await _load_exempt_subjects(db, school_id)
     class_teacher_lookup = await _load_class_teacher_lookup(db, school_id)
-    placement_teacher_lookup = await _load_placement_teacher_lookup(db)
+    placement_teacher_lookup = await _load_placement_teacher_lookup(db, school_id=school_id)
 
     issues: list[QualityIssue] = []
     issues.extend(check_room_hop(placements))
@@ -649,7 +662,7 @@ async def compute_quality_attribution_for_teacher(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher not found")
 
     placements = await load_placements(db, school_id=school_id)
-    placement_teacher_lookup = await _load_placement_teacher_lookup(db)
+    placement_teacher_lookup = await _load_placement_teacher_lookup(db, school_id=school_id)
     placements_for_teacher = [
         p for p in placements if placement_teacher_lookup.get(p.lesson_id) == teacher_id
     ]

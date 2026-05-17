@@ -122,7 +122,9 @@ async def generate_schedule_for_class(
         },
     )
     own_pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in own_pins}
-    await solver_io.persist_solution_for_class(db, class_id, filtered, pinned_keys=own_pinned_keys)
+    await solver_io.persist_solution_for_class(
+        db, class_id, filtered, school_id=current_user.school_id, pinned_keys=own_pinned_keys
+    )
     # build_problem_json has already verified the class exists; the scalar
     # below resolves its WeekScheme so the supervision rota can be scoped
     # to the affected scheme on a delete-and-rewrite basis. Re-scoping by
@@ -197,7 +199,7 @@ async def generate_schedule_for_all_classes(
     )
     pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in pins}
     summaries = await solver_io.persist_solution_for_all_classes(
-        db, solution, pinned_keys=pinned_keys
+        db, solution, school_id=current_user.school_id, pinned_keys=pinned_keys
     )
     await db.commit()
     return WholeSchoolScheduleResponse(
