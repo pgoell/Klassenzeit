@@ -168,6 +168,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Schools
+         * @description List every school in the system.
+         */
+        get: operations["list_schools_api_schools_get"];
+        put?: never;
+        /**
+         * Create School
+         * @description Create a new school.
+         */
+        post: operations["create_school_api_schools_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schools/{school_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get School
+         * @description Fetch one school by id.
+         */
+        get: operations["get_school_api_schools__school_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete School
+         * @description Delete a school. Refuses the default school and any school with FK dependents.
+         */
+        delete: operations["delete_school_api_schools__school_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update School
+         * @description Patch a school's name and/or short_name.
+         */
+        patch: operations["update_school_api_schools__school_id__patch"];
+        trace?: never;
+    };
     "/api/subjects": {
         parameters: {
             query?: never;
@@ -2387,11 +2439,75 @@ export interface components {
             max_lessons_per_day?: number | null;
         };
         /**
+         * SchoolCreate
+         * @description Request body for creating a school.
+         */
+        SchoolCreate: {
+            /** Name */
+            name: string;
+            /** Short Name */
+            short_name?: string | null;
+        };
+        /**
+         * SchoolListItem
+         * @description Lightweight entry returned by list.
+         */
+        SchoolListItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Short Name */
+            short_name: string | null;
+        };
+        /**
+         * SchoolResponse
+         * @description Detail response returned by create, get, and update.
+         */
+        SchoolResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Short Name */
+            short_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * SchoolType
          * @description Hessen Schulform classification on a curriculum (Stundentafel).
          * @enum {string}
          */
         SchoolType: "Grundschule" | "Hauptschule" | "Realschule" | "Gymnasium" | "Gesamtschule";
+        /**
+         * SchoolUpdate
+         * @description Request body for patching a school.
+         *
+         *     At least one field must be present in the payload; an empty body
+         *     (``{}``) is rejected with 422 by the post-init validator below.
+         *     Explicit ``short_name=null`` is a valid "clear" operation.
+         */
+        SchoolUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Short Name */
+            short_name?: string | null;
+        };
         /**
          * StundentafelCreate
          * @description Request body for creating a Stundentafel.
@@ -3300,6 +3416,173 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_schools_api_schools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchoolListItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_school_api_schools_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchoolCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchoolResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_school_api_schools__school_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                school_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchoolResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_school_api_schools__school_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                school_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_school_api_schools__school_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                school_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchoolUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchoolResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
