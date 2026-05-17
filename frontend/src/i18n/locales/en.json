@@ -49,6 +49,8 @@
     "schoolClasses": "School classes",
     "stundentafeln": "Curriculum",
     "lessons": "Lessons",
+    "admin": "Admin",
+    "schools": "Schools",
     "comingSoon": "Coming soon"
   },
   "theme": {
@@ -211,6 +213,31 @@
       "cellAvailable": "Available at {{day}} period {{position}}",
       "cellUnavailable": "Not available at {{day}} period {{position}}",
       "save": "Save availability"
+    }
+  },
+  "schools": {
+    "title": "Schools",
+    "subtitle": "Tenant schools that own the data in this instance.",
+    "new": "New school",
+    "columns": {
+      "name": "Name",
+      "shortName": "Short name"
+    },
+    "empty": {
+      "title": "No schools yet",
+      "body": "Create the first tenant school to start onboarding users and data.",
+      "step1": "Create the school",
+      "step2": "Invite the school's admin",
+      "step3": "Seed the master data"
+    },
+    "loadError": "Could not load schools.",
+    "dialog": {
+      "createTitle": "New school",
+      "createDescription": "Create a new tenant school.",
+      "editTitle": "Edit school",
+      "editDescription": "Update {{name}}.",
+      "deleteTitle": "Delete school",
+      "deleteDescription": "This will permanently delete \"{{name}}\". Schools that still have users or schedule data cannot be deleted."
     }
   },
   "teachers": {

@@ -31,6 +31,19 @@ export const initialSubjects = [
   },
 ];
 
+export const initialSchools = [
+  {
+    id: "00000000-0000-0000-0000-000000000001",
+    name: "Default Schule",
+    short_name: "DS",
+  },
+  {
+    id: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    name: "Zweite Grundschule",
+    short_name: "ZWG",
+  },
+];
+
 export const initialRooms = [
   {
     id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -262,6 +275,31 @@ export const defaultHandlers = [
       { status: 201 },
     );
   }),
+  http.get(`${BASE}/api/schools`, () => HttpResponse.json(initialSchools)),
+  http.post(`${BASE}/api/schools`, async ({ request }) => {
+    const body = (await request.json()) as { name: string; short_name?: string | null };
+    const created = {
+      id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+      name: body.name,
+      short_name: body.short_name ?? null,
+      created_at: "2026-05-17T00:00:00Z",
+      updated_at: "2026-05-17T00:00:00Z",
+    };
+    return HttpResponse.json(created, { status: 201 });
+  }),
+  http.patch(`${BASE}/api/schools/:school_id`, async ({ params, request }) => {
+    const body = (await request.json()) as { name?: string; short_name?: string | null };
+    const existing = initialSchools.find((s) => s.id === params.school_id);
+    if (!existing) return HttpResponse.json({ detail: "not found" }, { status: 404 });
+    return HttpResponse.json({
+      id: existing.id,
+      name: body.name ?? existing.name,
+      short_name: body.short_name ?? existing.short_name,
+      created_at: "2026-05-17T00:00:00Z",
+      updated_at: "2026-05-17T00:00:00Z",
+    });
+  }),
+  http.delete(`${BASE}/api/schools/:school_id`, () => new HttpResponse(null, { status: 204 })),
   http.get(`${BASE}/api/rooms`, () => HttpResponse.json(initialRooms)),
   http.post(`${BASE}/api/rooms`, async ({ request }) => {
     const body = (await request.json()) as {
