@@ -138,14 +138,14 @@ async def list_stundentafeln(
 @router.get("/{tafel_id}")
 async def get_stundentafel(
     tafel_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StundentafelDetailResponse:
     """Fetch a single Stundentafel by ID, including its entries with subject info.
 
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the entry Subject join to their school.
         db: Injected async database session.
 
     Returns:
@@ -158,7 +158,10 @@ async def get_stundentafel(
     entries_result = await db.execute(
         select(StundentafelEntry, Subject)
         .join(Subject, StundentafelEntry.subject_id == Subject.id)
-        .where(StundentafelEntry.stundentafel_id == tafel.id)
+        .where(
+            StundentafelEntry.stundentafel_id == tafel.id,
+            Subject.school_id == current_user.school_id,
+        )
     )
     entries = [
         StundentafelEntryResponse(
@@ -259,7 +262,7 @@ async def delete_stundentafel_route(
 async def create_stundentafel_entry_route(
     tafel_id: uuid.UUID,
     body: EntryCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StundentafelEntryResponse:
     """Add a subject entry to a Stundentafel.
@@ -267,14 +270,14 @@ async def create_stundentafel_entry_route(
     Args:
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         body: subject_id, hours_per_week, and preferred_block_size for the new entry.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the Subject lookup to their school.
         db: Injected async database session.
 
     Returns:
         The created entry as a StundentafelEntryResponse.
 
     Raises:
-        HTTPException: 404 if the Stundentafel does not exist.
+        HTTPException: 404 if the Stundentafel or Subject does not exist.
         HTTPException: 409 if this subject is already in the Stundentafel.
     """
     await _get_stundentafel(db, tafel_id)
@@ -293,7 +296,13 @@ async def create_stundentafel_entry_route(
             detail="This subject is already in the Stundentafel.",
         ) from exc
     await db.refresh(entry)
-    subj = await db.get(Subject, entry.subject_id)
+    subj = (
+        await db.execute(
+            select(Subject).where(
+                Subject.id == entry.subject_id, Subject.school_id == current_user.school_id
+            )
+        )
+    ).scalar_one_or_none()
     if subj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found.")
     return StundentafelEntryResponse(
@@ -309,7 +318,7 @@ async def update_stundentafel_entry(
     tafel_id: uuid.UUID,
     entry_id: uuid.UUID,
     body: EntryUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StundentafelEntryResponse:
     """Partially update a Stundentafel entry's hours or block size.
@@ -318,7 +327,7 @@ async def update_stundentafel_entry(
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         entry_id: UUID path parameter identifying the entry to patch.
         body: Fields to update; omitted fields remain unchanged.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the Subject lookup to their school.
         db: Injected async database session.
 
     Returns:
@@ -339,7 +348,13 @@ async def update_stundentafel_entry(
         )
     await db.commit()
     await db.refresh(entry)
-    subj = await db.get(Subject, entry.subject_id)
+    subj = (
+        await db.execute(
+            select(Subject).where(
+                Subject.id == entry.subject_id, Subject.school_id == current_user.school_id
+            )
+        )
+    ).scalar_one_or_none()
     if subj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found.")
     return StundentafelEntryResponse(

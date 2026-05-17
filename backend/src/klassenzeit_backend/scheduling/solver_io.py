@@ -367,7 +367,17 @@ async def build_problem_json(
     sentinel: set[UUID] = {UUID(int=0)}
 
     subjects = (
-        ((await db.execute(select(Subject).where(Subject.id.in_(subject_ids)))).scalars().all())
+        (
+            (
+                await db.execute(
+                    select(Subject).where(
+                        Subject.id.in_(subject_ids), Subject.school_id == school_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         if subject_ids
         else []
     )

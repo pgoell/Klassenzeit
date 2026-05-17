@@ -261,7 +261,12 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
     (positions 1..8). The solver payload surfaces all 8 rows; break rows carry
     `"kind": "break"` so solver-core's supervision pass can iterate them.
     """
-    subject = Subject(name=f"Subj-{uuid.uuid4().hex[:8]}", short_name="S1", color="chart-1")
+    subject = Subject(
+        name=f"Subj-{uuid.uuid4().hex[:8]}",
+        short_name="S1",
+        color="chart-1",
+        school_id=DEFAULT_SCHOOL_ID,
+    )
     db_session.add(subject)
     scheme = WeekScheme(name=f"ws-mixed-{uuid.uuid4().hex[:8]}", description=None)
     db_session.add(scheme)

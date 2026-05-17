@@ -408,12 +408,20 @@ async def _load_home_room_lookup(db: AsyncSession, school_id: UUID) -> dict[UUID
     return {row.id: row.home_room_id for row in rows if row.home_room_id is not None}
 
 
-async def _load_exempt_subjects(db: AsyncSession) -> set[UUID]:
-    """Return the set of Subject IDs whose short_name is in HOME_ROOM_EXEMPT_SHORT_NAMES."""
+async def _load_exempt_subjects(db: AsyncSession, school_id: UUID) -> set[UUID]:
+    """Return the set of Subject IDs (in the given school) exempt from the home-room ratio.
+
+    Exemption is keyed by ``short_name in HOME_ROOM_EXEMPT_SHORT_NAMES`` AND
+    ``school_id == school_id`` so a cross-school subject with the same short
+    name cannot leak into another tenant's exempt set.
+    """
     rows = (
         (
             await db.execute(
-                select(Subject.id).where(Subject.short_name.in_(HOME_ROOM_EXEMPT_SHORT_NAMES))
+                select(Subject.id).where(
+                    Subject.short_name.in_(HOME_ROOM_EXEMPT_SHORT_NAMES),
+                    Subject.school_id == school_id,
+                )
             )
         )
         .scalars()
@@ -462,7 +470,7 @@ async def compute_quality_issues(
     counts_per_class = _counts_per_class(placements)
     positions_per_class_day = _positions_per_class_day(placements)
     home_rooms = await _load_home_room_lookup(db, school_id)
-    exempt_subjects = await _load_exempt_subjects(db)
+    exempt_subjects = await _load_exempt_subjects(db, school_id)
     class_teacher_lookup = await _load_class_teacher_lookup(db, school_id)
     placement_teacher_lookup = await _load_placement_teacher_lookup(db)
 
@@ -543,7 +551,7 @@ async def compute_quality_attribution_for_class(
 
     # Per-class home-room miss accumulator for this class only.
     home_rooms = await _load_home_room_lookup(db, school_id)
-    exempt = await _load_exempt_subjects(db)
+    exempt = await _load_exempt_subjects(db, school_id)
     home_room_id = home_rooms.get(class_id)
     miss_total = 0
     if home_room_id is not None:

@@ -211,6 +211,7 @@ async def seed_demo_grundschule(session: AsyncSession) -> None:
             avoid_first_period=spec.avoid_first_period,
             avoid_last_period=spec.avoid_last_period,
             prefer_late_period=spec.prefer_late_period,
+            school_id=DEFAULT_SCHOOL_ID,
         )
         session.add(subject)
         subjects_by_short[spec.short_name] = subject
