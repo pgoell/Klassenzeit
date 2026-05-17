@@ -913,16 +913,18 @@ async def persist_supervision_assignments(
     db: AsyncSession,
     week_scheme_id: UUID,
     solution: dict,
+    *,
+    school_id: UUID,
 ) -> None:
     """Replace the WeekScheme's supervision rota with the solver output.
 
     Deletes every ``supervision_assignments`` row whose ``time_block_id``
     belongs to ``week_scheme_id``, then inserts one row per entry in
-    ``solution["supervision_assignments"]``. Scoped to the WeekScheme
-    rather than the class because Hofpause supervision is a school-wide
-    duty: the supervision pass emits one entry per break-kind TimeBlock
-    on the affected scheme, and a per-class re-solve overwrites the
-    whole rota.
+    ``solution["supervision_assignments"]``, stamping ``school_id`` on
+    every inserted row. Scoped to the WeekScheme rather than the class
+    because Hofpause supervision is a school-wide duty: the supervision
+    pass emits one entry per break-kind TimeBlock on the affected scheme,
+    and a per-class re-solve overwrites the whole rota.
 
     Runs inside the caller's transaction; does not commit.
     """
@@ -941,6 +943,7 @@ async def persist_supervision_assignments(
             SupervisionAssignment(
                 time_block_id=UUID(a["time_block_id"]),
                 teacher_id=UUID(a["teacher_id"]),
+                school_id=school_id,
             )
         )
 
@@ -1172,12 +1175,18 @@ async def read_schedule_for_teacher(
 async def read_supervision_assignments_for_teacher(
     db: AsyncSession,
     teacher_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[SupervisionAssignmentResponse]:
     """Return persisted Hofpause supervision rows assigned to this teacher.
+
+    Scoped to ``school_id`` so cross-tenant rows are filtered out at the query.
 
     Args:
         db: The ambient async session.
         teacher_id: UUID of the teacher to read.
+        school_id: UUID of the calling user's school; restricts the result set
+            to same-school supervision rows.
 
     Returns:
         A list of :class:`SupervisionAssignmentResponse` values; empty if the
@@ -1188,7 +1197,10 @@ async def read_supervision_assignments_for_teacher(
     rows = (
         (
             await db.execute(
-                select(SupervisionAssignment).where(SupervisionAssignment.teacher_id == teacher_id)
+                select(SupervisionAssignment).where(
+                    SupervisionAssignment.teacher_id == teacher_id,
+                    SupervisionAssignment.school_id == school_id,
+                )
             )
         )
         .scalars()
