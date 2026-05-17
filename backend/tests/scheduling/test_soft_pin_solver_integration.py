@@ -21,6 +21,7 @@ from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.teacher import TeacherQualification
 from klassenzeit_backend.main import app
 
@@ -82,12 +83,14 @@ async def test_post_schedule_routes_soft_pin_through_solver(
     )
 
     lesson_hard = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_a.id,
         teacher_id=teacher.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     lesson_soft = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_b.id,
         teacher_id=teacher.id,
         hours_per_week=1,

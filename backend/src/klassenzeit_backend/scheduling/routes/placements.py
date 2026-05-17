@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.room import Room
@@ -31,11 +32,22 @@ async def _load_placement_or_404(
     db: AsyncSession,
     lesson_id: uuid.UUID,
     time_block_id: uuid.UUID,
+    school_id: uuid.UUID,
 ) -> ScheduledLesson:
-    """Fetch a ScheduledLesson by composite key or raise 404."""
-    stmt = select(ScheduledLesson).where(
-        ScheduledLesson.lesson_id == lesson_id,
-        ScheduledLesson.time_block_id == time_block_id,
+    """Fetch a ScheduledLesson by composite key, scoped to a tenant, or raise 404.
+
+    Joins through the parent Lesson and filters by ``Lesson.school_id`` so a
+    placement whose lesson belongs to another tenant returns 404 (no
+    cross-tenant existence leak).
+    """
+    stmt = (
+        select(ScheduledLesson)
+        .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+        .where(
+            ScheduledLesson.lesson_id == lesson_id,
+            ScheduledLesson.time_block_id == time_block_id,
+            Lesson.school_id == school_id,
+        )
     )
     row = (await db.execute(stmt)).scalar_one_or_none()
     if row is None:
@@ -126,7 +138,7 @@ async def move_placement_route(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> PlacementResponse:
     """Move a placement to a new time block (and possibly room) and pin it."""
-    placement = await _load_placement_or_404(db, lesson_id, time_block_id)
+    placement = await _load_placement_or_404(db, lesson_id, time_block_id, current_user.school_id)
     target_tb = await _load_time_block_or_404(db, body.time_block_id)
     await _load_room_or_404(db, body.room_id, current_user.school_id)
     await _assert_lesson_week_scheme_matches(db, lesson_id, target_tb)
@@ -157,14 +169,15 @@ async def pin_placement_route(
     lesson_id: uuid.UUID,
     time_block_id: uuid.UUID,
     body: PinPlacementRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> PlacementResponse:
     """Set the ``pin_kind`` discriminator on an existing placement.
 
     Body ``{"pin_kind": "hard" | "soft" | null}``. ``null`` clears the pin.
+    Scopes the placement lookup to the requesting user's school.
     """
-    placement = await _load_placement_or_404(db, lesson_id, time_block_id)
+    placement = await _load_placement_or_404(db, lesson_id, time_block_id, current_user.school_id)
     placement.pin_kind = body.pin_kind
     await db.commit()
     await db.refresh(placement)
@@ -174,12 +187,21 @@ async def pin_placement_route(
 @router.post("/swap")
 async def swap_placements_route(
     body: SwapPlacementsRequest,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SwapPlacementsResponse:
-    """Swap two placements' time blocks (and rooms) and pin both."""
-    placement_a = await _load_placement_or_404(db, body.a.lesson_id, body.a.time_block_id)
-    placement_b = await _load_placement_or_404(db, body.b.lesson_id, body.b.time_block_id)
+    """Swap two placements' time blocks (and rooms) and pin both.
+
+    Both placement lookups are scoped to the requesting user's school; a
+    foreign-tenant ``lesson_id`` in either side of the body 404s before any
+    mutation runs.
+    """
+    placement_a = await _load_placement_or_404(
+        db, body.a.lesson_id, body.a.time_block_id, current_user.school_id
+    )
+    placement_b = await _load_placement_or_404(
+        db, body.b.lesson_id, body.b.time_block_id, current_user.school_id
+    )
     a_target_tb = await _load_time_block_or_404(db, body.b.time_block_id)
     b_target_tb = await _load_time_block_or_404(db, body.a.time_block_id)
     await _assert_lesson_week_scheme_matches(db, body.a.lesson_id, a_target_tb)

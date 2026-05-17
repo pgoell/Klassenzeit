@@ -838,12 +838,14 @@ async def test_compute_quality_issues_filters_by_class_and_emits_room_hop(
     cls_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=week_scheme.id)
 
     lesson_a1 = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=2,
         preferred_block_size=1,
     )
     lesson_a2 = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=2,

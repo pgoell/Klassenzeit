@@ -871,7 +871,8 @@ export interface paths {
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the room lookup and the
+         *             placement join through ``Lesson.school_id``.
          *         db: Injected async database session.
          *
          *     Returns:
@@ -879,7 +880,7 @@ export interface paths {
          *         ``placements`` means the room exists but has no scheduled lessons yet.
          *
          *     Raises:
-         *         HTTPException: 404 if the room doesn't exist.
+         *         HTTPException: 404 if the room doesn't exist in the user's school.
          */
         get: operations["read_schedule_for_room_route_api_rooms__room_id__schedule_get"];
         put?: never;
@@ -1387,16 +1388,18 @@ export interface paths {
          *
          *     Args:
          *         body: Fields for the new lesson.
-         *         current_user: Injected admin user; scopes the response Subject lookup
-         *             to their school.
+         *         current_user: Injected admin user; scopes the response Subject lookup,
+         *             collision check, and inbound-FK validation to their school. Stamps
+         *             ``school_id`` from the current user onto the new Lesson.
          *         db: Injected async database session.
          *
          *     Returns:
          *         The created lesson as a LessonResponse.
          *
          *     Raises:
-         *         HTTPException: 409 if a lesson for any (class, subject) pair in the
-         *             request already exists.
+         *         HTTPException: 404 if ``subject_id`` or any ``school_class_ids`` entry
+         *             belongs to another school; 409 if a lesson for any (class, subject)
+         *             pair in the request already exists.
          */
         post: operations["create_lesson_api_lessons_post"];
         delete?: never;
@@ -1426,7 +1429,7 @@ export interface paths {
          *         The matching lesson as a LessonResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists.
+         *         HTTPException: 404 if no lesson with that ID exists in the user's school.
          */
         get: operations["get_lesson_api_lessons__lesson_id__get"];
         put?: never;
@@ -1437,11 +1440,11 @@ export interface paths {
          *
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson to delete.
-         *         _admin: Injected admin user (enforces authentication).
+         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists.
+         *         HTTPException: 404 if no lesson with that ID exists in the user's school.
          */
         delete: operations["delete_lesson_api_lessons__lesson_id__delete"];
         options?: never;
@@ -1461,8 +1464,10 @@ export interface paths {
          *         The updated lesson as a LessonResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists; 409 if the new
-         *             membership set collides with another lesson on the same subject.
+         *         HTTPException: 404 if no lesson with that ID exists in the user's
+         *             school, or if any newly-supplied ``school_class_ids`` entry belongs
+         *             to another school; 409 if the new membership set collides with
+         *             another lesson on the same subject.
          */
         patch: operations["update_lesson_api_lessons__lesson_id__patch"];
         trace?: never;
@@ -1541,6 +1546,7 @@ export interface paths {
          * @description Set the ``pin_kind`` discriminator on an existing placement.
          *
          *     Body ``{"pin_kind": "hard" | "soft" | null}``. ``null`` clears the pin.
+         *     Scopes the placement lookup to the requesting user's school.
          */
         patch: operations["pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch"];
         trace?: never;
@@ -1557,6 +1563,10 @@ export interface paths {
         /**
          * Swap Placements Route
          * @description Swap two placements' time blocks (and rooms) and pin both.
+         *
+         *     Both placement lookups are scoped to the requesting user's school; a
+         *     foreign-tenant ``lesson_id`` in either side of the body 404s before any
+         *     mutation runs.
          */
         post: operations["swap_placements_route_api_placements_swap_post"];
         delete?: never;

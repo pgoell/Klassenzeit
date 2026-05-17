@@ -32,20 +32,26 @@ router = APIRouter(prefix="/lessons", tags=["lessons"])
 generate_router = APIRouter(tags=["lessons"])
 
 
-async def _get_lesson(db: AsyncSession, lesson_id: uuid.UUID) -> Lesson:
-    """Load a Lesson by primary key or raise 404.
+async def _get_lesson(db: AsyncSession, lesson_id: uuid.UUID, school_id: uuid.UUID) -> Lesson:
+    """Load a Lesson by primary key scoped to a tenant school, or raise 404.
 
     Args:
         db: Active async database session.
         lesson_id: UUID of the lesson to load.
+        school_id: Tenant school used to scope the lookup. A lesson that exists
+            in a different school returns 404 (no cross-tenant existence leak).
 
     Returns:
         The matching Lesson ORM instance.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists.
+        HTTPException: 404 if no lesson with that ID exists in the requesting
+            school.
     """
-    lesson = await db.get(Lesson, lesson_id)
+    result = await db.execute(
+        select(Lesson).where(Lesson.id == lesson_id, Lesson.school_id == school_id)
+    )
+    lesson = result.scalar_one_or_none()
     if lesson is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return lesson
@@ -129,6 +135,7 @@ async def _check_subject_class_collision(
     subject_id: uuid.UUID,
     school_class_ids: list[uuid.UUID],
     *,
+    school_id: uuid.UUID,
     excluding_lesson_id: uuid.UUID | None = None,
 ) -> None:
     """Raise 409 if any existing Lesson teaches the same subject for any of the given classes.
@@ -136,13 +143,15 @@ async def _check_subject_class_collision(
     Replaces the dropped ``(school_class_id, subject_id)`` UNIQUE constraint.
     A class can host at most one lesson per subject; a lesson with multiple
     memberships still cannot collide with a single-class lesson on the same
-    ``(class, subject)`` pair.
+    ``(class, subject)`` pair. Scoped by ``school_id`` so a same-named subject
+    in another tenant does not trigger a false-positive collision.
     """
     stmt = (
         select(Lesson.id)
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
         .where(
             Lesson.subject_id == subject_id,
+            Lesson.school_id == school_id,
             LessonSchoolClass.school_class_id.in_(school_class_ids),
         )
     )
@@ -165,19 +174,51 @@ async def create_lesson(
 
     Args:
         body: Fields for the new lesson.
-        current_user: Injected admin user; scopes the response Subject lookup
-            to their school.
+        current_user: Injected admin user; scopes the response Subject lookup,
+            collision check, and inbound-FK validation to their school. Stamps
+            ``school_id`` from the current user onto the new Lesson.
         db: Injected async database session.
 
     Returns:
         The created lesson as a LessonResponse.
 
     Raises:
-        HTTPException: 409 if a lesson for any (class, subject) pair in the
-            request already exists.
+        HTTPException: 404 if ``subject_id`` or any ``school_class_ids`` entry
+            belongs to another school; 409 if a lesson for any (class, subject)
+            pair in the request already exists.
     """
-    await _check_subject_class_collision(db, body.subject_id, body.school_class_ids)
+    # Inbound-FK tenancy gates: a cross-school subject or class id 404s.
+    subj_row = (
+        await db.execute(
+            select(Subject.id).where(
+                Subject.id == body.subject_id, Subject.school_id == current_user.school_id
+            )
+        )
+    ).scalar_one_or_none()
+    if subj_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found")
+    if body.school_class_ids:
+        class_rows = (
+            (
+                await db.execute(
+                    select(SchoolClass.id).where(
+                        SchoolClass.id.in_(body.school_class_ids),
+                        SchoolClass.school_id == current_user.school_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(class_rows) != len(set(body.school_class_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="School class not found"
+            )
+    await _check_subject_class_collision(
+        db, body.subject_id, body.school_class_ids, school_id=current_user.school_id
+    )
     lesson = Lesson(
+        school_id=current_user.school_id,
         subject_id=body.subject_id,
         teacher_id=body.teacher_id,
         hours_per_week=body.hours_per_week,
@@ -221,7 +262,7 @@ async def list_lessons(
     Returns:
         List of lessons matching the applied filters.
     """
-    stmt = select(Lesson)
+    stmt = select(Lesson).where(Lesson.school_id == current_user.school_id)
     if class_id is not None:
         stmt = stmt.join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id).where(
             LessonSchoolClass.school_class_id == class_id
@@ -256,9 +297,9 @@ async def get_lesson(
         The matching lesson as a LessonResponse.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists.
+        HTTPException: 404 if no lesson with that ID exists in the user's school.
     """
-    lesson = await _get_lesson(db, lesson_id)
+    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
     return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
 
 
@@ -282,15 +323,35 @@ async def update_lesson(
         The updated lesson as a LessonResponse.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists; 409 if the new
-            membership set collides with another lesson on the same subject.
+        HTTPException: 404 if no lesson with that ID exists in the user's
+            school, or if any newly-supplied ``school_class_ids`` entry belongs
+            to another school; 409 if the new membership set collides with
+            another lesson on the same subject.
     """
-    lesson = await _get_lesson(db, lesson_id)
+    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
     if body.school_class_ids is not None:
+        if body.school_class_ids:
+            class_rows = (
+                (
+                    await db.execute(
+                        select(SchoolClass.id).where(
+                            SchoolClass.id.in_(body.school_class_ids),
+                            SchoolClass.school_id == current_user.school_id,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if len(class_rows) != len(set(body.school_class_ids)):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="School class not found"
+                )
         await _check_subject_class_collision(
             db,
             lesson.subject_id,
             body.school_class_ids,
+            school_id=current_user.school_id,
             excluding_lesson_id=lesson.id,
         )
         await db.execute(delete(LessonSchoolClass).where(LessonSchoolClass.lesson_id == lesson.id))
@@ -325,20 +386,20 @@ async def update_lesson(
 @router.delete("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lesson(
     lesson_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Delete a lesson by ID.
 
     Args:
         lesson_id: UUID path parameter identifying the lesson to delete.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists.
+        HTTPException: 404 if no lesson with that ID exists in the user's school.
     """
-    lesson = await _get_lesson(db, lesson_id)
+    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
     await db.delete(lesson)
     await db.commit()
 
@@ -459,7 +520,10 @@ async def generate_lessons_from_stundentafel(
     existing_result = await db.execute(
         select(Lesson.subject_id)
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
-        .where(LessonSchoolClass.school_class_id == class_id)
+        .where(
+            LessonSchoolClass.school_class_id == class_id,
+            Lesson.school_id == current_user.school_id,
+        )
     )
     existing_subject_ids = {row[0] for row in existing_result.all()}
 
@@ -468,6 +532,7 @@ async def generate_lessons_from_stundentafel(
         if entry.subject_id in existing_subject_ids:
             continue
         lesson = Lesson(
+            school_id=current_user.school_id,
             subject_id=entry.subject_id,
             teacher_id=None,
             hours_per_week=entry.hours_per_week,

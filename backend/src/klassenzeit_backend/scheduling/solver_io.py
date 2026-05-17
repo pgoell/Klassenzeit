@@ -313,7 +313,9 @@ async def build_problem_json(
             detail="class's week_scheme has no time_blocks configured",
         )
 
-    lessons = (await db.execute(select(Lesson))).scalars().all()
+    lessons = (
+        (await db.execute(select(Lesson).where(Lesson.school_id == school_id))).scalars().all()
+    )
 
     lesson_ids = [lesson.id for lesson in lessons]
     memberships: list[LessonSchoolClass] = []
@@ -706,6 +708,8 @@ async def run_solve(
 async def collect_pinned_placements(
     db: AsyncSession,
     exclude_class_ids: set[UUID],
+    *,
+    school_id: UUID,
 ) -> list[dict[str, str]]:
     """Return persisted ScheduledLesson rows as solver wire-format pin entries.
 
@@ -723,6 +727,9 @@ async def collect_pinned_placements(
     false-positive ``validate_no_double_booking`` when two pins share
     the static fallback under unpinned mode).
 
+    ``school_id`` scopes the inner ``Lesson`` join so pins from other
+    tenants never bleed into this solve.
+
     Output ordered by ``(lesson_id, time_block_id)`` for determinism.
     """
     pinned_lessons_subq = (
@@ -732,7 +739,11 @@ async def collect_pinned_placements(
     )
     stmt = (
         select(ScheduledLesson)
-        .where(ScheduledLesson.lesson_id.in_(pinned_lessons_subq))
+        .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+        .where(
+            ScheduledLesson.lesson_id.in_(pinned_lessons_subq),
+            Lesson.school_id == school_id,
+        )
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -754,6 +765,8 @@ async def collect_pinned_placements(
 async def collect_own_class_pins(
     db: AsyncSession,
     class_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[dict[str, str]]:
     """Return wire-format pin dicts for the requested class's pinned rows.
 
@@ -761,6 +774,9 @@ async def collect_own_class_pins(
     ``class_id`` AND whose ``pinned`` flag is true. Output is ordered by
     ``(lesson_id, time_block_id)`` for determinism, matching
     ``collect_pinned_placements``. Carries ``teacher_id`` per item 77.
+
+    ``school_id`` scopes the Lesson join so a cross-tenant placement on the
+    same class id is dropped.
     """
     own_lessons_subq = (
         select(LessonSchoolClass.lesson_id)
@@ -769,8 +785,10 @@ async def collect_own_class_pins(
     )
     stmt = (
         select(ScheduledLesson)
+        .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
         .where(ScheduledLesson.lesson_id.in_(own_lessons_subq))
         .where(ScheduledLesson.pin_kind.is_not(None))
+        .where(Lesson.school_id == school_id)
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -789,14 +807,20 @@ async def collect_own_class_pins(
 
 async def collect_all_pins(
     db: AsyncSession,
+    *,
+    school_id: UUID,
 ) -> list[dict[str, str]]:
     """Return wire-format pin dicts for every ScheduledLesson with a pin set.
 
-    Carries ``teacher_id`` per item 77.
+    Carries ``teacher_id`` per item 77. ``school_id`` joins through the
+    parent Lesson so cross-tenant pinned placements are dropped from the
+    whole-school solve seed.
     """
     stmt = (
         select(ScheduledLesson)
+        .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
         .where(ScheduledLesson.pin_kind.is_not(None))
+        .where(Lesson.school_id == school_id)
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -1070,7 +1094,10 @@ async def read_schedule_for_class(
                 select(ScheduledLesson)
                 .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
                 .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
-                .where(LessonSchoolClass.school_class_id == class_id)
+                .where(
+                    LessonSchoolClass.school_class_id == class_id,
+                    Lesson.school_id == school_id,
+                )
             )
         )
         .scalars()
@@ -1123,7 +1150,7 @@ async def read_schedule_for_teacher(
             await db.execute(
                 select(ScheduledLesson)
                 .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
-                .where(Lesson.teacher_id == teacher_id)
+                .where(Lesson.teacher_id == teacher_id, Lesson.school_id == school_id)
             )
         )
         .scalars()
@@ -1179,27 +1206,40 @@ async def read_supervision_assignments_for_teacher(
 async def read_schedule_for_room(
     db: AsyncSession,
     room_id: UUID,
+    *,
+    school_id: UUID,
 ) -> list[PlacementResponse]:
     """Return persisted placements where ``ScheduledLesson.room_id`` matches.
 
     Args:
         db: The ambient async session.
         room_id: UUID of the room to read.
+        school_id: Tenant school to scope the room lookup AND the placement
+            join through ``Lesson.school_id`` so a foreign-tenant ScheduledLesson
+            on the same room id is dropped.
 
     Returns:
         A list of :class:`PlacementResponse` values; empty if the room has no
         scheduled lessons yet.
 
     Raises:
-        HTTPException: 404 if the room doesn't exist. The empty-schedule case
-            is distinguished by returning an empty list.
+        HTTPException: 404 if the room doesn't exist in the user's school.
+            The empty-schedule case is distinguished by returning an empty list.
     """
-    room = await db.get(Room, room_id)
+    room = (
+        await db.execute(select(Room).where(Room.id == room_id, Room.school_id == school_id))
+    ).scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
 
     rows = (
-        (await db.execute(select(ScheduledLesson).where(ScheduledLesson.room_id == room_id)))
+        (
+            await db.execute(
+                select(ScheduledLesson)
+                .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
+                .where(ScheduledLesson.room_id == room_id, Lesson.school_id == school_id)
+            )
+        )
         .scalars()
         .all()
     )

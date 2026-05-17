@@ -76,8 +76,12 @@ async def generate_schedule_for_class(
             week_scheme has no time_blocks, if other classes in the solve use a
             different week_scheme, or if the rooms table is empty.
     """
-    sibling_pins = await solver_io.collect_pinned_placements(db, {class_id})
-    own_pins = await solver_io.collect_own_class_pins(db, class_id)
+    sibling_pins = await solver_io.collect_pinned_placements(
+        db, {class_id}, school_id=current_user.school_id
+    )
+    own_pins = await solver_io.collect_own_class_pins(
+        db, class_id, school_id=current_user.school_id
+    )
     all_pins = sibling_pins + own_pins
     problem_json, class_lesson_ids, input_counts = await solver_io.build_problem_json(
         db, class_id, school_id=current_user.school_id, pinned_placements=all_pins
@@ -171,7 +175,11 @@ async def generate_schedule_for_all_classes(
             classes, no rooms, heterogeneous week_schemes across classes,
             no time_blocks for the anchor class's week_scheme).
     """
-    pins = await solver_io.collect_all_pins(db) if respect_pins else []
+    pins = (
+        await solver_io.collect_all_pins(db, school_id=current_user.school_id)
+        if respect_pins
+        else []
+    )
     problem_json, _, input_counts = await solver_io.build_problem_json(
         db, class_id=None, school_id=current_user.school_id, pinned_placements=pins
     )
@@ -358,14 +366,15 @@ async def cancel_schedule(
 @router.get("/rooms/{room_id}/schedule")
 async def read_schedule_for_room_route(
     room_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements where ``ScheduledLesson.room_id`` matches.
 
     Args:
         room_id: UUID path parameter identifying the room.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the room lookup and the
+            placement join through ``Lesson.school_id``.
         db: Injected async database session.
 
     Returns:
@@ -373,7 +382,9 @@ async def read_schedule_for_room_route(
         ``placements`` means the room exists but has no scheduled lessons yet.
 
     Raises:
-        HTTPException: 404 if the room doesn't exist.
+        HTTPException: 404 if the room doesn't exist in the user's school.
     """
-    placements = await solver_io.read_schedule_for_room(db, room_id)
+    placements = await solver_io.read_schedule_for_room(
+        db, room_id, school_id=current_user.school_id
+    )
     return ScheduleReadResponse(placements=placements)

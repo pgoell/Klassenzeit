@@ -148,7 +148,7 @@ async def load_placements(db: AsyncSession, *, school_id: UUID) -> list[Placemen
             .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
             .join(TimeBlock, TimeBlock.id == ScheduledLesson.time_block_id)
             .join(WeekScheme, WeekScheme.id == TimeBlock.week_scheme_id)
-            .where(WeekScheme.school_id == school_id)
+            .where(WeekScheme.school_id == school_id, Lesson.school_id == school_id)
         )
     ).all()
     time_blocks = (

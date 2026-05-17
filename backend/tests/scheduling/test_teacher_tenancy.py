@@ -269,6 +269,7 @@ async def test_build_problem_json_excludes_other_school_teachers(
     db_session.add(TeacherQualification(teacher_id=school_a_teacher.id, subject_id=subject.id))
     db_session.add(TeacherQualification(teacher_id=school_b_teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=None,
         hours_per_week=1,

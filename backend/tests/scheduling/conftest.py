@@ -474,6 +474,7 @@ async def seeded_lesson_for_pinning(
     room = await create_room()
     teacher = await create_teacher()
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -515,12 +516,14 @@ async def seeded_class_with_two_placements(
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
 
     pinned_lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     unpinned_lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -600,6 +603,7 @@ async def seeded_movable_placement(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -654,6 +658,7 @@ async def seeded_movable_placement_cross_week(
     cls_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_a.id)
     await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_b.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -710,12 +715,14 @@ async def seeded_two_placements_for_swap(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson_a = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -810,12 +817,14 @@ def seed_placements_for_attribution(
         subj_a = await create_subject()
         subj_b = await create_subject()
         lesson_a = Lesson(
+            school_id=DEFAULT_SCHOOL_ID,
             subject_id=subj_a.id,
             teacher_id=teacher.id,
             hours_per_week=1,
             preferred_block_size=1,
         )
         lesson_b = Lesson(
+            school_id=DEFAULT_SCHOOL_ID,
             subject_id=subj_b.id,
             teacher_id=teacher.id,
             hours_per_week=1,
@@ -922,12 +931,14 @@ async def seeded_dreizuegig_with_one_pin(
         week_scheme_id=scheme.id,
     )
     lesson_a = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_a.id,
         teacher_id=teacher_a.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_b.id,
         teacher_id=teacher_b.id,
         hours_per_week=1,
