@@ -27,20 +27,30 @@ from klassenzeit_backend.scheduling.schemas.stundentafel import (
 router = APIRouter(prefix="/stundentafeln", tags=["stundentafeln"])
 
 
-async def _get_stundentafel(db: AsyncSession, tafel_id: uuid.UUID) -> Stundentafel:
-    """Load a Stundentafel by primary key or raise 404.
+async def _get_stundentafel(
+    db: AsyncSession, tafel_id: uuid.UUID, school_id: uuid.UUID
+) -> Stundentafel:
+    """Load a Stundentafel by primary key scoped to a school, or raise 404.
+
+    Returns 404 both for unknown Stundentafel IDs and for Stundentafeln
+    belonging to a different school. This avoids leaking the existence of
+    other-school rows via a 403.
 
     Args:
         db: Active async database session.
         tafel_id: UUID of the Stundentafel to load.
+        school_id: Tenant school to scope the lookup to.
 
     Returns:
         The matching Stundentafel ORM instance.
 
     Raises:
-        HTTPException: 404 if no Stundentafel with that ID exists.
+        HTTPException: 404 if no Stundentafel with that ID exists in the school.
     """
-    tafel = await db.get(Stundentafel, tafel_id)
+    result = await db.execute(
+        select(Stundentafel).where(Stundentafel.id == tafel_id, Stundentafel.school_id == school_id)
+    )
+    tafel = result.scalar_one_or_none()
     if tafel is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return tafel
@@ -71,23 +81,29 @@ async def _get_entry(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_stundentafel_route(
     body: StundentafelCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StundentafelListResponse:
-    """Create a new Stundentafel.
+    """Create a new Stundentafel in the requesting user's school.
 
     Args:
         body: Name and grade_level for the new Stundentafel.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; supplies the tenant school_id stamp.
         db: Injected async database session.
 
     Returns:
         The created Stundentafel as a StundentafelListResponse.
 
     Raises:
-        HTTPException: 409 if a Stundentafel with this name already exists.
+        HTTPException: 409 if a Stundentafel with this name already exists
+            in the user's school.
     """
-    tafel = Stundentafel(name=body.name, grade_level=body.grade_level, school_type=body.school_type)
+    tafel = Stundentafel(
+        name=body.name,
+        grade_level=body.grade_level,
+        school_type=body.school_type,
+        school_id=current_user.school_id,
+    )
     db.add(tafel)
     try:
         await db.commit()
@@ -109,19 +125,23 @@ async def create_stundentafel_route(
 
 @router.get("")
 async def list_stundentafeln(
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[StundentafelListResponse]:
-    """Return all Stundentafeln ordered by name.
+    """Return all Stundentafeln in the user's school ordered by name.
 
     Args:
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
 
     Returns:
-        List of all Stundentafeln sorted alphabetically by name.
+        List of all Stundentafeln in the user's school sorted alphabetically by name.
     """
-    result = await db.execute(select(Stundentafel).order_by(Stundentafel.name))
+    result = await db.execute(
+        select(Stundentafel)
+        .where(Stundentafel.school_id == current_user.school_id)
+        .order_by(Stundentafel.name)
+    )
     return [
         StundentafelListResponse(
             id=t.id,
@@ -154,7 +174,7 @@ async def get_stundentafel(
     Raises:
         HTTPException: 404 if no Stundentafel with that ID exists.
     """
-    tafel = await _get_stundentafel(db, tafel_id)
+    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
     entries_result = await db.execute(
         select(StundentafelEntry, Subject)
         .join(Subject, StundentafelEntry.subject_id == Subject.id)
@@ -187,7 +207,7 @@ async def get_stundentafel(
 async def update_stundentafel_route(
     tafel_id: uuid.UUID,
     body: StundentafelUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> StundentafelListResponse:
     """Partially update a Stundentafel's name or grade_level.
@@ -195,17 +215,17 @@ async def update_stundentafel_route(
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel to patch.
         body: Fields to update; omitted fields remain unchanged.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Returns:
         The updated Stundentafel as a StundentafelListResponse.
 
     Raises:
-        HTTPException: 404 if no Stundentafel with that ID exists.
+        HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
         HTTPException: 409 if the new name conflicts with an existing Stundentafel.
     """
-    tafel = await _get_stundentafel(db, tafel_id)
+    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
     if body.name is not None:
         tafel.name = body.name
     if body.grade_level is not None:
@@ -233,21 +253,21 @@ async def update_stundentafel_route(
 @router.delete("/{tafel_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_stundentafel_route(
     tafel_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
-    """Delete a Stundentafel by ID.
+    """Delete a Stundentafel by ID scoped to the user's school.
 
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel to delete.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
 
     Raises:
-        HTTPException: 404 if no Stundentafel with that ID exists.
+        HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
         HTTPException: 409 if the Stundentafel is referenced by classes (FK protection).
     """
-    tafel = await _get_stundentafel(db, tafel_id)
+    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
     await db.delete(tafel)
     try:
         await db.commit()
@@ -280,7 +300,7 @@ async def create_stundentafel_entry_route(
         HTTPException: 404 if the Stundentafel or Subject does not exist.
         HTTPException: 409 if this subject is already in the Stundentafel.
     """
-    await _get_stundentafel(db, tafel_id)
+    await _get_stundentafel(db, tafel_id, current_user.school_id)
     entry = StundentafelEntry(
         stundentafel_id=tafel_id,
         subject_id=body.subject_id,
@@ -336,6 +356,7 @@ async def update_stundentafel_entry(
     Raises:
         HTTPException: 404 if the entry does not exist or belongs to a different Stundentafel.
     """
+    await _get_stundentafel(db, tafel_id, current_user.school_id)
     entry = await _get_entry(db, tafel_id, entry_id)
     if body.hours_per_week is not None:
         entry.hours_per_week = body.hours_per_week
@@ -369,7 +390,7 @@ async def update_stundentafel_entry(
 async def delete_stundentafel_entry(
     tafel_id: uuid.UUID,
     entry_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Delete an entry from a Stundentafel.
@@ -377,12 +398,13 @@ async def delete_stundentafel_entry(
     Args:
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         entry_id: UUID path parameter identifying the entry to delete.
-        _admin: Injected admin user (enforces authentication).
+        current_user: Injected admin user; scopes the parent Stundentafel lookup to their school.
         db: Injected async database session.
 
     Raises:
         HTTPException: 404 if the entry does not exist or belongs to a different Stundentafel.
     """
+    await _get_stundentafel(db, tafel_id, current_user.school_id)
     entry = await _get_entry(db, tafel_id, entry_id)
     await db.delete(entry)
     await db.commit()

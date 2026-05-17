@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.school_class import SchoolClass
+from klassenzeit_backend.db.models.stundentafel import Stundentafel
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.school_class import (
@@ -93,6 +94,14 @@ async def create_school_class_route(
     Raises:
         HTTPException: 409 if name conflicts or FKs are invalid.
     """
+    tafel_check = await db.execute(
+        select(Stundentafel.id).where(
+            Stundentafel.id == body.stundentafel_id,
+            Stundentafel.school_id == current_user.school_id,
+        )
+    )
+    if tafel_check.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stundentafel not found")
     school_class = SchoolClass(
         name=body.name,
         grade_level=body.grade_level,
@@ -191,6 +200,16 @@ async def update_school_class_route(
     if body.grade_level is not None:
         school_class.grade_level = body.grade_level
     if body.stundentafel_id is not None:
+        tafel_check = await db.execute(
+            select(Stundentafel.id).where(
+                Stundentafel.id == body.stundentafel_id,
+                Stundentafel.school_id == current_user.school_id,
+            )
+        )
+        if tafel_check.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Stundentafel not found"
+            )
         school_class.stundentafel_id = body.stundentafel_id
     if body.week_scheme_id is not None:
         school_class.week_scheme_id = body.week_scheme_id

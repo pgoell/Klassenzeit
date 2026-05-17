@@ -25,9 +25,12 @@ class Stundentafel(Base):
     """A reusable curriculum template (e.g. 'Gymnasium Klasse 5 Latein')."""
 
     __tablename__ = "stundentafeln"
+    __table_args__ = (
+        UniqueConstraint("school_id", "name", name="uq_stundentafeln_school_id_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
     grade_level: Mapped[int] = mapped_column(SmallInteger)
     school_type: Mapped[SchoolType] = mapped_column(
         PG_ENUM(
@@ -40,6 +43,11 @@ class Stundentafel(Base):
         nullable=False,
         server_default=SchoolType.GRUNDSCHULE.value,
         default=SchoolType.GRUNDSCHULE,
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("schools.id"),
+        nullable=False,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

@@ -12,7 +12,7 @@ from klassenzeit_backend.auth.dependencies import require_admin
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school_class import SchoolClass
-from klassenzeit_backend.db.models.stundentafel import StundentafelEntry
+from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.db.models.user import User
@@ -434,6 +434,15 @@ async def generate_lessons_from_stundentafel(
     school_class = result.scalar_one_or_none()
     if school_class is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
+
+    tafel_result = await db.execute(
+        select(Stundentafel.id).where(
+            Stundentafel.id == school_class.stundentafel_id,
+            Stundentafel.school_id == current_user.school_id,
+        )
+    )
+    if tafel_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stundentafel not found")
 
     entries_result = await db.execute(
         select(StundentafelEntry)

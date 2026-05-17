@@ -312,7 +312,9 @@ async def test_build_problem_json_includes_break_time_blocks_with_kind(
         school_id=DEFAULT_SCHOOL_ID,
     )
     db_session.add(teacher)
-    tafel = Stundentafel(name=f"Tafel-{uuid.uuid4().hex[:8]}", grade_level=5)
+    tafel = Stundentafel(
+        name=f"Tafel-{uuid.uuid4().hex[:8]}", grade_level=5, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(tafel)
     await db_session.flush()
     cls = SchoolClass(
