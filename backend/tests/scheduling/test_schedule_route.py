@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.room import Room
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.teacher import TeacherQualification
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
@@ -57,6 +58,7 @@ async def _seed_solvable_class(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -222,6 +224,7 @@ async def test_schedule_post_filters_out_other_classes_placements(
         week_scheme_id=scheme.id,
     )
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_b.id,
         teacher_id=teacher_b.id,
         hours_per_week=1,
@@ -645,6 +648,7 @@ async def test_schedule_post_response_surfaces_solver_picked_teacher_id(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=None,
         hours_per_week=1,
@@ -751,6 +755,7 @@ async def test_schedule_post_response_carries_quality_report(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=None,
         hours_per_week=1,

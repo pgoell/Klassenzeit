@@ -634,6 +634,7 @@ async def _insert_religion_trios(
         for spec in trio_for_grade:
             teacher = teachers_by_short[spec.teacher_short]
             lesson = Lesson(
+                school_id=DEFAULT_SCHOOL_ID,
                 subject_id=subjects_by_short[spec.subject_short].id,
                 teacher_id=teacher.id,
                 hours_per_week=2,
@@ -717,6 +718,7 @@ async def _insert_extra_lessons(
         school_class = classes_by_name[spec.class_name]
         teacher = teachers_by_short[spec.teacher_short]
         lesson = Lesson(
+            school_id=DEFAULT_SCHOOL_ID,
             subject_id=subjects_by_short[spec.subject_short].id,
             teacher_id=teacher.id,
             hours_per_week=spec.hours_per_week,

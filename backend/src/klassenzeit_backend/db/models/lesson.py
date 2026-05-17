@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import DateTime, ForeignKey, SmallInteger, func
+from sqlalchemy import DateTime, ForeignKey, SmallInteger, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from klassenzeit_backend.db.base import Base
@@ -16,6 +16,11 @@ class Lesson(Base):
     __tablename__ = "lessons"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("schools.id"),
+        nullable=False,
+        server_default=text("'00000000-0000-0000-0000-000000000001'::uuid"),
+    )
     subject_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("subjects.id"))
     teacher_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teachers.id"), nullable=True)
     hours_per_week: Mapped[int] = mapped_column(SmallInteger)

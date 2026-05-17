@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.teacher import TeacherQualification
 from klassenzeit_backend.main import app as fastapi_app
 
@@ -61,6 +62,7 @@ async def seeded_class_id(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,

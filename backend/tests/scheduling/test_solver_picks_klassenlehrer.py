@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 from klassenzeit_backend.db.models.teacher import TeacherQualification
 
 
@@ -83,6 +84,7 @@ async def test_schedule_post_picks_klassenlehrer_when_qualified(
     # among teacher_candidates per ADR 0036.
     for subject_id in (mathe.id, mathe.id, kunst.id, kunst.id):
         lesson = Lesson(
+            school_id=DEFAULT_SCHOOL_ID,
             subject_id=subject_id,
             hours_per_week=1,
             preferred_block_size=1,

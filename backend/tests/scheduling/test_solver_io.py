@@ -169,6 +169,7 @@ async def _seed_minimal_school(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -307,6 +308,7 @@ async def test_build_problem_json_emits_teacher_reserve_hours_per_week(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -431,6 +433,7 @@ async def test_build_problem_json_raises_422_on_mixed_week_schemes(
     cls_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme_y.id)
     subject_b = await create_subject()
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject_b.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -785,6 +788,7 @@ async def test_build_problem_json_includes_preferred_block_size(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=2,
@@ -845,6 +849,7 @@ async def test_build_problem_json_emits_school_class_ids_array_for_multi_class_l
     cls_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     group_id = uuid4()
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -922,6 +927,7 @@ async def test_build_problem_json_emits_home_room_id_per_school_class(
         home_room_id=home_room.id,
     )
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1068,6 +1074,7 @@ async def test_run_solve_honors_subject_daily_hour_cap(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=4,
@@ -1217,12 +1224,14 @@ async def test_collect_pinned_placements_excludes_target_class(
     class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
 
     lesson_a = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1250,7 +1259,7 @@ async def test_collect_pinned_placements_excludes_target_class(
     )
     await db_session.flush()
 
-    pins = await collect_pinned_placements(db_session, {class_a.id})
+    pins = await collect_pinned_placements(db_session, {class_a.id}, school_id=DEFAULT_SCHOOL_ID)
 
     assert len(pins) == 1
     assert pins[0]["lesson_id"] == str(lesson_b.id)
@@ -1348,6 +1357,7 @@ async def test_build_problem_json_includes_null_teacher_lessons(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=None,
         hours_per_week=1,
@@ -1395,6 +1405,7 @@ async def test_build_problem_json_emits_teacher_candidates_and_pin(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher_a.id,
         hours_per_week=1,
@@ -1447,6 +1458,7 @@ async def test_collect_pinned_placements_returns_empty_when_all_excluded(
     class_a = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
 
     lesson_a = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1467,7 +1479,7 @@ async def test_collect_pinned_placements_returns_empty_when_all_excluded(
     )
     await db_session.flush()
 
-    pins = await collect_pinned_placements(db_session, {class_a.id})
+    pins = await collect_pinned_placements(db_session, {class_a.id}, school_id=DEFAULT_SCHOOL_ID)
 
     assert pins == []
 
@@ -1503,12 +1515,14 @@ async def test_persist_solution_for_all_classes_writes_every_class(
     class_b = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
 
     lesson_a = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
         preferred_block_size=1,
     )
     lesson_b = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1600,6 +1614,7 @@ async def test_read_schedule_for_teacher_returns_placements_for_teachers_lessons
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1635,7 +1650,7 @@ async def test_read_schedule_for_room_404_when_missing(
     db_session: AsyncSession,
 ) -> None:
     with pytest.raises(HTTPException) as excinfo:
-        await read_schedule_for_room(db_session, uuid.uuid4())
+        await read_schedule_for_room(db_session, uuid.uuid4(), school_id=DEFAULT_SCHOOL_ID)
     assert excinfo.value.status_code == 404
 
 
@@ -1644,7 +1659,7 @@ async def test_read_schedule_for_room_returns_empty_when_no_placements(
     create_room: CreateRoomFn,
 ) -> None:
     room = await create_room()
-    rows = await read_schedule_for_room(db_session, room.id)
+    rows = await read_schedule_for_room(db_session, room.id, school_id=DEFAULT_SCHOOL_ID)
     assert rows == []
 
 
@@ -1654,7 +1669,7 @@ async def test_collect_own_class_pins_returns_only_pinned_rows_for_class(
 ) -> None:
     """Pinned rows in the class are returned; unpinned rows are not."""
     pins = await solver_io.collect_own_class_pins(
-        db_session, seeded_class_with_two_placements.class_id
+        db_session, seeded_class_with_two_placements.class_id, school_id=DEFAULT_SCHOOL_ID
     )
     pinned_ids = {pin["lesson_id"] for pin in pins}
     assert seeded_class_with_two_placements.pinned_lesson_id_str in pinned_ids
@@ -1665,7 +1680,9 @@ async def test_collect_own_class_pins_empty_when_class_has_none(
     db_session: AsyncSession,
     seeded_class_without_pins: uuid.UUID,
 ) -> None:
-    pins = await solver_io.collect_own_class_pins(db_session, seeded_class_without_pins)
+    pins = await solver_io.collect_own_class_pins(
+        db_session, seeded_class_without_pins, school_id=DEFAULT_SCHOOL_ID
+    )
     assert pins == []
 
 
@@ -1697,6 +1714,7 @@ async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
     )
     db_session.add(TeacherQualification(teacher_id=teacher.id, subject_id=subject.id))
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
@@ -1715,14 +1733,16 @@ async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
     )
     await db_session.flush()
 
-    rows = await read_schedule_for_room(db_session, room.id)
+    rows = await read_schedule_for_room(db_session, room.id, school_id=DEFAULT_SCHOOL_ID)
     assert len(rows) == 1
     assert rows[0].lesson_id == lesson.id
     assert rows[0].time_block_id == block.id
     assert rows[0].room_id == room.id
 
     # Other room sees nothing.
-    other_rows = await read_schedule_for_room(db_session, other_room.id)
+    other_rows = await read_schedule_for_room(
+        db_session, other_room.id, school_id=DEFAULT_SCHOOL_ID
+    )
     assert other_rows == []
 
 
@@ -1745,6 +1765,7 @@ async def test_candidates_for_lesson_excludes_off_days_for_part_time_teacher(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         hours_per_week=1,
         preferred_block_size=1,
@@ -1784,6 +1805,7 @@ async def test_teacher_blocked_times_emit_for_off_days(
     tafel = await create_stundentafel()
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=scheme.id)
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         hours_per_week=1,
         preferred_block_size=1,

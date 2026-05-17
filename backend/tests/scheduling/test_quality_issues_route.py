@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 
 
 async def test_get_quality_issues_returns_list_with_room_hop(
@@ -58,12 +59,14 @@ async def test_get_quality_issues_returns_list_with_room_hop(
     cls = await create_school_class(stundentafel_id=tafel.id, week_scheme_id=week_scheme.id)
 
     lesson_1 = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=2,
         preferred_block_size=1,
     )
     lesson_2 = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=2,

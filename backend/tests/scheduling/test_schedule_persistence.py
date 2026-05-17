@@ -57,6 +57,7 @@ async def _seed_class_with_lesson(
         week_scheme_id=week_scheme.id,
     )
     lesson = Lesson(
+        school_id=DEFAULT_SCHOOL_ID,
         subject_id=subject.id,
         teacher_id=teacher.id,
         hours_per_week=1,
