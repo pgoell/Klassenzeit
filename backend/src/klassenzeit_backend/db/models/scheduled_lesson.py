@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, func, text
+from sqlalchemy import DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -52,7 +52,6 @@ class ScheduledLesson(Base):
         ForeignKey("schools.id"),
         nullable=False,
         index=True,
-        server_default=text("'00000000-0000-0000-0000-000000000001'::uuid"),
     )
     pin_kind: Mapped[PinKind | None] = mapped_column(
         PG_ENUM(
