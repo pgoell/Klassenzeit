@@ -1248,12 +1248,14 @@ async def test_collect_pinned_placements_excludes_target_class(
                 time_block_id=tb_a.id,
                 room_id=room_a.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
             ),
             ScheduledLesson(
                 lesson_id=lesson_b.id,
                 time_block_id=tb_b.id,
                 room_id=room_b.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
             ),
         ]
     )
@@ -1474,6 +1476,7 @@ async def test_collect_pinned_placements_returns_empty_when_all_excluded(
                 time_block_id=tb.id,
                 room_id=room.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
             ),
         ]
     )
@@ -1557,7 +1560,9 @@ async def test_persist_solution_for_all_classes_writes_every_class(
         "violations": [],
     }
 
-    summaries = await persist_solution_for_all_classes(db_session, solution)
+    summaries = await persist_solution_for_all_classes(
+        db_session, solution, school_id=DEFAULT_SCHOOL_ID
+    )
 
     persisted = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert len(persisted) == 2
@@ -1629,6 +1634,7 @@ async def test_read_schedule_for_teacher_returns_placements_for_teachers_lessons
             time_block_id=block.id,
             room_id=room.id,
             teacher_id=teacher.id,
+            school_id=DEFAULT_SCHOOL_ID,
         )
     )
     await db_session.flush()
@@ -1729,6 +1735,7 @@ async def test_read_schedule_for_room_returns_placements_for_rooms_lessons(
             time_block_id=block.id,
             room_id=room.id,
             teacher_id=teacher.id,
+            school_id=DEFAULT_SCHOOL_ID,
         )
     )
     await db_session.flush()

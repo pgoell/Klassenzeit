@@ -102,7 +102,7 @@ async def test_persist_writes_rows_for_placements(
         ],
         "violations": [],
     }
-    await persist_solution_for_class(db_session, class_id, filtered)
+    await persist_solution_for_class(db_session, class_id, filtered, school_id=DEFAULT_SCHOOL_ID)
     await db_session.flush()
     rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert len(rows) == 1
@@ -155,9 +155,9 @@ async def test_persist_replaces_existing_rows_for_class(
         ],
         "violations": [],
     }
-    await persist_solution_for_class(db_session, class_id, first)
+    await persist_solution_for_class(db_session, class_id, first, school_id=DEFAULT_SCHOOL_ID)
     await db_session.flush()
-    await persist_solution_for_class(db_session, class_id, second)
+    await persist_solution_for_class(db_session, class_id, second, school_id=DEFAULT_SCHOOL_ID)
     await db_session.flush()
     rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert len(rows) == 1
@@ -197,9 +197,13 @@ async def test_persist_empty_result_clears_rows(
         "violations": [],
     }
     filtered_empty = {"placements": [], "violations": []}
-    await persist_solution_for_class(db_session, class_id, filtered_first)
+    await persist_solution_for_class(
+        db_session, class_id, filtered_first, school_id=DEFAULT_SCHOOL_ID
+    )
     await db_session.flush()
-    await persist_solution_for_class(db_session, class_id, filtered_empty)
+    await persist_solution_for_class(
+        db_session, class_id, filtered_empty, school_id=DEFAULT_SCHOOL_ID
+    )
     await db_session.flush()
     rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert rows == []
@@ -259,12 +263,21 @@ async def test_persist_class_a_does_not_touch_class_b_rows(
         ],
         "violations": [],
     }
-    await persist_solution_for_class(db_session, class_a_id, filtered_a)
+    await persist_solution_for_class(
+        db_session, class_a_id, filtered_a, school_id=DEFAULT_SCHOOL_ID
+    )
     await db_session.flush()
-    await persist_solution_for_class(db_session, class_b_id, filtered_b)
+    await persist_solution_for_class(
+        db_session, class_b_id, filtered_b, school_id=DEFAULT_SCHOOL_ID
+    )
     await db_session.flush()
     # Replace A with empty. B must survive.
-    await persist_solution_for_class(db_session, class_a_id, {"placements": [], "violations": []})
+    await persist_solution_for_class(
+        db_session,
+        class_a_id,
+        {"placements": [], "violations": []},
+        school_id=DEFAULT_SCHOOL_ID,
+    )
     await db_session.flush()
     rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert len(rows) == 1
@@ -342,6 +355,7 @@ async def test_read_returns_only_rows_for_requested_class(
             ],
             "violations": [],
         },
+        school_id=DEFAULT_SCHOOL_ID,
     )
     await persist_solution_for_class(
         db_session,
@@ -357,6 +371,7 @@ async def test_read_returns_only_rows_for_requested_class(
             ],
             "violations": [],
         },
+        school_id=DEFAULT_SCHOOL_ID,
     )
     await db_session.flush()
     result_a = await read_schedule_for_class(db_session, class_a_id, school_id=DEFAULT_SCHOOL_ID)
@@ -409,7 +424,7 @@ async def test_scheduled_lesson_persists_teacher_id_from_placement(
         ],
         "violations": [],
     }
-    await persist_solution_for_class(db_session, class_id, filtered)
+    await persist_solution_for_class(db_session, class_id, filtered, school_id=DEFAULT_SCHOOL_ID)
     await db_session.flush()
     rows = (await db_session.execute(select(ScheduledLesson))).scalars().all()
     assert len(rows) == 1
@@ -448,6 +463,7 @@ async def test_read_schedule_surfaces_pinned_flag(
             time_block_id=tb_id,
             room_id=room_id,
             teacher_id=teacher_id,
+            school_id=DEFAULT_SCHOOL_ID,
             pin_kind=PinKind.HARD,
         )
     )

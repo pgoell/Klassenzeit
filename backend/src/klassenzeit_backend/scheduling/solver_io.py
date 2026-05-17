@@ -743,6 +743,7 @@ async def collect_pinned_placements(
         .where(
             ScheduledLesson.lesson_id.in_(pinned_lessons_subq),
             Lesson.school_id == school_id,
+            ScheduledLesson.school_id == school_id,
         )
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
@@ -789,6 +790,7 @@ async def collect_own_class_pins(
         .where(ScheduledLesson.lesson_id.in_(own_lessons_subq))
         .where(ScheduledLesson.pin_kind.is_not(None))
         .where(Lesson.school_id == school_id)
+        .where(ScheduledLesson.school_id == school_id)
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -821,6 +823,7 @@ async def collect_all_pins(
         .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
         .where(ScheduledLesson.pin_kind.is_not(None))
         .where(Lesson.school_id == school_id)
+        .where(ScheduledLesson.school_id == school_id)
         .order_by(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -842,13 +845,15 @@ async def persist_solution_for_class(
     class_id: UUID,
     filtered: dict,
     *,
+    school_id: UUID,
     pinned_keys: set[tuple[UUID, UUID]] | None = None,
 ) -> None:
     """Replace this class's persisted placements with the filtered solver output.
 
     Deletes every ``scheduled_lessons`` row whose ``lesson_id`` belongs to the
-    class, then inserts one row per placement in ``filtered["placements"]``.
-    Runs inside the caller's transaction; does not commit.
+    class, then inserts one row per placement in ``filtered["placements"]``,
+    stamping ``school_id`` on every inserted row. Runs inside the caller's
+    transaction; does not commit.
 
     Pin-flag preservation: an output placement is persisted with
     ``pinned=True`` if either (a) its ``(lesson_id, time_block_id)`` is in the
@@ -865,6 +870,8 @@ async def persist_solution_for_class(
         filtered: The solver output already narrowed to this class via
             :func:`filter_solution_for_class`. Only ``filtered["placements"]``
             is read; violations are ignored.
+        school_id: UUID of the calling user's school; scopes the delete to
+            same-school rows and stamps every inserted row.
         pinned_keys: Set of ``(lesson_id, time_block_id)`` pairs that should
             be marked ``pinned=True`` regardless of prior DB state.
     """
@@ -873,10 +880,13 @@ async def persist_solution_for_class(
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
         .where(LessonSchoolClass.school_class_id == class_id)
     )
-    existing_pin_keys = await _existing_pin_keys_for_class(db, class_id)
+    existing_pin_keys = await _existing_pin_keys_for_class(db, class_id, school_id=school_id)
     pin_lookup = (pinned_keys or set()) | existing_pin_keys
     delete_result = await db.execute(
-        delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(lesson_ids_subquery))
+        delete(ScheduledLesson).where(
+            ScheduledLesson.lesson_id.in_(lesson_ids_subquery),
+            ScheduledLesson.school_id == school_id,
+        )
     )
     # rowcount is available on CursorResult returned by DML statements;
     # ty sees Result[Any] (the base class), so we access it via getattr.
@@ -888,6 +898,7 @@ async def persist_solution_for_class(
             time_block_id=UUID(p["time_block_id"]),
             room_id=UUID(p["room_id"]),
             teacher_id=UUID(p["teacher_id"]),
+            school_id=school_id,
             pin_kind=(
                 PinKind.HARD
                 if (UUID(p["lesson_id"]), UUID(p["time_block_id"])) in pin_lookup
@@ -948,13 +959,22 @@ async def persist_supervision_assignments(
         )
 
 
-async def _existing_pin_keys_for_class(db: AsyncSession, class_id: UUID) -> set[tuple[UUID, UUID]]:
-    """Return ``(lesson_id, time_block_id)`` pairs that are pinned for this class."""
+async def _existing_pin_keys_for_class(
+    db: AsyncSession,
+    class_id: UUID,
+    *,
+    school_id: UUID,
+) -> set[tuple[UUID, UUID]]:
+    """Return ``(lesson_id, time_block_id)`` pairs that are pinned for this class.
+
+    Scoped to ``school_id`` so cross-tenant rows on the same class id are dropped.
+    """
     stmt = (
         select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id)
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == ScheduledLesson.lesson_id)
         .where(LessonSchoolClass.school_class_id == class_id)
         .where(ScheduledLesson.pin_kind.is_not(None))
+        .where(ScheduledLesson.school_id == school_id)
     )
     rows = (await db.execute(stmt)).all()
     return {(lesson_id, time_block_id) for lesson_id, time_block_id in rows}
@@ -964,6 +984,7 @@ async def persist_solution_for_all_classes(
     db: AsyncSession,
     solution: dict,
     *,
+    school_id: UUID,
     pinned_keys: set[tuple[UUID, UUID]] | None = None,
 ) -> list[ClassScheduleSummary]:
     """Persist the solution's placements for every class in one transaction.
@@ -974,8 +995,9 @@ async def persist_solution_for_all_classes(
     class.
 
     Existing ``ScheduledLesson`` rows for any lesson in the new placements are
-    deleted before the new placements are inserted (delete-then-insert). Runs
-    inside the caller's transaction; does not commit.
+    deleted before the new placements are inserted (delete-then-insert),
+    stamping ``school_id`` on every inserted row. Runs inside the caller's
+    transaction; does not commit.
 
     Pin-flag preservation: an output placement is persisted with
     ``pinned=True`` if either (a) its ``(lesson_id, time_block_id)`` is in the
@@ -983,6 +1005,9 @@ async def persist_solution_for_all_classes(
     ``pinned=True`` in the DB at the matching key before the delete. This
     keeps the spec contract "Pin state in the database is unchanged" valid
     when ``respect_pins=false`` ignores pins on the solver input.
+
+    ``school_id`` scopes the delete + insert so cross-tenant rows are never
+    touched.
     """
     placements = solution["placements"]
     violations = solution["violations"]
@@ -1010,6 +1035,7 @@ async def persist_solution_for_all_classes(
                 select(ScheduledLesson.lesson_id, ScheduledLesson.time_block_id).where(
                     ScheduledLesson.lesson_id.in_(placement_lesson_ids),
                     ScheduledLesson.pin_kind.is_not(None),
+                    ScheduledLesson.school_id == school_id,
                 )
             )
         ).all()
@@ -1020,7 +1046,10 @@ async def persist_solution_for_all_classes(
 
     if placement_lesson_ids:
         await db.execute(
-            delete(ScheduledLesson).where(ScheduledLesson.lesson_id.in_(placement_lesson_ids))
+            delete(ScheduledLesson).where(
+                ScheduledLesson.lesson_id.in_(placement_lesson_ids),
+                ScheduledLesson.school_id == school_id,
+            )
         )
 
     for p in placements:
@@ -1032,6 +1061,7 @@ async def persist_solution_for_all_classes(
                 time_block_id=time_block_uuid,
                 room_id=UUID(p["room_id"]),
                 teacher_id=UUID(p["teacher_id"]),
+                school_id=school_id,
                 pin_kind=(PinKind.HARD if (lesson_uuid, time_block_uuid) in pin_lookup else None),
             )
         )
@@ -1100,6 +1130,7 @@ async def read_schedule_for_class(
                 .where(
                     LessonSchoolClass.school_class_id == class_id,
                     Lesson.school_id == school_id,
+                    ScheduledLesson.school_id == school_id,
                 )
             )
         )
@@ -1153,7 +1184,11 @@ async def read_schedule_for_teacher(
             await db.execute(
                 select(ScheduledLesson)
                 .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
-                .where(Lesson.teacher_id == teacher_id, Lesson.school_id == school_id)
+                .where(
+                    Lesson.teacher_id == teacher_id,
+                    Lesson.school_id == school_id,
+                    ScheduledLesson.school_id == school_id,
+                )
             )
         )
         .scalars()
@@ -1249,7 +1284,11 @@ async def read_schedule_for_room(
             await db.execute(
                 select(ScheduledLesson)
                 .join(Lesson, Lesson.id == ScheduledLesson.lesson_id)
-                .where(ScheduledLesson.room_id == room_id, Lesson.school_id == school_id)
+                .where(
+                    ScheduledLesson.room_id == room_id,
+                    Lesson.school_id == school_id,
+                    ScheduledLesson.school_id == school_id,
+                )
             )
         )
         .scalars()

@@ -83,6 +83,7 @@ async def test_get_quality_issues_returns_list_with_room_hop(
                 time_block_id=tb_1.id,
                 room_id=room_a.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=None,
             ),
             ScheduledLesson(
@@ -90,6 +91,7 @@ async def test_get_quality_issues_returns_list_with_room_hop(
                 time_block_id=tb_2.id,
                 room_id=room_b.id,
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=None,
             ),
         ]

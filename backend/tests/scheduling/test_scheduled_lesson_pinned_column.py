@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.pin_kind import PinKind
 from klassenzeit_backend.db.models.scheduled_lesson import ScheduledLesson
+from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID
 
 
 @pytest.mark.asyncio
@@ -28,6 +29,7 @@ async def test_scheduled_lesson_pin_kind_defaults_none(
             time_block_id=time_block_id,
             room_id=room_id,
             teacher_id=teacher_id,
+            school_id=DEFAULT_SCHOOL_ID,
         )
     )
     await db_session.flush()
@@ -51,6 +53,7 @@ async def test_scheduled_lesson_pin_kind_round_trips_hard(
             time_block_id=time_block_id,
             room_id=room_id,
             teacher_id=teacher_id,
+            school_id=DEFAULT_SCHOOL_ID,
             pin_kind=PinKind.HARD,
         )
     )
@@ -76,6 +79,7 @@ async def test_scheduled_lesson_pin_kind_round_trips_soft(
             time_block_id=time_block_id,
             room_id=room_id,
             teacher_id=teacher_id,
+            school_id=DEFAULT_SCHOOL_ID,
             pin_kind=PinKind.SOFT,
         )
     )

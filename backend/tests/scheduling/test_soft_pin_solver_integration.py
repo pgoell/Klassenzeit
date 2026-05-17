@@ -108,6 +108,7 @@ async def test_post_schedule_routes_soft_pin_through_solver(
                 time_block_id=tb_2.id,
                 room_id=(await _first_room_id(db_session)),
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=PinKind.HARD,
             ),
             # Soft-pin lesson_soft at the same TB; the solver MUST route around
@@ -117,6 +118,7 @@ async def test_post_schedule_routes_soft_pin_through_solver(
                 time_block_id=tb_2.id,
                 room_id=(await _first_room_id(db_session)),
                 teacher_id=teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
                 pin_kind=PinKind.SOFT,
             ),
         ]
