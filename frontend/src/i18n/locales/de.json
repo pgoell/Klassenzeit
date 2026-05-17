@@ -49,6 +49,8 @@
     "schoolClasses": "Klassen",
     "stundentafeln": "Stundentafel",
     "lessons": "Unterricht",
+    "admin": "Administration",
+    "schools": "Schulen",
     "comingSoon": "Bald verfügbar"
   },
   "theme": {
@@ -211,6 +213,31 @@
       "cellAvailable": "Verfügbar am {{day}}, Stunde {{position}}",
       "cellUnavailable": "Nicht verfügbar am {{day}}, Stunde {{position}}",
       "save": "Verfügbarkeit speichern"
+    }
+  },
+  "schools": {
+    "title": "Schulen",
+    "subtitle": "Mandantenschulen, denen die Daten dieser Instanz gehören.",
+    "new": "Neue Schule",
+    "columns": {
+      "name": "Name",
+      "shortName": "Kürzel"
+    },
+    "empty": {
+      "title": "Noch keine Schulen",
+      "body": "Lege die erste Mandantenschule an, um Nutzer und Daten zu pflegen.",
+      "step1": "Schule anlegen",
+      "step2": "Admin der Schule einladen",
+      "step3": "Stammdaten anlegen"
+    },
+    "loadError": "Schulen konnten nicht geladen werden.",
+    "dialog": {
+      "createTitle": "Neue Schule",
+      "createDescription": "Eine neue Mandantenschule anlegen.",
+      "editTitle": "Schule bearbeiten",
+      "editDescription": "{{name}} aktualisieren.",
+      "deleteTitle": "Schule löschen",
+      "deleteDescription": "\"{{name}}\" wird endgültig gelöscht. Schulen mit Nutzern oder Stundenplandaten können nicht gelöscht werden."
     }
   },
   "teachers": {

@@ -11,6 +11,7 @@ import {
   LogOut,
   type LucideIcon,
   PanelLeft,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -28,9 +29,10 @@ type NavLabelKey =
   | "nav.weekSchemes"
   | "sidebar.schoolClasses"
   | "sidebar.stundentafeln"
-  | "sidebar.lessons";
+  | "sidebar.lessons"
+  | "sidebar.schools";
 
-type GroupLabelKey = "sidebar.main" | "sidebar.data";
+type GroupLabelKey = "sidebar.main" | "sidebar.data" | "sidebar.admin";
 
 interface NavItem {
   to: string;
@@ -66,11 +68,17 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const ADMIN_NAV_GROUP: NavGroup = {
+  labelKey: "sidebar.admin",
+  items: [{ to: "/schools", labelKey: "sidebar.schools", icon: ShieldCheck }],
+};
+
 export function AppSidebar() {
   const { t } = useTranslation();
   const { collapsed, toggle } = useSidebar();
   const me = useMe();
   const logout = useLogout();
+  const navGroups = me.data?.role === "admin" ? [...NAV_GROUPS, ADMIN_NAV_GROUP] : NAV_GROUPS;
 
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
 
@@ -101,7 +109,7 @@ export function AppSidebar() {
         </Button>
       </div>
 
-      {NAV_GROUPS.map((group) => (
+      {navGroups.map((group) => (
         <nav key={group.labelKey} className="flex flex-col gap-1 pb-3">
           {!collapsed ? (
             <div className="px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">

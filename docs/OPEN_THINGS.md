@@ -21,12 +21,10 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
     **Follow-ups (P2, ordered by blast radius):**
 
-    - **10b: School CRUD endpoints + admin UI.** `POST/PATCH/DELETE /schools`, admin-only, list view in the frontend. Trigger: a second customer school is being onboarded.
     - **10c: Multi-school membership.** `user_school_memberships` join table (M:N) with `active_school_id` on `sessions`. Frontend school picker in the sidebar. Trigger: a user (e.g. a contracted instructional coach) needs access to multiple schools.
-    - **10d: Multi-school Playwright E2E suite.** Two-school fixture exercising cross-school isolation through the UI. Trigger: 10b is green.
+    - **10d: Multi-school Playwright E2E suite.** Two-school fixture exercising cross-school isolation through the UI. Trigger: ready.
     - **10e: Cross-school super-admin role.** A role flag on `User` granting visibility across schools (for support and analytics). Trigger: deferred until support workflows require it.
     - **10f: Tenanted reference-data question.** Decide whether `Subject` is per-school or a shared catalog; same question for `PinKind`. Trigger: customer onboarding surfaces a school whose subject list differs materially from the default.
-    - **10g: Rename the default school.** Provide an operator runbook entry (or admin UI) for `UPDATE schools SET name = '<school name>' WHERE id = '00000000-0000-0000-0000-000000000001'`. Trigger: first customer-school onboarding.
 
 83. **CP-SAT cannot solve dreizuegig at 60s budget.** 2026-05-15 production refresh confirms CP-SAT pinned + unpinned both return 0/20 feasibility on dreizuegig (median 294 hard violations, 0 placements). Stable across 2026-05-12 and 2026-05-15. CP-SAT distinguishes INFEASIBLE from UNKNOWN by wall-clock per `solver/CLAUDE.md`; 60s × 547MB peak RSS (pinned) and 65s × 2.4GB peak RSS (unpinned, model-fan-out from teacher widening) suggests OR-Tools' CP-SAT search did not find a first-feasible within the budget. Options: (a) widen `solve_deadline_ms` for `cpsat` on dreizuegig-shaped inputs (per ADR 0038 widening shape), (b) model-level reductions (AllDifferentExcept, redundant constraint set, presolve tuning), (c) accept CP-SAT as Grundschule-only and route dreizuegig through LAHC always (matches ADR 0037 production default). Trigger: opportunistic on CP-SAT pass, or when dreizuegig-shaped customer school surfaces with LAHC-quality insufficient. Anchor: ADR 0030.
 

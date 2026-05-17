@@ -5,8 +5,10 @@ from fastapi import APIRouter
 from klassenzeit_backend.auth.routes.admin import router as admin_router
 from klassenzeit_backend.auth.routes.login import router as login_router
 from klassenzeit_backend.auth.routes.me import router as me_router
+from klassenzeit_backend.auth.routes.schools import router as schools_router
 
 auth_router = APIRouter()
 auth_router.include_router(login_router)
 auth_router.include_router(me_router)
 auth_router.include_router(admin_router)
+auth_router.include_router(schools_router)
