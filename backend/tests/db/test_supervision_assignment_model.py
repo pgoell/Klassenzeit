@@ -47,7 +47,9 @@ async def _make_break_block_and_teacher(db_session) -> tuple[TimeBlock, Teacher]
 async def test_supervision_assignment_round_trip(db_session):
     block, teacher = await _make_break_block_and_teacher(db_session)
 
-    row = SupervisionAssignment(time_block_id=block.id, teacher_id=teacher.id)
+    row = SupervisionAssignment(
+        time_block_id=block.id, teacher_id=teacher.id, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(row)
     await db_session.flush()
     await db_session.refresh(row)
@@ -62,7 +64,9 @@ async def test_supervision_assignment_round_trip(db_session):
 async def test_supervision_assignment_time_block_unique(db_session):
     block, teacher = await _make_break_block_and_teacher(db_session)
 
-    first = SupervisionAssignment(time_block_id=block.id, teacher_id=teacher.id)
+    first = SupervisionAssignment(
+        time_block_id=block.id, teacher_id=teacher.id, school_id=DEFAULT_SCHOOL_ID
+    )
     db_session.add(first)
     await db_session.flush()
 
@@ -78,6 +82,10 @@ async def test_supervision_assignment_time_block_unique(db_session):
 
     with pytest.raises(IntegrityError):
         async with db_session.begin_nested():
-            duplicate = SupervisionAssignment(time_block_id=block.id, teacher_id=second_teacher.id)
+            duplicate = SupervisionAssignment(
+                time_block_id=block.id,
+                teacher_id=second_teacher.id,
+                school_id=DEFAULT_SCHOOL_ID,
+            )
             db_session.add(duplicate)
             await db_session.flush()

@@ -15,6 +15,7 @@ class SupervisionAssignment(Base):
 
     The solver writes one row per Hofpause per solve; the UNIQUE constraint
     on ``time_block_id`` enforces at most one supervisor per break.
+    School-scoped via ``school_id`` for multi-tenant isolation (ADR 0045).
     """
 
     __tablename__ = "supervision_assignments"
@@ -32,6 +33,12 @@ class SupervisionAssignment(Base):
         UUID(as_uuid=True),
         ForeignKey("teachers.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    school_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id"),
+        nullable=False,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

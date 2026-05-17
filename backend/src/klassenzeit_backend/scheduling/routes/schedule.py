@@ -135,7 +135,9 @@ async def generate_schedule_for_class(
             )
         )
     ).scalar_one()
-    await solver_io.persist_supervision_assignments(db, week_scheme_id, solution)
+    await solver_io.persist_supervision_assignments(
+        db, week_scheme_id, solution, school_id=current_user.school_id
+    )
     await db.commit()
     quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
     return ScheduleResponse.model_validate(
@@ -295,7 +297,7 @@ async def read_schedule_for_teacher_route(
         db, teacher_id, school_id=current_user.school_id
     )
     supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
-        db, teacher_id
+        db, teacher_id, school_id=current_user.school_id
     )
     quality_report = await compute_quality_attribution_for_teacher(
         db, teacher_id, school_id=current_user.school_id
