@@ -14,6 +14,7 @@ from klassenzeit_backend.auth.dependencies import (
     load_accessible_schools,
     require_super_admin,
 )
+from klassenzeit_backend.auth.sessions import create_session
 from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID, School
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
@@ -67,53 +68,96 @@ async def test_is_super_admin_returns_true_only_for_super_admin_role() -> None:
     assert is_super_admin(sa) is True
 
 
-@pytest.mark.anyio
-async def test_scope_school_id_for_non_super_admin_ignores_query_param(
+async def _persist_admin(
+    db: AsyncSession,
+    *,
+    email: str,
+    role: str,
+    school_id: uuid.UUID,
+) -> User:
+    """Persist an admin/super-admin user so a session can FK to it."""
+    user = User(
+        email=email,
+        password_hash="x",  # noqa: S106
+        role=role,
+        school_id=school_id,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_scope_school_id_returns_session_active_school_for_admin(
     db_session: AsyncSession,
 ) -> None:
-    """Non-super-admin: school_id query param is ignored; returns current_user.school_id."""
-    school_b = School(name="Schule B", short_name="SB")
+    """A plain admin's session.active_school_id (their home) drives the scope."""
+    admin = await _persist_admin(
+        db_session, email="scope-admin@x", role="admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    session = await create_session(db_session, admin.id, active_school_id=admin.school_id)
+
+    result = await get_scope_school_id(user=admin, db=db_session, kz_session=str(session.id))
+    assert result == DEFAULT_SCHOOL_ID
+
+
+@pytest.mark.asyncio
+async def test_scope_school_id_returns_session_active_school_for_super_admin(
+    db_session: AsyncSession,
+) -> None:
+    """Super-admin's session active_school_id can be a non-home school."""
+    school_b = School(name="Schule B scope", short_name="SBS")
     db_session.add(school_b)
     await db_session.flush()
-    admin = await _make_scoped_user(role="admin", school_id=DEFAULT_SCHOOL_ID)
+    sa = await _persist_admin(
+        db_session, email="scope-sa@x", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    session = await create_session(db_session, sa.id, active_school_id=school_b.id)
 
-    # No param.
-    result = await get_scope_school_id(user=admin, db=db_session, school_id=None)
-    assert result == DEFAULT_SCHOOL_ID
-    # Param pointing at other school — ignored.
-    result = await get_scope_school_id(user=admin, db=db_session, school_id=school_b.id)
-    assert result == DEFAULT_SCHOOL_ID
-
-
-@pytest.mark.anyio
-async def test_scope_school_id_for_super_admin_no_param_returns_home(
-    db_session: AsyncSession,
-) -> None:
-    sa = await _make_scoped_user(role="super_admin", school_id=DEFAULT_SCHOOL_ID)
-    result = await get_scope_school_id(user=sa, db=db_session, school_id=None)
-    assert result == DEFAULT_SCHOOL_ID
-
-
-@pytest.mark.anyio
-async def test_scope_school_id_for_super_admin_with_other_school_returns_other(
-    db_session: AsyncSession,
-) -> None:
-    school_b = School(name="Schule B 2", short_name="SB2")
-    db_session.add(school_b)
-    await db_session.flush()
-    sa = await _make_scoped_user(role="super_admin", school_id=DEFAULT_SCHOOL_ID)
-    result = await get_scope_school_id(user=sa, db=db_session, school_id=school_b.id)
+    result = await get_scope_school_id(user=sa, db=db_session, kz_session=str(session.id))
     assert result == school_b.id
 
 
-@pytest.mark.anyio
-async def test_scope_school_id_for_super_admin_with_nonexistent_school_raises_404(
+@pytest.mark.asyncio
+async def test_scope_school_id_missing_cookie_returns_401(
     db_session: AsyncSession,
 ) -> None:
-    sa = await _make_scoped_user(role="super_admin", school_id=DEFAULT_SCHOOL_ID)
+    admin = await _persist_admin(
+        db_session,
+        email="scope-no-cookie@x",
+        role="admin",
+        school_id=DEFAULT_SCHOOL_ID,
+    )
     with pytest.raises(HTTPException) as exc:
-        await get_scope_school_id(user=sa, db=db_session, school_id=uuid.uuid4())
-    assert exc.value.status_code == 404
+        await get_scope_school_id(user=admin, db=db_session, kz_session=None)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_scope_school_id_invalid_cookie_returns_401(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _persist_admin(
+        db_session, email="scope-bad@x", role="admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    with pytest.raises(HTTPException) as exc:
+        await get_scope_school_id(user=admin, db=db_session, kz_session="not-a-uuid")
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_scope_school_id_unknown_session_returns_401(
+    db_session: AsyncSession,
+) -> None:
+    admin = await _persist_admin(
+        db_session,
+        email="scope-no-row@x",
+        role="admin",
+        school_id=DEFAULT_SCHOOL_ID,
+    )
+    with pytest.raises(HTTPException) as exc:
+        await get_scope_school_id(user=admin, db=db_session, kz_session=str(uuid.uuid4()))
+    assert exc.value.status_code == 401
 
 
 @pytest.mark.anyio

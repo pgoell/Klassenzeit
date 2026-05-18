@@ -8,8 +8,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.db.models.room import Room
 from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID, School
+from klassenzeit_backend.db.models.session import UserSession
 
 pytestmark = pytest.mark.anyio
+
+
+async def _set_active_school_for_room_tenancy(
+    db: AsyncSession, client: AsyncClient, active_school_id: uuid.UUID
+) -> None:
+    """Override the active_school_id on the cookie's session row.
+
+    Simulates a future ``POST /auth/switch-school`` call: super-admins
+    operate in a different scope by switching the session, not by URL
+    parameter (item 10c).
+    """
+    cookie = client.cookies.get("kz_session")
+    assert cookie is not None
+    session = await db.get(UserSession, uuid.UUID(cookie))
+    assert session is not None
+    session.active_school_id = active_school_id
+    await db.flush()
 
 
 @pytest.fixture
@@ -198,14 +216,14 @@ async def test_super_admin_no_param_sees_home_rooms_only(
     assert "SA B Room" not in names
 
 
-async def test_super_admin_with_other_school_param_sees_other_school_rooms(
+async def test_super_admin_with_active_school_sees_other_school_rooms(
     client: AsyncClient,
     db_session: AsyncSession,
     school_b: School,
     create_test_user,
     login_as,
 ) -> None:
-    """Super-admin with ?school_id=<other> sees the other school's rooms."""
+    """Super-admin with session.active_school_id=<other> sees the other school's rooms."""
     sa, password = await create_test_user(
         email="sa-room-other@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
     )
@@ -215,25 +233,12 @@ async def test_super_admin_with_other_school_param_sees_other_school_rooms(
     await db_session.flush()
 
     await login_as(sa.email, password)
-    response = await client.get(f"/api/rooms?school_id={school_b.id}")
+    await _set_active_school_for_room_tenancy(db_session, client, school_b.id)
+    response = await client.get("/api/rooms")
     assert response.status_code == 200
     names = {row["name"] for row in response.json()}
     assert "Pick Me B" in names
     assert "Skip Me A" not in names
-
-
-async def test_super_admin_with_nonexistent_school_param_returns_404(
-    client: AsyncClient,
-    create_test_user,
-    login_as,
-) -> None:
-    """Super-admin with ?school_id=<nonexistent-uuid> gets 404."""
-    sa, password = await create_test_user(
-        email="sa-room-404@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
-    )
-    await login_as(sa.email, password)
-    response = await client.get(f"/api/rooms?school_id={uuid.uuid4()}")
-    assert response.status_code == 404
 
 
 async def test_admin_with_other_school_param_is_ignored(
@@ -260,20 +265,21 @@ async def test_admin_with_other_school_param_is_ignored(
     assert "Admin Other" not in names
 
 
-async def test_super_admin_post_with_other_school_param_writes_to_other(
+async def test_super_admin_post_with_active_school_writes_to_other(
     client: AsyncClient,
     db_session: AsyncSession,
     school_b: School,
     create_test_user,
     login_as,
 ) -> None:
-    """Super-admin POST /rooms with ?school_id=<other> stamps the new row with that school's id."""
+    """Super-admin POST /rooms with session.active_school_id=<other> stamps that school's id."""
     sa, password = await create_test_user(
         email="sa-room-post@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
     )
     await login_as(sa.email, password)
+    await _set_active_school_for_room_tenancy(db_session, client, school_b.id)
     response = await client.post(
-        f"/api/rooms?school_id={school_b.id}",
+        "/api/rooms",
         json={"name": "SA Wrote In B", "short_name": "SAWB"},
     )
     assert response.status_code == 201
