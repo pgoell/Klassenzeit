@@ -22,7 +22,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
     **Follow-ups (P2, ordered by blast radius):**
 
     - **10g: Audit log of super-admin cross-school writes.** Capture (super_admin_id, target_school_id, route, payload_summary, timestamp) for every write where `scope_school_id != current_user.school_id`. Trigger: a second super-admin user is provisioned, or compliance asks for the trail.
-    - **10h: Tighten `/schools` admin visibility.** Today admin of school A sees all schools' names/IDs via `GET /schools` because the schools table is the tenant root. Decide whether admin should see only their own school via a new `GET /schools/me`, and whether the full listing remains super-admin only. Trigger: a customer raises information-disclosure concerns about school directory leakage.
     - **10i: API endpoint to promote / demote super-admin.** Today operators promote via psql. A `POST /admin/users/{id}/role` endpoint gated by `require_super_admin` would let support staff manage the role without DB access. Trigger: support staff needs to provision a new super-admin without engineering hands-on time.
     - **10j: API endpoint to grant / revoke school memberships.** Today operators wire memberships via psql. A `POST /admin/users/{id}/memberships` + `DELETE /admin/users/{id}/memberships/{school_id}` pair gated by `require_super_admin` would let support staff manage memberships without DB access. Trigger: support staff needs to provision a coach with multi-school access without engineering hands-on time. Anchor: ADR 0046.
 
