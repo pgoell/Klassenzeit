@@ -21,11 +21,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import Cookie, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.sessions import lookup_session
 from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
 from klassenzeit_backend.db.session import get_session
 
 
@@ -103,3 +105,56 @@ async def get_scope_school_id(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return school_id
+
+
+async def _load_membership_school_ids(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> set[uuid.UUID]:
+    """Return the set of school_ids in ``user_school_memberships`` for ``user_id``."""
+    result = await db.execute(
+        select(UserSchoolMembership.school_id).where(UserSchoolMembership.user_id == user_id)
+    )
+    return set(result.scalars().all())
+
+
+async def load_accessible_schools(
+    db: AsyncSession,
+    user: User,
+) -> list[School]:
+    """Return all schools the user can access.
+
+    Super-admins see every school. Regular users see their home school
+    plus any explicit memberships.
+    """
+    if is_super_admin(user):
+        result = await db.execute(select(School).order_by(School.name))
+        return list(result.scalars().all())
+
+    accessible_ids: set[uuid.UUID] = {user.school_id} | (
+        await _load_membership_school_ids(db, user.id)
+    )
+    result = await db.execute(
+        select(School).where(School.id.in_(accessible_ids)).order_by(School.name)
+    )
+    return list(result.scalars().all())
+
+
+async def is_accessible_school(
+    db: AsyncSession,
+    user: User,
+    school_id: uuid.UUID,
+) -> bool:
+    """True if ``user`` can operate within ``school_id``.
+
+    Super-admins may operate in any *existing* school. Regular users
+    are limited to their home school plus explicit memberships.
+    """
+    if is_super_admin(user):
+        target = await db.get(School, school_id)
+        return target is not None
+
+    if school_id == user.school_id:
+        return True
+    membership_school_ids = await _load_membership_school_ids(db, user.id)
+    return school_id in membership_school_ids
