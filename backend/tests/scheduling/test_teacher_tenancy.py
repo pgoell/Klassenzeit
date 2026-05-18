@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school import DEFAULT_SCHOOL_ID, School
+from klassenzeit_backend.db.models.session import UserSession
 from klassenzeit_backend.db.models.stundentafel import StundentafelEntry
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
 from klassenzeit_backend.scheduling.quality_checks import (
@@ -334,21 +335,31 @@ async def test_generate_lessons_qualified_teacher_check_scoped_to_school(
     assert str(subject.id) in detail["subject_ids"]
 
 
-async def test_super_admin_with_other_school_param_sees_other_teachers(
+async def test_super_admin_with_active_school_sees_other_teachers(
     client: AsyncClient,
+    db_session: AsyncSession,
     school_b_teachers,
     create_teacher,
     create_test_user,
     login_as,
 ) -> None:
-    """Super-admin with ?school_id=<other> sees the other school's teachers."""
+    """Super-admin with session.active_school_id=<other> sees the other school's teachers."""
     sa, password = await create_test_user(
         email="sa-teacher-other@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
     )
     home_teacher = await create_teacher(short_code="HOM")
     other_teacher = await create_teacher(short_code="OTH", school_id=school_b_teachers.id)
     await login_as(sa.email, password)
-    response = await client.get(f"/api/teachers?school_id={school_b_teachers.id}")
+    # Mutate the cookie session's active_school_id (simulates POST /auth/switch-school
+    # before that endpoint ships in a follow-up bundle).
+    cookie = client.cookies.get("kz_session")
+    assert cookie is not None
+    session = await db_session.get(UserSession, uuid.UUID(cookie))
+    assert session is not None
+    session.active_school_id = school_b_teachers.id
+    await db_session.flush()
+
+    response = await client.get("/api/teachers")
     assert response.status_code == 200
     ids = {row["id"] for row in response.json()}
     assert str(other_teacher.id) in ids
@@ -376,21 +387,21 @@ async def test_super_admin_no_param_sees_home_teachers_only(
     assert str(other_teacher.id) not in ids
 
 
-async def test_admin_with_other_school_param_is_ignored_on_teachers(
+async def test_admin_without_switch_sees_home_school_teachers_only(
     client: AsyncClient,
     school_b_teachers,
     create_teacher,
     create_test_user,
     login_as,
 ) -> None:
-    """Plain admin with ?school_id=<other> still sees home school's teachers only."""
+    """Plain admin sees home school's teachers only; session active_school = home."""
     admin, password = await create_test_user(
-        email="admin-teacher-ignore@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+        email="admin-teacher-home@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
     )
     home_teacher = await create_teacher(short_code="AHM")
     other_teacher = await create_teacher(short_code="AOT", school_id=school_b_teachers.id)
     await login_as(admin.email, password)
-    response = await client.get(f"/api/teachers?school_id={school_b_teachers.id}")
+    response = await client.get("/api/teachers")
     assert response.status_code == 200
     ids = {row["id"] for row in response.json()}
     assert str(home_teacher.id) in ids

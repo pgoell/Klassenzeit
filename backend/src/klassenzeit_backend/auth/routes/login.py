@@ -55,7 +55,12 @@ async def login(
     rate_limiter.reset(email)
 
     user.last_login_at = datetime.now(UTC)
-    session = await create_session(db, user.id, ttl_days=settings.session_ttl_days)
+    session = await create_session(
+        db,
+        user.id,
+        active_school_id=user.school_id,
+        ttl_days=settings.session_ttl_days,
+    )
     await db.commit()
 
     response.set_cookie(

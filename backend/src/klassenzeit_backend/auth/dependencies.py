@@ -10,22 +10,23 @@ strict superset of admin within the currently scoped school).
 ``require_super_admin`` accepts only super-admin users; exported for
 super-admin-only endpoints.
 
-``get_scope_school_id`` resolves the per-request operating school. For
-non-super-admin users the ``school_id`` query parameter is ignored and
-the user's home school is returned. For super-admin users the parameter
-selects the operating school (404 if it points at a nonexistent row);
-absent, the home school is returned.
+``get_scope_school_id`` resolves the per-request operating school from
+``session.active_school_id``. Validation against accessible schools
+runs at session-create (login) and at every switch (POST
+``/auth/switch-school``); no per-request re-validation is performed.
 """
 
 import uuid
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, Query, status
+from fastapi import Cookie, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from klassenzeit_backend.auth.sessions import lookup_session
 from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
 from klassenzeit_backend.db.session import get_session
 
 
@@ -79,27 +80,85 @@ async def require_super_admin(
 async def get_scope_school_id(
     user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
-    school_id: Annotated[uuid.UUID | None, Query()] = None,
+    kz_session: Annotated[str | None, Cookie()] = None,
 ) -> uuid.UUID:
-    """Resolve the per-request operating school.
+    """Resolve the per-request operating school from the user's session.
 
-    Non-super-admin users: the ``school_id`` query parameter is ignored
-    and ``user.school_id`` (the user's home school) is returned. The
-    admin gate runs via ``require_admin``.
+    Reads ``session.active_school_id``. The session was validated
+    against accessible schools at creation (login) and at every switch
+    via ``POST /auth/switch-school``, so no per-request re-validation
+    is performed.
 
-    Super-admin users: if ``school_id`` is provided, the row is loaded
-    (404 if absent) and that id is returned. If not provided, the home
-    school is returned.
+    The ``?school_id=<uuid>`` URL pattern that used to live here was
+    superseded by the sidebar school picker (item 10c). Removing it
+    keeps a single source of truth for the request scope.
 
-    Never mutates ``user``; ``user.school_id`` stays as the authenticated
-    user's home school for audit purposes. The returned UUID is the
-    per-request operating scope.
+    ``user`` is unused inside the body but is kept in the signature to
+    drive the transitive ``require_admin`` dependency (which itself
+    chains ``get_current_user``); FastAPI caches the chain so there is
+    no duplicate DB load.
     """
-    if not is_super_admin(user):
-        return user.school_id
-    if school_id is None:
-        return user.school_id
-    target = await db.get(School, school_id)
-    if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return school_id
+    del user  # documented above; the dependency is for the admin gate
+    if kz_session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    try:
+        session_id = uuid.UUID(kz_session)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED) from None
+    session = await lookup_session(db, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    return session.active_school_id
+
+
+async def _load_membership_school_ids(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> set[uuid.UUID]:
+    """Return the set of school_ids in ``user_school_memberships`` for ``user_id``."""
+    result = await db.execute(
+        select(UserSchoolMembership.school_id).where(UserSchoolMembership.user_id == user_id)
+    )
+    return set(result.scalars().all())
+
+
+async def load_accessible_schools(
+    db: AsyncSession,
+    user: User,
+) -> list[School]:
+    """Return all schools the user can access.
+
+    Super-admins see every school. Regular users see their home school
+    plus any explicit memberships.
+    """
+    if is_super_admin(user):
+        result = await db.execute(select(School).order_by(School.name))
+        return list(result.scalars().all())
+
+    accessible_ids: set[uuid.UUID] = {user.school_id} | (
+        await _load_membership_school_ids(db, user.id)
+    )
+    result = await db.execute(
+        select(School).where(School.id.in_(accessible_ids)).order_by(School.name)
+    )
+    return list(result.scalars().all())
+
+
+async def is_accessible_school(
+    db: AsyncSession,
+    user: User,
+    school_id: uuid.UUID,
+) -> bool:
+    """True if ``user`` can operate within ``school_id``.
+
+    Super-admins may operate in any *existing* school. Regular users
+    are limited to their home school plus explicit memberships.
+    """
+    if is_super_admin(user):
+        target = await db.get(School, school_id)
+        return target is not None
+
+    if school_id == user.school_id:
+        return True
+    membership_school_ids = await _load_membership_school_ids(db, user.id)
+    return school_id in membership_school_ids

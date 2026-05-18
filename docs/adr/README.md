@@ -69,3 +69,4 @@ sections, and add the new entry to the index below.
 | 0043 | [Bump class_day_balance weight to clear LAHC day-spread bar](0043-class-day-balance-weight-bump.md) | Accepted |
 | 0044 | [Schwimmunterricht travel buffer enforcement](0044-schwimm-travel-buffer.md) | Accepted |
 | 0045 | [Multi-school tenancy (tracer bullet)](0045-multi-school-tenancy.md) | Accepted |
+| 0046 | [Multi-school membership](0046-multi-school-membership.md) | Accepted |

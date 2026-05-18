@@ -17,11 +17,14 @@ from klassenzeit_backend.db.models.session import UserSession
 async def create_session(
     db: AsyncSession,
     user_id: uuid.UUID,
+    *,
+    active_school_id: uuid.UUID,
     ttl_days: int = 14,
 ) -> UserSession:
-    """Create a new session for the given user."""
+    """Create a new session for the given user with an initial active school."""
     session = UserSession(
         user_id=user_id,
+        active_school_id=active_school_id,
         expires_at=datetime.now(UTC) + timedelta(days=ttl_days),
     )
     db.add(session)
