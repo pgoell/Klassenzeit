@@ -229,32 +229,34 @@ export interface paths {
         };
         /**
          * List Subjects
-         * @description Return all subjects in the current user's school, ordered by name.
+         * @description Return all subjects in the current operating school, ordered by name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *
          *     Returns:
-         *         List of subjects in the user's school sorted alphabetically by name.
+         *         List of subjects in the operating school sorted alphabetically by name.
          */
         get: operations["list_subjects_api_subjects_get"];
         put?: never;
         /**
          * Create Subject Route
-         * @description Create a new subject in the requesting user's school.
+         * @description Create a new subject in the current operating school.
          *
          *     Args:
          *         body: Name, short_name, and color for the new subject.
-         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created subject as a SubjectResponse.
          *
          *     Raises:
          *         HTTPException: 409 if name or short_name conflicts with an existing
-         *             subject in the user's school.
+         *             subject in the operating school.
          */
         post: operations["create_subject_route_api_subjects_post"];
         delete?: never;
@@ -272,33 +274,35 @@ export interface paths {
         };
         /**
          * Get Subject
-         * @description Fetch a single subject by ID, scoped to the user's school.
+         * @description Fetch a single subject by ID, scoped to the operating school.
          *
          *     Args:
          *         subject_id: UUID path parameter identifying the subject.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The matching subject as a SubjectResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists in the user's school.
+         *         HTTPException: 404 if no subject with that ID exists in the operating school.
          */
         get: operations["get_subject_api_subjects__subject_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete Subject
-         * @description Delete a subject by ID, scoped to the user's school.
+         * @description Delete a subject by ID, scoped to the operating school.
          *
          *     Args:
          *         subject_id: UUID path parameter identifying the subject to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists in the user's school.
+         *         HTTPException: 404 if no subject with that ID exists in the operating school.
          *         HTTPException: 409 if the subject is referenced by other records (FK protection).
          */
         delete: operations["delete_subject_api_subjects__subject_id__delete"];
@@ -311,14 +315,15 @@ export interface paths {
          *     Args:
          *         subject_id: UUID path parameter identifying the subject to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated subject as a SubjectResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no subject with that ID exists in the user's school.
+         *         HTTPException: 404 if no subject with that ID exists in the operating school.
          *         HTTPException: 409 if the new name or short_name conflicts.
          */
         patch: operations["update_subject_api_subjects__subject_id__patch"];
@@ -333,26 +338,27 @@ export interface paths {
         };
         /**
          * List Week Schemes
-         * @description Return all week schemes in the current user's school ordered by name.
+         * @description Return all week schemes in the current operating school ordered by name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *
          *     Returns:
-         *         List of week schemes in the user's school sorted alphabetically by name.
+         *         List of week schemes in the operating school sorted alphabetically by name.
          */
         get: operations["list_week_schemes_api_week_schemes_get"];
         put?: never;
         /**
          * Create Week Scheme Route
-         * @description Create a new week scheme in the current user's school.
+         * @description Create a new week scheme in the current operating school.
          *
          *     Args:
          *         body: Name and optional description for the new week scheme.
-         *         current_user: Injected admin user; stamps ``school_id`` from the
-         *             current user onto the new row.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created week scheme as a WeekSchemeListResponse.
@@ -380,14 +386,15 @@ export interface paths {
          *
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The matching week scheme with nested time blocks as a WeekSchemeDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
+         *         HTTPException: 404 if no week scheme with that ID exists in the operating school.
          */
         get: operations["get_week_scheme_route_api_week_schemes__scheme_id__get"];
         put?: never;
@@ -398,11 +405,12 @@ export interface paths {
          *
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
+         *         HTTPException: 404 if no week scheme with that ID exists in the operating school.
          *         HTTPException: 409 if the scheme is referenced by classes (FK protection).
          */
         delete: operations["delete_week_scheme_route_api_week_schemes__scheme_id__delete"];
@@ -415,14 +423,15 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the week scheme to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated week scheme as a WeekSchemeListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no week scheme with that ID exists in the user's school.
+         *         HTTPException: 404 if no week scheme with that ID exists in the operating school.
          *         HTTPException: 409 if the new name conflicts with an existing scheme.
          */
         patch: operations["update_week_scheme_route_api_week_schemes__scheme_id__patch"];
@@ -444,15 +453,15 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         body: day_of_week, position, start_time, and end_time for the new block.
-         *         current_user: Injected admin user; the parent scheme is gated by their
-         *             school before the time block is created.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; the parent scheme is gated by this scope.
          *
          *     Returns:
          *         The created time block as a TimeBlockResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if the week scheme does not exist in the user's school.
+         *         HTTPException: 404 if the week scheme does not exist in the operating school.
          *         HTTPException: 409 if a block with the same day_of_week+position already exists.
          */
         post: operations["create_time_block_route_api_week_schemes__scheme_id__time_blocks_post"];
@@ -479,9 +488,9 @@ export interface paths {
          *     Args:
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         block_id: UUID path parameter identifying the time block to delete.
-         *         current_user: Injected admin user; the parent scheme is gated by their
-         *             school before the time block is deleted.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; the parent scheme is gated by this scope.
          *
          *     Raises:
          *         HTTPException: 404 if the parent scheme is in a different school, or if
@@ -499,9 +508,9 @@ export interface paths {
          *         scheme_id: UUID path parameter identifying the parent week scheme.
          *         block_id: UUID path parameter identifying the time block to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; the parent scheme is gated by their
-         *             school before the time block is patched.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; the parent scheme is gated by this scope.
          *
          *     Returns:
          *         The updated time block as a TimeBlockResponse.
@@ -523,27 +532,28 @@ export interface paths {
         };
         /**
          * List Rooms
-         * @description Return all rooms in the current user's school, ordered by name.
+         * @description Return all rooms in the current operating school, ordered by name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *
          *     Returns:
-         *         List of rooms in the user's school sorted alphabetically by name
+         *         List of rooms in the operating school sorted alphabetically by name
          *         (no nested suitability or availability).
          */
         get: operations["list_rooms_api_rooms_get"];
         put?: never;
         /**
          * Create Room Route
-         * @description Create a new room scoped to the current user's school.
+         * @description Create a new room scoped to the current operating school.
          *
          *     Args:
          *         body: Name, short_name, and capacity for the new room.
-         *         current_user: Injected admin user; the new room's ``school_id`` is
-         *             stamped from ``current_user.school_id``.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created room as a RoomListResponse.
@@ -568,35 +578,37 @@ export interface paths {
         };
         /**
          * Get Room
-         * @description Fetch a single room by ID, scoped to the user's school, with suitability and availability.
+         * @description Fetch a single room by ID, scoped to the operating school.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The matching room with nested suitability and availability as a RoomDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists in the user's school.
+         *         HTTPException: 404 if no room with that ID exists in the operating school.
          */
         get: operations["get_room_api_rooms__room_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete Room Route
-         * @description Delete a room by ID, scoped to the user's school.
+         * @description Delete a room by ID, scoped to the operating school.
          *
          *     Suitability and availability rows are removed automatically by FK ondelete CASCADE.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists in the user's school.
+         *         HTTPException: 404 if no room with that ID exists in the operating school.
          *         HTTPException: 409 if the room is referenced by other records (FK protection).
          */
         delete: operations["delete_room_route_api_rooms__room_id__delete"];
@@ -604,19 +616,20 @@ export interface paths {
         head?: never;
         /**
          * Update Room Route
-         * @description Partially update a room's fields, scoped to the user's school.
+         * @description Partially update a room's fields, scoped to the operating school.
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated room as a RoomListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists in the user's school.
+         *         HTTPException: 404 if no room with that ID exists in the operating school.
          *         HTTPException: 409 if the new name or short_name conflicts.
          */
         patch: operations["update_room_route_api_rooms__room_id__patch"];
@@ -632,7 +645,7 @@ export interface paths {
         get?: never;
         /**
          * Replace Room Suitability
-         * @description Replace the entire suitability subject list for a room, scoped to the user's school.
+         * @description Replace the entire suitability subject list for a room, scoped to the operating school.
          *
          *     Deletes all existing RoomSubjectSuitability rows for the room and inserts
          *     new ones from the supplied subject_ids list. Deduplicates input server-side.
@@ -640,14 +653,15 @@ export interface paths {
          *     Args:
          *         room_id: UUID path parameter identifying the room.
          *         body: List of subject UUIDs that define the new suitability set.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated room detail including the new suitability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists in the user's school.
+         *         HTTPException: 404 if no room with that ID exists in the operating school.
          *         HTTPException: 400 if any subject_id does not exist; body contains
          *             ``missing_subject_ids`` list.
          */
@@ -669,7 +683,7 @@ export interface paths {
         get?: never;
         /**
          * Replace Room Availability
-         * @description Replace the entire availability time block list for a room, scoped to the user's school.
+         * @description Replace the entire availability time block list for a room, scoped to the operating school.
          *
          *     Deletes all existing RoomAvailability rows for the room and inserts new
          *     ones from the supplied time_block_ids list.
@@ -677,14 +691,15 @@ export interface paths {
          *     Args:
          *         room_id: UUID path parameter identifying the room.
          *         body: List of time block UUIDs that define the new availability set.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated room detail including the new availability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no room with that ID exists in the user's school.
+         *         HTTPException: 404 if no room with that ID exists in the operating school.
          *         HTTPException: 409 if any time_block_id is invalid (FK violation).
          */
         put: operations["replace_room_availability_api_rooms__room_id__availability_put"];
@@ -708,15 +723,16 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         current_user: Injected admin user; scopes the class lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         ``ScheduleReadResponse`` with the class's persisted placements. Empty
          *         ``placements`` means the class exists but has never been scheduled.
          *
          *     Raises:
-         *         HTTPException: 404 if the class doesn't exist in the user's school.
+         *         HTTPException: 404 if the class doesn't exist in the operating school.
          */
         get: operations["read_schedule_for_class_route_api_classes__class_id__schedule_get"];
         put?: never;
@@ -728,8 +744,9 @@ export interface paths {
          *         class_id: UUID path parameter identifying the school class.
          *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
          *             ``app.state.settings``.
-         *         current_user: Injected admin user; scopes the room query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the solver IO.
          *
          *     Returns:
          *         ``ScheduleResponse`` with placements and violations scoped to this class.
@@ -768,8 +785,9 @@ export interface paths {
          *
          *     Args:
          *         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
-         *         current_user: Injected admin user; scopes the room query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the solver IO.
          *         respect_pins: When true, pinned rows are threaded as solver input
          *             pins. Defaults to true.
          *
@@ -806,14 +824,15 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         current_user: Injected admin user; scopes the class lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         ``list[QualityIssueResponse]``; empty when no issues apply.
          *
          *     Raises:
-         *         HTTPException: 404 if the class doesn't exist in the user's school.
+         *         HTTPException: 404 if the class doesn't exist in the operating school.
          */
         get: operations["read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get"];
         put?: never;
@@ -837,9 +856,10 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
-         *         current_user: Injected admin user; passes school_id through to
-         *             quality attribution so the lookup is tenant-scoped.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; passed through to quality attribution
+         *             so the lookup is tenant-scoped.
          *
          *     Returns:
          *         ``ScheduleReadResponse`` with the teacher's persisted placements and the
@@ -923,16 +943,17 @@ export interface paths {
          *
          *     Args:
          *         room_id: UUID path parameter identifying the room.
-         *         current_user: Injected admin user; scopes the room lookup and the
-         *             placement join through ``Lesson.school_id``.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the room lookup and the
+         *             placement join through ``Lesson.school_id``.
          *
          *     Returns:
          *         ``ScheduleReadResponse`` with the room's persisted placements. Empty
          *         ``placements`` means the room exists but has no scheduled lessons yet.
          *
          *     Raises:
-         *         HTTPException: 404 if the room doesn't exist in the user's school.
+         *         HTTPException: 404 if the room doesn't exist in the operating school.
          */
         get: operations["read_schedule_for_room_route_api_rooms__room_id__schedule_get"];
         put?: never;
@@ -952,11 +973,12 @@ export interface paths {
         };
         /**
          * List Teachers
-         * @description Return teachers in the requesting user's school ordered by last name.
+         * @description Return teachers in the current operating school ordered by last name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *         active: Optional filter; if True returns only active teachers, if False only inactive.
          *
          *     Returns:
@@ -967,19 +989,20 @@ export interface paths {
         put?: never;
         /**
          * Create Teacher Route
-         * @description Create a new teacher in the requesting user's school.
+         * @description Create a new teacher in the current operating school.
          *
          *     Args:
          *         body: First name, last name, short_code, and max_hours_per_week for the new teacher.
-         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created teacher as a TeacherListResponse.
          *
          *     Raises:
          *         HTTPException: 409 if short_code conflicts with an existing teacher in
-         *             the user's school.
+         *             the operating school.
          */
         post: operations["create_teacher_route_api_teachers_post"];
         delete?: never;
@@ -1001,14 +1024,15 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The matching teacher with nested qualifications and availability as a TeacherDetailResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
+         *         HTTPException: 404 if no teacher with that ID exists in the operating school.
          */
         get: operations["get_teacher_api_teachers__teacher_id__get"];
         put?: never;
@@ -1021,11 +1045,12 @@ export interface paths {
          *
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher to deactivate.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
+         *         HTTPException: 404 if no teacher with that ID exists in the operating school.
          */
         delete: operations["delete_teacher_route_api_teachers__teacher_id__delete"];
         options?: never;
@@ -1037,14 +1062,15 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated teacher as a TeacherListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
+         *         HTTPException: 404 if no teacher with that ID exists in the operating school.
          *         HTTPException: 409 if the new short_code conflicts with an existing teacher.
          */
         patch: operations["update_teacher_route_api_teachers__teacher_id__patch"];
@@ -1068,14 +1094,15 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
          *         body: List of subject UUIDs that define the new qualification set.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated teacher detail including the new qualifications list.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
+         *         HTTPException: 404 if no teacher with that ID exists in the operating school.
          *         HTTPException: 409 if any subject_id is invalid (FK violation).
          */
         put: operations["replace_teacher_qualifications_api_teachers__teacher_id__qualifications_put"];
@@ -1104,14 +1131,15 @@ export interface paths {
          *     Args:
          *         teacher_id: UUID path parameter identifying the teacher.
          *         body: List of availability entries with time_block_id and status.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated teacher detail including the new availability list.
          *
          *     Raises:
-         *         HTTPException: 404 if no teacher with that ID exists in the user's school.
+         *         HTTPException: 404 if no teacher with that ID exists in the operating school.
          *         HTTPException: 409 if any time_block_id is invalid (FK violation).
          */
         put: operations["replace_teacher_availability_api_teachers__teacher_id__availability_put"];
@@ -1131,32 +1159,34 @@ export interface paths {
         };
         /**
          * List Stundentafeln
-         * @description Return all Stundentafeln in the user's school ordered by name.
+         * @description Return all Stundentafeln in the operating school ordered by name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *
          *     Returns:
-         *         List of all Stundentafeln in the user's school sorted alphabetically by name.
+         *         List of all Stundentafeln in the operating school sorted alphabetically by name.
          */
         get: operations["list_stundentafeln_api_stundentafeln_get"];
         put?: never;
         /**
          * Create Stundentafel Route
-         * @description Create a new Stundentafel in the requesting user's school.
+         * @description Create a new Stundentafel in the current operating school.
          *
          *     Args:
          *         body: Name and grade_level for the new Stundentafel.
-         *         current_user: Injected admin user; supplies the tenant school_id stamp.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created Stundentafel as a StundentafelListResponse.
          *
          *     Raises:
          *         HTTPException: 409 if a Stundentafel with this name already exists
-         *             in the user's school.
+         *             in the operating school.
          */
         post: operations["create_stundentafel_route_api_stundentafeln_post"];
         delete?: never;
@@ -1178,8 +1208,9 @@ export interface paths {
          *
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel.
-         *         current_user: Injected admin user; scopes the entry Subject join to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the entry Subject join.
          *
          *     Returns:
          *         The matching Stundentafel with nested entries as a StundentafelDetailResponse.
@@ -1192,15 +1223,16 @@ export interface paths {
         post?: never;
         /**
          * Delete Stundentafel Route
-         * @description Delete a Stundentafel by ID scoped to the user's school.
+         * @description Delete a Stundentafel by ID scoped to the operating school.
          *
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
+         *         HTTPException: 404 if no Stundentafel with that ID exists in the operating school.
          *         HTTPException: 409 if the Stundentafel is referenced by classes (FK protection).
          */
         delete: operations["delete_stundentafel_route_api_stundentafeln__tafel_id__delete"];
@@ -1213,14 +1245,15 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the Stundentafel to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated Stundentafel as a StundentafelListResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
+         *         HTTPException: 404 if no Stundentafel with that ID exists in the operating school.
          *         HTTPException: 409 if the new name conflicts with an existing Stundentafel.
          */
         patch: operations["update_stundentafel_route_api_stundentafeln__tafel_id__patch"];
@@ -1242,8 +1275,9 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         body: subject_id, hours_per_week, and preferred_block_size for the new entry.
-         *         current_user: Injected admin user; scopes the Subject lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the Subject lookup.
          *
          *     Returns:
          *         The created entry as a StundentafelEntryResponse.
@@ -1276,8 +1310,9 @@ export interface paths {
          *     Args:
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         entry_id: UUID path parameter identifying the entry to delete.
-         *         current_user: Injected admin user; scopes the parent Stundentafel lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the parent Stundentafel lookup.
          *
          *     Raises:
          *         HTTPException: 404 if the entry does not exist or belongs to a different Stundentafel.
@@ -1293,8 +1328,9 @@ export interface paths {
          *         tafel_id: UUID path parameter identifying the parent Stundentafel.
          *         entry_id: UUID path parameter identifying the entry to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the Subject lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the Subject lookup.
          *
          *     Returns:
          *         The updated entry as a StundentafelEntryResponse.
@@ -1314,26 +1350,27 @@ export interface paths {
         };
         /**
          * List School Classes
-         * @description Return all school classes in the user's school ordered by name.
+         * @description Return all school classes in the operating school ordered by name.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the query to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the query.
          *
          *     Returns:
-         *         List of school classes in the user's school sorted alphabetically by name.
+         *         List of school classes in the operating school sorted alphabetically by name.
          */
         get: operations["list_school_classes_api_classes_get"];
         put?: never;
         /**
          * Create School Class Route
-         * @description Create a new school class scoped to the current user's school.
+         * @description Create a new school class scoped to the current operating school.
          *
          *     Args:
          *         body: Fields for the new school class including FK references.
-         *         current_user: Injected admin user; the new class's ``school_id`` is
-         *             stamped from ``current_user.school_id``.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; stamped on the new row.
          *
          *     Returns:
          *         The created school class as a SchoolClassResponse.
@@ -1357,33 +1394,35 @@ export interface paths {
         };
         /**
          * Get School Class
-         * @description Fetch a single school class by ID scoped to the user's school.
+         * @description Fetch a single school class by ID scoped to the operating school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The matching school class as a SchoolClassResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists in the user's school.
+         *         HTTPException: 404 if no school class with that ID exists in the operating school.
          */
         get: operations["get_school_class_api_classes__class_id__get"];
         put?: never;
         post?: never;
         /**
          * Delete School Class Route
-         * @description Delete a school class by ID scoped to the user's school.
+         * @description Delete a school class by ID scoped to the operating school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists in the user's school.
+         *         HTTPException: 404 if no school class with that ID exists in the operating school.
          *         HTTPException: 409 if the school class is referenced by lessons or other records.
          */
         delete: operations["delete_school_class_route_api_classes__class_id__delete"];
@@ -1391,19 +1430,20 @@ export interface paths {
         head?: never;
         /**
          * Update School Class Route
-         * @description Partially update a school class scoped to the user's school.
+         * @description Partially update a school class scoped to the operating school.
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Returns:
          *         The updated school class as a SchoolClassResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists in the user's school.
+         *         HTTPException: 404 if no school class with that ID exists in the operating school.
          *         HTTPException: 409 if the new name conflicts or FK is invalid.
          */
         patch: operations["update_school_class_route_api_classes__class_id__patch"];
@@ -1421,9 +1461,9 @@ export interface paths {
          * @description Return all lessons, with optional filters by class, teacher or subject.
          *
          *     Args:
-         *         current_user: Injected admin user; scopes the response Subject lookup
-         *             to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the response Subject lookup.
          *         class_id: Optional filter; only lessons that include this school
          *             class in their memberships.
          *         teacher_id: Optional filter; only lessons assigned to this teacher.
@@ -1440,10 +1480,10 @@ export interface paths {
          *
          *     Args:
          *         body: Fields for the new lesson.
-         *         current_user: Injected admin user; scopes the response Subject lookup,
-         *             collision check, and inbound-FK validation to their school. Stamps
-         *             ``school_id`` from the current user onto the new Lesson.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the response Subject lookup,
+         *             collision check, and inbound-FK validation. Stamped on the new Lesson.
          *
          *     Returns:
          *         The created lesson as a LessonResponse.
@@ -1473,15 +1513,15 @@ export interface paths {
          *
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson.
-         *         current_user: Injected admin user; scopes the response Subject lookup
-         *             to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the response Subject lookup.
          *
          *     Returns:
          *         The matching lesson as a LessonResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists in the user's school.
+         *         HTTPException: 404 if no lesson with that ID exists in the operating school.
          */
         get: operations["get_lesson_api_lessons__lesson_id__get"];
         put?: never;
@@ -1492,11 +1532,12 @@ export interface paths {
          *
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson to delete.
-         *         current_user: Injected admin user; scopes the lookup to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists in the user's school.
+         *         HTTPException: 404 if no lesson with that ID exists in the operating school.
          */
         delete: operations["delete_lesson_api_lessons__lesson_id__delete"];
         options?: never;
@@ -1508,15 +1549,15 @@ export interface paths {
          *     Args:
          *         lesson_id: UUID path parameter identifying the lesson to patch.
          *         body: Fields to update; omitted fields remain unchanged.
-         *         current_user: Injected admin user; scopes the response Subject lookup
-         *             to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the response Subject lookup.
          *
          *     Returns:
          *         The updated lesson as a LessonResponse.
          *
          *     Raises:
-         *         HTTPException: 404 if no lesson with that ID exists in the user's
+         *         HTTPException: 404 if no lesson with that ID exists in the operating
          *             school, or if any newly-supplied ``school_class_ids`` entry belongs
          *             to another school; 409 if the new membership set collides with
          *             another lesson on the same subject.
@@ -1543,15 +1584,16 @@ export interface paths {
          *
          *     Args:
          *         class_id: UUID path parameter identifying the school class.
-         *         current_user: Injected admin user; scopes the class lookup and
-         *             qualified-teacher coverage check to their school.
          *         db: Injected async database session.
+         *         scope_school_id: Per-request operating school resolved by
+         *             ``get_scope_school_id``; scopes the class lookup and
+         *             qualified-teacher coverage check.
          *
          *     Returns:
          *         List of newly created LessonResponse objects (may be empty if all exist).
          *
          *     Raises:
-         *         HTTPException: 404 if no school class with that ID exists in the user's school.
+         *         HTTPException: 404 if no school class with that ID exists in the operating school.
          */
         post: operations["generate_lessons_from_stundentafel_api_classes__class_id__generate_lessons_post"];
         delete?: never;
@@ -1576,6 +1618,9 @@ export interface paths {
         /**
          * Move Placement Route
          * @description Move a placement to a new time block (and possibly room) and pin it.
+         *
+         *     All lookups and the replacement-row stamp run under the per-request
+         *     operating school resolved by ``get_scope_school_id``.
          */
         patch: operations["move_placement_route_api_placements__lesson_id___time_block_id__patch"];
         trace?: never;
@@ -1598,7 +1643,7 @@ export interface paths {
          * @description Set the ``pin_kind`` discriminator on an existing placement.
          *
          *     Body ``{"pin_kind": "hard" | "soft" | null}``. ``null`` clears the pin.
-         *     Scopes the placement lookup to the requesting user's school.
+         *     Scopes the placement lookup to the per-request operating school.
          */
         patch: operations["pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch"];
         trace?: never;
@@ -1616,7 +1661,7 @@ export interface paths {
          * Swap Placements Route
          * @description Swap two placements' time blocks (and rooms) and pin both.
          *
-         *     Both placement lookups are scoped to the requesting user's school; a
+         *     Both placement lookups are scoped to the per-request operating school; a
          *     foreign-tenant ``lesson_id`` in either side of the body 404s before any
          *     mutation runs.
          */
@@ -3597,7 +3642,9 @@ export interface operations {
     };
     list_subjects_api_subjects_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -3628,7 +3675,9 @@ export interface operations {
     };
     create_subject_route_api_subjects_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -3663,7 +3712,9 @@ export interface operations {
     };
     get_subject_api_subjects__subject_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 subject_id: string;
@@ -3696,7 +3747,9 @@ export interface operations {
     };
     delete_subject_api_subjects__subject_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 subject_id: string;
@@ -3727,7 +3780,9 @@ export interface operations {
     };
     update_subject_api_subjects__subject_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 subject_id: string;
@@ -3764,7 +3819,9 @@ export interface operations {
     };
     list_week_schemes_api_week_schemes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -3795,7 +3852,9 @@ export interface operations {
     };
     create_week_scheme_route_api_week_schemes_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -3830,7 +3889,9 @@ export interface operations {
     };
     get_week_scheme_route_api_week_schemes__scheme_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -3863,7 +3924,9 @@ export interface operations {
     };
     delete_week_scheme_route_api_week_schemes__scheme_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -3894,7 +3957,9 @@ export interface operations {
     };
     update_week_scheme_route_api_week_schemes__scheme_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -3931,7 +3996,9 @@ export interface operations {
     };
     create_time_block_route_api_week_schemes__scheme_id__time_blocks_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -3968,7 +4035,9 @@ export interface operations {
     };
     delete_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -4000,7 +4069,9 @@ export interface operations {
     };
     update_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 scheme_id: string;
@@ -4038,7 +4109,9 @@ export interface operations {
     };
     list_rooms_api_rooms_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4069,7 +4142,9 @@ export interface operations {
     };
     create_room_route_api_rooms_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4104,7 +4179,9 @@ export interface operations {
     };
     get_room_api_rooms__room_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4137,7 +4214,9 @@ export interface operations {
     };
     delete_room_route_api_rooms__room_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4168,7 +4247,9 @@ export interface operations {
     };
     update_room_route_api_rooms__room_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4205,7 +4286,9 @@ export interface operations {
     };
     replace_room_suitability_api_rooms__room_id__suitability_put: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4242,7 +4325,9 @@ export interface operations {
     };
     replace_room_availability_api_rooms__room_id__availability_put: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4279,7 +4364,9 @@ export interface operations {
     };
     read_schedule_for_class_route_api_classes__class_id__schedule_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -4312,7 +4399,9 @@ export interface operations {
     };
     generate_schedule_for_class_api_classes__class_id__schedule_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -4347,6 +4436,7 @@ export interface operations {
         parameters: {
             query?: {
                 respect_pins?: boolean;
+                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -4378,7 +4468,9 @@ export interface operations {
     };
     read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -4411,7 +4503,9 @@ export interface operations {
     };
     read_schedule_for_teacher_route_api_teachers__teacher_id__schedule_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4508,7 +4602,9 @@ export interface operations {
     };
     read_schedule_for_room_route_api_rooms__room_id__schedule_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 room_id: string;
@@ -4543,6 +4639,7 @@ export interface operations {
         parameters: {
             query?: {
                 active?: boolean | null;
+                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -4574,7 +4671,9 @@ export interface operations {
     };
     create_teacher_route_api_teachers_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4609,7 +4708,9 @@ export interface operations {
     };
     get_teacher_api_teachers__teacher_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4642,7 +4743,9 @@ export interface operations {
     };
     delete_teacher_route_api_teachers__teacher_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4673,7 +4776,9 @@ export interface operations {
     };
     update_teacher_route_api_teachers__teacher_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4710,7 +4815,9 @@ export interface operations {
     };
     replace_teacher_qualifications_api_teachers__teacher_id__qualifications_put: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4747,7 +4854,9 @@ export interface operations {
     };
     replace_teacher_availability_api_teachers__teacher_id__availability_put: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 teacher_id: string;
@@ -4784,7 +4893,9 @@ export interface operations {
     };
     list_stundentafeln_api_stundentafeln_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4815,7 +4926,9 @@ export interface operations {
     };
     create_stundentafel_route_api_stundentafeln_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -4850,7 +4963,9 @@ export interface operations {
     };
     get_stundentafel_api_stundentafeln__tafel_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -4883,7 +4998,9 @@ export interface operations {
     };
     delete_stundentafel_route_api_stundentafeln__tafel_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -4914,7 +5031,9 @@ export interface operations {
     };
     update_stundentafel_route_api_stundentafeln__tafel_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -4951,7 +5070,9 @@ export interface operations {
     };
     create_stundentafel_entry_route_api_stundentafeln__tafel_id__entries_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -4988,7 +5109,9 @@ export interface operations {
     };
     delete_stundentafel_entry_api_stundentafeln__tafel_id__entries__entry_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -5020,7 +5143,9 @@ export interface operations {
     };
     update_stundentafel_entry_api_stundentafeln__tafel_id__entries__entry_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 tafel_id: string;
@@ -5058,7 +5183,9 @@ export interface operations {
     };
     list_school_classes_api_classes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -5089,7 +5216,9 @@ export interface operations {
     };
     create_school_class_route_api_classes_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -5124,7 +5253,9 @@ export interface operations {
     };
     get_school_class_api_classes__class_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -5157,7 +5288,9 @@ export interface operations {
     };
     delete_school_class_route_api_classes__class_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -5188,7 +5321,9 @@ export interface operations {
     };
     update_school_class_route_api_classes__class_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -5229,6 +5364,7 @@ export interface operations {
                 class_id?: string | null;
                 teacher_id?: string | null;
                 subject_id?: string | null;
+                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -5260,7 +5396,9 @@ export interface operations {
     };
     create_lesson_api_lessons_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {
@@ -5295,7 +5433,9 @@ export interface operations {
     };
     get_lesson_api_lessons__lesson_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 lesson_id: string;
@@ -5328,7 +5468,9 @@ export interface operations {
     };
     delete_lesson_api_lessons__lesson_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 lesson_id: string;
@@ -5359,7 +5501,9 @@ export interface operations {
     };
     update_lesson_api_lessons__lesson_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 lesson_id: string;
@@ -5396,7 +5540,9 @@ export interface operations {
     };
     generate_lessons_from_stundentafel_api_classes__class_id__generate_lessons_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 class_id: string;
@@ -5429,7 +5575,9 @@ export interface operations {
     };
     move_placement_route_api_placements__lesson_id___time_block_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 lesson_id: string;
@@ -5467,7 +5615,9 @@ export interface operations {
     };
     pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path: {
                 lesson_id: string;
@@ -5505,7 +5655,9 @@ export interface operations {
     };
     swap_placements_route_api_placements_swap_post: {
         parameters: {
-            query?: never;
+            query?: {
+                school_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: {

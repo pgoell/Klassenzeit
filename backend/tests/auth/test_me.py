@@ -153,3 +153,16 @@ async def test_change_password_invalidates_other_sessions(
     # The other session should be gone
     found = await lookup_session(db_session, other_session.id)
     assert found is None
+
+
+async def test_me_round_trips_super_admin_role(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+) -> None:
+    """/auth/me returns role='super_admin' for a super-admin user."""
+    await create_test_user(email="sa-me@test.com", role="super_admin")
+    await login_as("sa-me@test.com", "testpassword123")
+    response = await client.get("/api/auth/me")
+    assert response.status_code == 200
+    assert response.json()["role"] == "super_admin"

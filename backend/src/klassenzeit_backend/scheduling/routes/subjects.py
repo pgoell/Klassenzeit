@@ -8,9 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import get_scope_school_id
 from klassenzeit_backend.db.models.subject import Subject
-from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.subject import (
     SubjectCreate,
@@ -51,22 +50,23 @@ async def _get_subject(db: AsyncSession, subject_id: uuid.UUID, school_id: uuid.
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_subject_route(
     body: SubjectCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> SubjectResponse:
-    """Create a new subject in the requesting user's school.
+    """Create a new subject in the current operating school.
 
     Args:
         body: Name, short_name, and color for the new subject.
-        current_user: Injected admin user; supplies the tenant school_id stamp.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; stamped on the new row.
 
     Returns:
         The created subject as a SubjectResponse.
 
     Raises:
         HTTPException: 409 if name or short_name conflicts with an existing
-            subject in the user's school.
+            subject in the operating school.
     """
     subject = Subject(
         name=body.name,
@@ -77,7 +77,7 @@ async def create_subject_route(
         avoid_first_period=body.avoid_first_period,
         avoid_last_period=body.avoid_last_period,
         max_hours_per_day=body.max_hours_per_day,
-        school_id=current_user.school_id,
+        school_id=scope_school_id,
     )
     db.add(subject)
     try:
@@ -105,20 +105,21 @@ async def create_subject_route(
 
 @router.get("")
 async def list_subjects(
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> list[SubjectResponse]:
-    """Return all subjects in the current user's school, ordered by name.
+    """Return all subjects in the current operating school, ordered by name.
 
     Args:
-        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the query.
 
     Returns:
-        List of subjects in the user's school sorted alphabetically by name.
+        List of subjects in the operating school sorted alphabetically by name.
     """
     result = await db.execute(
-        select(Subject).where(Subject.school_id == current_user.school_id).order_by(Subject.name)
+        select(Subject).where(Subject.school_id == scope_school_id).order_by(Subject.name)
     )
     return [
         SubjectResponse(
@@ -141,23 +142,24 @@ async def list_subjects(
 @router.get("/{subject_id}")
 async def get_subject(
     subject_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> SubjectResponse:
-    """Fetch a single subject by ID, scoped to the user's school.
+    """Fetch a single subject by ID, scoped to the operating school.
 
     Args:
         subject_id: UUID path parameter identifying the subject.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The matching subject as a SubjectResponse.
 
     Raises:
-        HTTPException: 404 if no subject with that ID exists in the user's school.
+        HTTPException: 404 if no subject with that ID exists in the operating school.
     """
-    subject = await _get_subject(db, subject_id, current_user.school_id)
+    subject = await _get_subject(db, subject_id, scope_school_id)
     return SubjectResponse(
         id=subject.id,
         name=subject.name,
@@ -177,25 +179,26 @@ async def get_subject(
 async def update_subject(
     subject_id: uuid.UUID,
     body: SubjectUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> SubjectResponse:
     """Partially update a subject's name, short_name, or color.
 
     Args:
         subject_id: UUID path parameter identifying the subject to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated subject as a SubjectResponse.
 
     Raises:
-        HTTPException: 404 if no subject with that ID exists in the user's school.
+        HTTPException: 404 if no subject with that ID exists in the operating school.
         HTTPException: 409 if the new name or short_name conflicts.
     """
-    subject = await _get_subject(db, subject_id, current_user.school_id)
+    subject = await _get_subject(db, subject_id, scope_school_id)
     if body.name is not None:
         subject.name = body.name
     if body.short_name is not None:
@@ -238,21 +241,22 @@ async def update_subject(
 @router.delete("/{subject_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_subject(
     subject_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
-    """Delete a subject by ID, scoped to the user's school.
+    """Delete a subject by ID, scoped to the operating school.
 
     Args:
         subject_id: UUID path parameter identifying the subject to delete.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Raises:
-        HTTPException: 404 if no subject with that ID exists in the user's school.
+        HTTPException: 404 if no subject with that ID exists in the operating school.
         HTTPException: 409 if the subject is referenced by other records (FK protection).
     """
-    subject = await _get_subject(db, subject_id, current_user.school_id)
+    subject = await _get_subject(db, subject_id, scope_school_id)
     await db.delete(subject)
     try:
         await db.commit()

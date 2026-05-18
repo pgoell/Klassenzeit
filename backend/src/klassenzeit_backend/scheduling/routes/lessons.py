@@ -8,14 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import get_scope_school_id
 from klassenzeit_backend.db.models.lesson import Lesson
 from klassenzeit_backend.db.models.lesson_school_class import LessonSchoolClass
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherQualification
-from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.lesson import (
     LessonClassResponse,
@@ -167,17 +166,17 @@ async def _check_subject_class_collision(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_lesson(
     body: LessonCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> LessonResponse:
     """Create a new lesson with one or more class memberships.
 
     Args:
         body: Fields for the new lesson.
-        current_user: Injected admin user; scopes the response Subject lookup,
-            collision check, and inbound-FK validation to their school. Stamps
-            ``school_id`` from the current user onto the new Lesson.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the response Subject lookup,
+            collision check, and inbound-FK validation. Stamped on the new Lesson.
 
     Returns:
         The created lesson as a LessonResponse.
@@ -191,7 +190,7 @@ async def create_lesson(
     subj_row = (
         await db.execute(
             select(Subject.id).where(
-                Subject.id == body.subject_id, Subject.school_id == current_user.school_id
+                Subject.id == body.subject_id, Subject.school_id == scope_school_id
             )
         )
     ).scalar_one_or_none()
@@ -203,7 +202,7 @@ async def create_lesson(
                 await db.execute(
                     select(SchoolClass.id).where(
                         SchoolClass.id.in_(body.school_class_ids),
-                        SchoolClass.school_id == current_user.school_id,
+                        SchoolClass.school_id == scope_school_id,
                     )
                 )
             )
@@ -215,10 +214,10 @@ async def create_lesson(
                 status_code=status.HTTP_404_NOT_FOUND, detail="School class not found"
             )
     await _check_subject_class_collision(
-        db, body.subject_id, body.school_class_ids, school_id=current_user.school_id
+        db, body.subject_id, body.school_class_ids, school_id=scope_school_id
     )
     lesson = Lesson(
-        school_id=current_user.school_id,
+        school_id=scope_school_id,
         subject_id=body.subject_id,
         teacher_id=body.teacher_id,
         hours_per_week=body.hours_per_week,
@@ -237,13 +236,13 @@ async def create_lesson(
     )
     await db.commit()
     await db.refresh(lesson)
-    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
+    return await _build_lesson_response(db, lesson, school_id=scope_school_id)
 
 
 @router.get("")
 async def list_lessons(
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
     class_id: uuid.UUID | None = None,
     teacher_id: uuid.UUID | None = None,
     subject_id: uuid.UUID | None = None,
@@ -251,9 +250,9 @@ async def list_lessons(
     """Return all lessons, with optional filters by class, teacher or subject.
 
     Args:
-        current_user: Injected admin user; scopes the response Subject lookup
-            to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the response Subject lookup.
         class_id: Optional filter; only lessons that include this school
             class in their memberships.
         teacher_id: Optional filter; only lessons assigned to this teacher.
@@ -262,7 +261,7 @@ async def list_lessons(
     Returns:
         List of lessons matching the applied filters.
     """
-    stmt = select(Lesson).where(Lesson.school_id == current_user.school_id)
+    stmt = select(Lesson).where(Lesson.school_id == scope_school_id)
     if class_id is not None:
         stmt = stmt.join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id).where(
             LessonSchoolClass.school_class_id == class_id
@@ -274,61 +273,60 @@ async def list_lessons(
     result = await db.execute(stmt)
     lessons = result.scalars().all()
     return [
-        await _build_lesson_response(db, lesson, school_id=current_user.school_id)
-        for lesson in lessons
+        await _build_lesson_response(db, lesson, school_id=scope_school_id) for lesson in lessons
     ]
 
 
 @router.get("/{lesson_id}")
 async def get_lesson(
     lesson_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> LessonResponse:
     """Fetch a single lesson by ID with joined class, subject and teacher data.
 
     Args:
         lesson_id: UUID path parameter identifying the lesson.
-        current_user: Injected admin user; scopes the response Subject lookup
-            to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the response Subject lookup.
 
     Returns:
         The matching lesson as a LessonResponse.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists in the user's school.
+        HTTPException: 404 if no lesson with that ID exists in the operating school.
     """
-    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
-    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
+    lesson = await _get_lesson(db, lesson_id, scope_school_id)
+    return await _build_lesson_response(db, lesson, school_id=scope_school_id)
 
 
 @router.patch("/{lesson_id}")
 async def update_lesson(
     lesson_id: uuid.UUID,
     body: LessonUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> LessonResponse:
     """Partially update a lesson's memberships, teacher, hours or block size.
 
     Args:
         lesson_id: UUID path parameter identifying the lesson to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the response Subject lookup
-            to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the response Subject lookup.
 
     Returns:
         The updated lesson as a LessonResponse.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists in the user's
+        HTTPException: 404 if no lesson with that ID exists in the operating
             school, or if any newly-supplied ``school_class_ids`` entry belongs
             to another school; 409 if the new membership set collides with
             another lesson on the same subject.
     """
-    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
+    lesson = await _get_lesson(db, lesson_id, scope_school_id)
     if body.school_class_ids is not None:
         if body.school_class_ids:
             class_rows = (
@@ -336,7 +334,7 @@ async def update_lesson(
                     await db.execute(
                         select(SchoolClass.id).where(
                             SchoolClass.id.in_(body.school_class_ids),
-                            SchoolClass.school_id == current_user.school_id,
+                            SchoolClass.school_id == scope_school_id,
                         )
                     )
                 )
@@ -351,7 +349,7 @@ async def update_lesson(
             db,
             lesson.subject_id,
             body.school_class_ids,
-            school_id=current_user.school_id,
+            school_id=scope_school_id,
             excluding_lesson_id=lesson.id,
         )
         await db.execute(delete(LessonSchoolClass).where(LessonSchoolClass.lesson_id == lesson.id))
@@ -380,26 +378,27 @@ async def update_lesson(
         )
     await db.commit()
     await db.refresh(lesson)
-    return await _build_lesson_response(db, lesson, school_id=current_user.school_id)
+    return await _build_lesson_response(db, lesson, school_id=scope_school_id)
 
 
 @router.delete("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lesson(
     lesson_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
     """Delete a lesson by ID.
 
     Args:
         lesson_id: UUID path parameter identifying the lesson to delete.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Raises:
-        HTTPException: 404 if no lesson with that ID exists in the user's school.
+        HTTPException: 404 if no lesson with that ID exists in the operating school.
     """
-    lesson = await _get_lesson(db, lesson_id, current_user.school_id)
+    lesson = await _get_lesson(db, lesson_id, scope_school_id)
     await db.delete(lesson)
     await db.commit()
 
@@ -466,8 +465,8 @@ async def _validate_qualified_teacher_coverage(
 @generate_router.post("/classes/{class_id}/generate-lessons", status_code=status.HTTP_201_CREATED)
 async def generate_lessons_from_stundentafel(
     class_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> list[LessonResponse]:
     """Bulk-create lessons for a class from its associated Stundentafel.
 
@@ -477,19 +476,20 @@ async def generate_lessons_from_stundentafel(
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        current_user: Injected admin user; scopes the class lookup and
-            qualified-teacher coverage check to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the class lookup and
+            qualified-teacher coverage check.
 
     Returns:
         List of newly created LessonResponse objects (may be empty if all exist).
 
     Raises:
-        HTTPException: 404 if no school class with that ID exists in the user's school.
+        HTTPException: 404 if no school class with that ID exists in the operating school.
     """
     result = await db.execute(
         select(SchoolClass).where(
-            SchoolClass.id == class_id, SchoolClass.school_id == current_user.school_id
+            SchoolClass.id == class_id, SchoolClass.school_id == scope_school_id
         )
     )
     school_class = result.scalar_one_or_none()
@@ -499,7 +499,7 @@ async def generate_lessons_from_stundentafel(
     tafel_result = await db.execute(
         select(Stundentafel.id).where(
             Stundentafel.id == school_class.stundentafel_id,
-            Stundentafel.school_id == current_user.school_id,
+            Stundentafel.school_id == scope_school_id,
         )
     )
     if tafel_result.scalar_one_or_none() is None:
@@ -514,7 +514,7 @@ async def generate_lessons_from_stundentafel(
 
     curriculum_subject_ids = [entry.subject_id for entry in entries]
     await _validate_qualified_teacher_coverage(
-        db, curriculum_subject_ids, school_id=current_user.school_id
+        db, curriculum_subject_ids, school_id=scope_school_id
     )
 
     existing_result = await db.execute(
@@ -522,7 +522,7 @@ async def generate_lessons_from_stundentafel(
         .join(LessonSchoolClass, LessonSchoolClass.lesson_id == Lesson.id)
         .where(
             LessonSchoolClass.school_class_id == class_id,
-            Lesson.school_id == current_user.school_id,
+            Lesson.school_id == scope_school_id,
         )
     )
     existing_subject_ids = {row[0] for row in existing_result.all()}
@@ -532,7 +532,7 @@ async def generate_lessons_from_stundentafel(
         if entry.subject_id in existing_subject_ids:
             continue
         lesson = Lesson(
-            school_id=current_user.school_id,
+            school_id=scope_school_id,
             subject_id=entry.subject_id,
             teacher_id=None,
             hours_per_week=entry.hours_per_week,
@@ -561,5 +561,5 @@ async def generate_lessons_from_stundentafel(
     responses = []
     for lesson in created:
         await db.refresh(lesson)
-        responses.append(await _build_lesson_response(db, lesson, school_id=current_user.school_id))
+        responses.append(await _build_lesson_response(db, lesson, school_id=scope_school_id))
     return responses

@@ -15,7 +15,7 @@
 - `solver/` — Rust workspace: `solver-core` (pure), `solver-py` (PyO3 via maturin), `solver-bench` (bake-off binary).
 - `deploy/` — staging compose for the Hetzner VPS. Runbook: `deploy/README.md`. Decisions: `docs/adr/0009-deployment-topology.md`.
 - Dev loop via `mise` tasks; Postgres via `podman compose` from root `compose.yaml` (local dev only, distinct from `deploy/compose.yaml`).
-- **Multi-tenant by `school_id`.** Every aggregate root carries a NOT NULL `school_id` FK to `schools.id`; users belong to exactly one school. Readers scope by `current_user.school_id`; cross-tenant access returns 404, not 403. See ADR 0045 for tenancy decisions; OPEN_THINGS item 10 captures the shipped surface and lists the P2 follow-ups (school CRUD, multi-school membership, E2E suite).
+- **Multi-tenant by `school_id`.** Every aggregate root carries a NOT NULL `school_id` FK to `schools.id`; users belong to exactly one school. Routes scope by `scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)]` (transitively gates on `require_admin`); cross-tenant access returns 404, not 403. Super-admin users (`user.role == "super_admin"`) can override the operating school per request via `?school_id=<uuid>`; non-super-admins have the parameter ignored. See ADR 0045 for tenancy decisions; OPEN_THINGS item 10 captures the shipped surface, with open P2 follow-ups for multi-school membership (10c), E2E suite (10d), and per-school reference-data (10f).
 
 ## Development Workflow
 

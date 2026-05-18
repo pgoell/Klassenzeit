@@ -51,7 +51,8 @@
     "lessons": "Lessons",
     "admin": "Admin",
     "schools": "Schools",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "superAdminBadge": "Super Admin"
   },
   "theme": {
     "toggle": "Toggle theme"

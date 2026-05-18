@@ -30,3 +30,14 @@ Accepted (2026-05-16).
 - **All-in-one PR**: too large; not reviewable.
 - **Multi-membership join table from day one**: bigger surface (active-school session field, school-picker UI) without near-term value; one user per school is sufficient until customer #2.
 - **403 instead of 404 on cross-school access**: leaks the existence of other-school rows; 404 is the safer default.
+
+## Addendum (2026-05-18): Cross-school super-admin (item 10e)
+
+The `User.role` column accepts a third value `"super_admin"` (no schema change; the column is `String(16)` with no CHECK constraint). Super-admin powers extend admin within the per-request operating school:
+
+- A new dependency `get_scope_school_id` resolves the operating school. Non-super-admin users always get `current_user.school_id`; any `?school_id=` query parameter is ignored. Super-admin users get the query parameter when present (404 if it points at a nonexistent school) else `current_user.school_id`.
+- `require_admin` accepts `admin` OR `super_admin`. `require_super_admin` gates super-admin-only endpoints (unused in v1, exported for future use).
+- All 9 tenanted scheduling routes inject `scope_school_id` and stamp it on writes; decision 5 above is now phrased as `.where(<Aggregate>.school_id == scope_school_id)`. `get_scope_school_id` depends on `require_admin`, so the admin gate fires transitively without each route also injecting `current_user`.
+- Operators promote a user via `UPDATE users SET role='super_admin' WHERE email='...'`; no promotion API in v1.
+- No school-picker UI in v1; super-admin uses `?school_id=<uuid>` in the URL. The picker rolls into item 10c (multi-school membership) where `sessions.active_school_id` will replace the per-request query parameter.
+- The frontend sidebar renders a "Super Admin" badge when `me.data?.role === "super_admin"`, and the admin nav group now opens for admin OR super-admin so an escalated session can reach `/schools` without URL-typing.

@@ -8,10 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import get_scope_school_id
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
-from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.stundentafel import (
     EntryCreate,
@@ -81,28 +80,29 @@ async def _get_entry(
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_stundentafel_route(
     body: StundentafelCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> StundentafelListResponse:
-    """Create a new Stundentafel in the requesting user's school.
+    """Create a new Stundentafel in the current operating school.
 
     Args:
         body: Name and grade_level for the new Stundentafel.
-        current_user: Injected admin user; supplies the tenant school_id stamp.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; stamped on the new row.
 
     Returns:
         The created Stundentafel as a StundentafelListResponse.
 
     Raises:
         HTTPException: 409 if a Stundentafel with this name already exists
-            in the user's school.
+            in the operating school.
     """
     tafel = Stundentafel(
         name=body.name,
         grade_level=body.grade_level,
         school_type=body.school_type,
-        school_id=current_user.school_id,
+        school_id=scope_school_id,
     )
     db.add(tafel)
     try:
@@ -125,21 +125,22 @@ async def create_stundentafel_route(
 
 @router.get("")
 async def list_stundentafeln(
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> list[StundentafelListResponse]:
-    """Return all Stundentafeln in the user's school ordered by name.
+    """Return all Stundentafeln in the operating school ordered by name.
 
     Args:
-        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the query.
 
     Returns:
-        List of all Stundentafeln in the user's school sorted alphabetically by name.
+        List of all Stundentafeln in the operating school sorted alphabetically by name.
     """
     result = await db.execute(
         select(Stundentafel)
-        .where(Stundentafel.school_id == current_user.school_id)
+        .where(Stundentafel.school_id == scope_school_id)
         .order_by(Stundentafel.name)
     )
     return [
@@ -158,15 +159,16 @@ async def list_stundentafeln(
 @router.get("/{tafel_id}")
 async def get_stundentafel(
     tafel_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> StundentafelDetailResponse:
     """Fetch a single Stundentafel by ID, including its entries with subject info.
 
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel.
-        current_user: Injected admin user; scopes the entry Subject join to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the entry Subject join.
 
     Returns:
         The matching Stundentafel with nested entries as a StundentafelDetailResponse.
@@ -174,13 +176,13 @@ async def get_stundentafel(
     Raises:
         HTTPException: 404 if no Stundentafel with that ID exists.
     """
-    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
+    tafel = await _get_stundentafel(db, tafel_id, scope_school_id)
     entries_result = await db.execute(
         select(StundentafelEntry, Subject)
         .join(Subject, StundentafelEntry.subject_id == Subject.id)
         .where(
             StundentafelEntry.stundentafel_id == tafel.id,
-            Subject.school_id == current_user.school_id,
+            Subject.school_id == scope_school_id,
         )
     )
     entries = [
@@ -207,25 +209,26 @@ async def get_stundentafel(
 async def update_stundentafel_route(
     tafel_id: uuid.UUID,
     body: StundentafelUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> StundentafelListResponse:
     """Partially update a Stundentafel's name or grade_level.
 
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated Stundentafel as a StundentafelListResponse.
 
     Raises:
-        HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
+        HTTPException: 404 if no Stundentafel with that ID exists in the operating school.
         HTTPException: 409 if the new name conflicts with an existing Stundentafel.
     """
-    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
+    tafel = await _get_stundentafel(db, tafel_id, scope_school_id)
     if body.name is not None:
         tafel.name = body.name
     if body.grade_level is not None:
@@ -253,21 +256,22 @@ async def update_stundentafel_route(
 @router.delete("/{tafel_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_stundentafel_route(
     tafel_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
-    """Delete a Stundentafel by ID scoped to the user's school.
+    """Delete a Stundentafel by ID scoped to the operating school.
 
     Args:
         tafel_id: UUID path parameter identifying the Stundentafel to delete.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Raises:
-        HTTPException: 404 if no Stundentafel with that ID exists in the user's school.
+        HTTPException: 404 if no Stundentafel with that ID exists in the operating school.
         HTTPException: 409 if the Stundentafel is referenced by classes (FK protection).
     """
-    tafel = await _get_stundentafel(db, tafel_id, current_user.school_id)
+    tafel = await _get_stundentafel(db, tafel_id, scope_school_id)
     await db.delete(tafel)
     try:
         await db.commit()
@@ -282,16 +286,17 @@ async def delete_stundentafel_route(
 async def create_stundentafel_entry_route(
     tafel_id: uuid.UUID,
     body: EntryCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> StundentafelEntryResponse:
     """Add a subject entry to a Stundentafel.
 
     Args:
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         body: subject_id, hours_per_week, and preferred_block_size for the new entry.
-        current_user: Injected admin user; scopes the Subject lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the Subject lookup.
 
     Returns:
         The created entry as a StundentafelEntryResponse.
@@ -300,7 +305,7 @@ async def create_stundentafel_entry_route(
         HTTPException: 404 if the Stundentafel or Subject does not exist.
         HTTPException: 409 if this subject is already in the Stundentafel.
     """
-    await _get_stundentafel(db, tafel_id, current_user.school_id)
+    await _get_stundentafel(db, tafel_id, scope_school_id)
     entry = StundentafelEntry(
         stundentafel_id=tafel_id,
         subject_id=body.subject_id,
@@ -319,7 +324,7 @@ async def create_stundentafel_entry_route(
     subj = (
         await db.execute(
             select(Subject).where(
-                Subject.id == entry.subject_id, Subject.school_id == current_user.school_id
+                Subject.id == entry.subject_id, Subject.school_id == scope_school_id
             )
         )
     ).scalar_one_or_none()
@@ -338,8 +343,8 @@ async def update_stundentafel_entry(
     tafel_id: uuid.UUID,
     entry_id: uuid.UUID,
     body: EntryUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> StundentafelEntryResponse:
     """Partially update a Stundentafel entry's hours or block size.
 
@@ -347,8 +352,9 @@ async def update_stundentafel_entry(
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         entry_id: UUID path parameter identifying the entry to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the Subject lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the Subject lookup.
 
     Returns:
         The updated entry as a StundentafelEntryResponse.
@@ -356,7 +362,7 @@ async def update_stundentafel_entry(
     Raises:
         HTTPException: 404 if the entry does not exist or belongs to a different Stundentafel.
     """
-    await _get_stundentafel(db, tafel_id, current_user.school_id)
+    await _get_stundentafel(db, tafel_id, scope_school_id)
     entry = await _get_entry(db, tafel_id, entry_id)
     if body.hours_per_week is not None:
         entry.hours_per_week = body.hours_per_week
@@ -372,7 +378,7 @@ async def update_stundentafel_entry(
     subj = (
         await db.execute(
             select(Subject).where(
-                Subject.id == entry.subject_id, Subject.school_id == current_user.school_id
+                Subject.id == entry.subject_id, Subject.school_id == scope_school_id
             )
         )
     ).scalar_one_or_none()
@@ -390,21 +396,22 @@ async def update_stundentafel_entry(
 async def delete_stundentafel_entry(
     tafel_id: uuid.UUID,
     entry_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
     """Delete an entry from a Stundentafel.
 
     Args:
         tafel_id: UUID path parameter identifying the parent Stundentafel.
         entry_id: UUID path parameter identifying the entry to delete.
-        current_user: Injected admin user; scopes the parent Stundentafel lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the parent Stundentafel lookup.
 
     Raises:
         HTTPException: 404 if the entry does not exist or belongs to a different Stundentafel.
     """
-    await _get_stundentafel(db, tafel_id, current_user.school_id)
+    await _get_stundentafel(db, tafel_id, scope_school_id)
     entry = await _get_entry(db, tafel_id, entry_id)
     await db.delete(entry)
     await db.commit()

@@ -172,3 +172,114 @@ async def test_put_availability_returns_404_for_cross_school(
         json={"time_block_ids": []},
     )
     assert response.status_code == 404
+
+
+async def test_super_admin_no_param_sees_home_rooms_only(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    school_b: School,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin without ?school_id sees home school's rooms only."""
+    sa, password = await create_test_user(
+        email="sa-room-home@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    room_in_a = Room(name="SA Home Room", short_name="SAH", school_id=DEFAULT_SCHOOL_ID)
+    room_in_b = Room(name="SA B Room", short_name="SAB", school_id=school_b.id)
+    db_session.add_all([room_in_a, room_in_b])
+    await db_session.flush()
+
+    await login_as(sa.email, password)
+    response = await client.get("/api/rooms")
+    assert response.status_code == 200
+    names = {row["name"] for row in response.json()}
+    assert "SA Home Room" in names
+    assert "SA B Room" not in names
+
+
+async def test_super_admin_with_other_school_param_sees_other_school_rooms(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    school_b: School,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin with ?school_id=<other> sees the other school's rooms."""
+    sa, password = await create_test_user(
+        email="sa-room-other@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    room_in_a = Room(name="Skip Me A", short_name="SKA", school_id=DEFAULT_SCHOOL_ID)
+    room_in_b = Room(name="Pick Me B", short_name="PMB", school_id=school_b.id)
+    db_session.add_all([room_in_a, room_in_b])
+    await db_session.flush()
+
+    await login_as(sa.email, password)
+    response = await client.get(f"/api/rooms?school_id={school_b.id}")
+    assert response.status_code == 200
+    names = {row["name"] for row in response.json()}
+    assert "Pick Me B" in names
+    assert "Skip Me A" not in names
+
+
+async def test_super_admin_with_nonexistent_school_param_returns_404(
+    client: AsyncClient,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin with ?school_id=<nonexistent-uuid> gets 404."""
+    sa, password = await create_test_user(
+        email="sa-room-404@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    await login_as(sa.email, password)
+    response = await client.get(f"/api/rooms?school_id={uuid.uuid4()}")
+    assert response.status_code == 404
+
+
+async def test_admin_with_other_school_param_is_ignored(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    school_b: School,
+    create_test_user,
+    login_as,
+) -> None:
+    """Plain admin with ?school_id=<other> still sees home school only (param ignored)."""
+    admin, password = await create_test_user(
+        email="admin-ignore-param@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    room_in_a = Room(name="Admin Home", short_name="AH", school_id=DEFAULT_SCHOOL_ID)
+    room_in_b = Room(name="Admin Other", short_name="AO", school_id=school_b.id)
+    db_session.add_all([room_in_a, room_in_b])
+    await db_session.flush()
+
+    await login_as(admin.email, password)
+    response = await client.get(f"/api/rooms?school_id={school_b.id}")
+    assert response.status_code == 200
+    names = {row["name"] for row in response.json()}
+    assert "Admin Home" in names
+    assert "Admin Other" not in names
+
+
+async def test_super_admin_post_with_other_school_param_writes_to_other(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    school_b: School,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin POST /rooms with ?school_id=<other> stamps the new row with that school's id."""
+    sa, password = await create_test_user(
+        email="sa-room-post@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    await login_as(sa.email, password)
+    response = await client.post(
+        f"/api/rooms?school_id={school_b.id}",
+        json={"name": "SA Wrote In B", "short_name": "SAWB"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    new_row = await db_session.get(Room, uuid.UUID(body["id"]))
+    assert new_row is not None
+    assert new_row.school_id == school_b.id
+    # And the super-admin's home school did NOT get the row.
+    assert new_row.school_id != DEFAULT_SCHOOL_ID

@@ -8,10 +8,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import get_scope_school_id
 from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherAvailability, TeacherQualification
-from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.models.week_scheme import TimeBlock
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.teacher import (
@@ -119,22 +118,23 @@ async def _build_teacher_detail(db: AsyncSession, teacher: Teacher) -> TeacherDe
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_teacher_route(
     body: TeacherCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TeacherListResponse:
-    """Create a new teacher in the requesting user's school.
+    """Create a new teacher in the current operating school.
 
     Args:
         body: First name, last name, short_code, and max_hours_per_week for the new teacher.
-        current_user: Injected admin user; supplies the tenant school_id stamp.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; stamped on the new row.
 
     Returns:
         The created teacher as a TeacherListResponse.
 
     Raises:
         HTTPException: 409 if short_code conflicts with an existing teacher in
-            the user's school.
+            the operating school.
     """
     teacher = Teacher(
         first_name=body.first_name,
@@ -143,7 +143,7 @@ async def create_teacher_route(
         max_hours_per_week=body.max_hours_per_week,
         reserve_hours_per_week=body.reserve_hours_per_week,
         working_days=body.working_days,
-        school_id=current_user.school_id,
+        school_id=scope_school_id,
     )
     db.add(teacher)
     try:
@@ -171,26 +171,23 @@ async def create_teacher_route(
 
 @router.get("")
 async def list_teachers(
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
     active: bool | None = None,
 ) -> list[TeacherListResponse]:
-    """Return teachers in the requesting user's school ordered by last name.
+    """Return teachers in the current operating school ordered by last name.
 
     Args:
-        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the query.
         active: Optional filter; if True returns only active teachers, if False only inactive.
 
     Returns:
         List of teachers sorted alphabetically by last name (no nested availability;
         qualified-subject UUIDs are returned as ``subject_ids``).
     """
-    query = (
-        select(Teacher)
-        .where(Teacher.school_id == current_user.school_id)
-        .order_by(Teacher.last_name)
-    )
+    query = select(Teacher).where(Teacher.school_id == scope_school_id).order_by(Teacher.last_name)
     if active is not None:
         query = query.where(Teacher.is_active == active)
     teachers = list((await db.execute(query)).scalars())
@@ -227,23 +224,24 @@ async def list_teachers(
 @router.get("/{teacher_id}")
 async def get_teacher(
     teacher_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TeacherDetailResponse:
     """Fetch a single teacher by ID, including qualifications and availability.
 
     Args:
         teacher_id: UUID path parameter identifying the teacher.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The matching teacher with nested qualifications and availability as a TeacherDetailResponse.
 
     Raises:
-        HTTPException: 404 if no teacher with that ID exists in the user's school.
+        HTTPException: 404 if no teacher with that ID exists in the operating school.
     """
-    teacher = await _get_teacher(db, teacher_id, current_user.school_id)
+    teacher = await _get_teacher(db, teacher_id, scope_school_id)
     return await _build_teacher_detail(db, teacher)
 
 
@@ -251,25 +249,26 @@ async def get_teacher(
 async def update_teacher_route(
     teacher_id: uuid.UUID,
     body: TeacherUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TeacherListResponse:
     """Partially update a teacher's fields.
 
     Args:
         teacher_id: UUID path parameter identifying the teacher to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated teacher as a TeacherListResponse.
 
     Raises:
-        HTTPException: 404 if no teacher with that ID exists in the user's school.
+        HTTPException: 404 if no teacher with that ID exists in the operating school.
         HTTPException: 409 if the new short_code conflicts with an existing teacher.
     """
-    teacher = await _get_teacher(db, teacher_id, current_user.school_id)
+    teacher = await _get_teacher(db, teacher_id, scope_school_id)
     if body.first_name is not None:
         teacher.first_name = body.first_name
     if body.last_name is not None:
@@ -312,8 +311,8 @@ async def update_teacher_route(
 @router.delete("/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_teacher_route(
     teacher_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
     """Soft-delete a teacher by setting is_active to False.
 
@@ -321,13 +320,14 @@ async def delete_teacher_route(
 
     Args:
         teacher_id: UUID path parameter identifying the teacher to deactivate.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Raises:
-        HTTPException: 404 if no teacher with that ID exists in the user's school.
+        HTTPException: 404 if no teacher with that ID exists in the operating school.
     """
-    teacher = await _get_teacher(db, teacher_id, current_user.school_id)
+    teacher = await _get_teacher(db, teacher_id, scope_school_id)
     teacher.is_active = False
     await db.commit()
 
@@ -336,8 +336,8 @@ async def delete_teacher_route(
 async def replace_teacher_qualifications(
     teacher_id: uuid.UUID,
     body: QualificationsReplaceRequest,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TeacherDetailResponse:
     """Replace the entire qualification subject list for a teacher.
 
@@ -347,17 +347,18 @@ async def replace_teacher_qualifications(
     Args:
         teacher_id: UUID path parameter identifying the teacher.
         body: List of subject UUIDs that define the new qualification set.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated teacher detail including the new qualifications list.
 
     Raises:
-        HTTPException: 404 if no teacher with that ID exists in the user's school.
+        HTTPException: 404 if no teacher with that ID exists in the operating school.
         HTTPException: 409 if any subject_id is invalid (FK violation).
     """
-    teacher = await _get_teacher(db, teacher_id, current_user.school_id)
+    teacher = await _get_teacher(db, teacher_id, scope_school_id)
     await db.execute(
         delete(TeacherQualification).where(TeacherQualification.teacher_id == teacher_id)
     )
@@ -379,8 +380,8 @@ async def replace_teacher_qualifications(
 async def replace_teacher_availability(
     teacher_id: uuid.UUID,
     body: AvailabilityReplaceRequest,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TeacherDetailResponse:
     """Replace the entire availability list for a teacher.
 
@@ -390,17 +391,18 @@ async def replace_teacher_availability(
     Args:
         teacher_id: UUID path parameter identifying the teacher.
         body: List of availability entries with time_block_id and status.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated teacher detail including the new availability list.
 
     Raises:
-        HTTPException: 404 if no teacher with that ID exists in the user's school.
+        HTTPException: 404 if no teacher with that ID exists in the operating school.
         HTTPException: 409 if any time_block_id is invalid (FK violation).
     """
-    teacher = await _get_teacher(db, teacher_id, current_user.school_id)
+    teacher = await _get_teacher(db, teacher_id, scope_school_id)
 
     await db.execute(
         delete(TeacherAvailability).where(TeacherAvailability.teacher_id == teacher_id)
