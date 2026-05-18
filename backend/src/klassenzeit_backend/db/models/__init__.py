@@ -19,6 +19,7 @@ from klassenzeit_backend.db.models.subject import Subject
 from klassenzeit_backend.db.models.supervision_assignment import SupervisionAssignment
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherAvailability, TeacherQualification
 from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "TeacherQualification",
     "TimeBlock",
     "User",
+    "UserSchoolMembership",
     "UserSession",
     "WeekScheme",
 ]

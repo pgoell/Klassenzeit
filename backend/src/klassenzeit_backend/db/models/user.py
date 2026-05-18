@@ -2,11 +2,15 @@
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from klassenzeit_backend.db.base import Base
+
+if TYPE_CHECKING:
+    from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
 
 
 class User(Base):
@@ -40,4 +44,10 @@ class User(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    memberships: Mapped[list["UserSchoolMembership"]] = relationship(
+        "UserSchoolMembership",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )

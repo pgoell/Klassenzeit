@@ -54,6 +54,7 @@ async def test_me_with_expired_session_returns_401(
     user, _ = await create_test_user(email="expired@test.com")
     session = UserSession(
         user_id=user.id,
+        active_school_id=user.school_id,
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
     db_session.add(session)
@@ -142,7 +143,12 @@ async def test_change_password_invalidates_other_sessions(
 ) -> None:
     user, pw = await create_test_user(email="killsess@test.com")
     # Create an extra session (simulating another device)
-    other_session = await create_session(db_session, user.id, ttl_days=14)
+    other_session = await create_session(
+        db_session,
+        user.id,
+        active_school_id=user.school_id,
+        ttl_days=14,
+    )
     await db_session.commit()
 
     await login_as("killsess@test.com", pw)
