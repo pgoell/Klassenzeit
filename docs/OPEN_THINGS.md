@@ -21,7 +21,7 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
     **Follow-ups (P2, ordered by blast radius):**
 
-    - **10g: Audit log of super-admin cross-school writes.** Capture (super_admin_id, target_school_id, route, payload_summary, timestamp) for every write where `scope_school_id != current_user.school_id`. Trigger: a second super-admin user is provisioned, or compliance asks for the trail.
+    - **10g.1: UI / read API for the super-admin audit log.** The capture (ADR 0048) writes to `super_admin_audit_log`; v1 readers query via psql. A `GET /admin/audit-log` endpoint with filter params (actor, target_school, time range) plus an admin-only React page would let support staff and compliance self-serve. Trigger: support staff or compliance asks for self-serve access. Anchor: ADR 0048.
     - **10i: API endpoint to promote / demote super-admin.** Today operators promote via psql. A `POST /admin/users/{id}/role` endpoint gated by `require_super_admin` would let support staff manage the role without DB access. Trigger: support staff needs to provision a new super-admin without engineering hands-on time.
     - **10j: API endpoint to grant / revoke school memberships.** Today operators wire memberships via psql. A `POST /admin/users/{id}/memberships` + `DELETE /admin/users/{id}/memberships/{school_id}` pair gated by `require_super_admin` would let support staff manage memberships without DB access. Trigger: support staff needs to provision a coach with multi-school access without engineering hands-on time. Anchor: ADR 0046.
 
@@ -109,6 +109,7 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 - **Admin email must not use `.local` TLD.** `email-validator` rejects reserved domains. Revisit when a more realistic test domain matters.
 - **Branch-protection required check + `e2e-gate` aggregator.** `if: always()` aggregator so `e2e` can be required + path-filterable. Add once the suite blocks merges safely.
 - **`TRUNCATE ... RESTART IDENTITY CASCADE` may reset sequences beyond the savepoint.** Revisit if tests rely on predictable sequence values.
+- **Investigate `SAWarning: transaction already deassociated from connection` across backend tests after audit middleware.** The 10g `SuperAdminAuditMiddleware` borrows the per-request AsyncSession via `app.dependency_overrides[get_session]` and commits the audit row in the same session the handler used; the test fixture's per-test savepoint absorbs the rollback, but pytest emits the SAWarning on many tests after the middleware landed (ADR 0048). Likely benign session / savepoint lifecycle interaction; does not affect determinism or row visibility. Trigger: warnings become noise during debugging, or the underlying lifecycle becomes a real bug.
 
 ### Toolchain & build friction
 

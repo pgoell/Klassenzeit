@@ -71,3 +71,4 @@ sections, and add the new entry to the index below.
 | 0045 | [Multi-school tenancy (tracer bullet)](0045-multi-school-tenancy.md) | Accepted |
 | 0046 | [Multi-school membership](0046-multi-school-membership.md) | Accepted |
 | 0047 | [Reference-data tenancy: subjects per-school, pin-kind global enum](0047-reference-data-tenancy.md) | Accepted |
+| 0048 | [Super-admin cross-school write audit log](0048-super-admin-audit-log.md) | Accepted |
