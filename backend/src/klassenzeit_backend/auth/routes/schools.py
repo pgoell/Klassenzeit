@@ -1,4 +1,4 @@
-"""School CRUD routes (item 10b)."""
+"""School CRUD routes (item 10b; super-admin only per item 10h)."""
 
 import uuid
 from typing import Annotated
@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import require_super_admin
 from klassenzeit_backend.auth.schemas.school import (
     SchoolCreate,
     SchoolListItem,
@@ -42,7 +42,7 @@ async def _get_school(db: AsyncSession, school_id: uuid.UUID) -> School:
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_school(
     body: SchoolCreate,
-    _admin: Annotated[User, Depends(require_admin)],
+    _admin: Annotated[User, Depends(require_super_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolResponse:
     """Create a new school."""
@@ -61,7 +61,7 @@ async def create_school(
 
 @router.get("")
 async def list_schools(
-    _admin: Annotated[User, Depends(require_admin)],
+    _admin: Annotated[User, Depends(require_super_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[SchoolListItem]:
     """List every school in the system."""
@@ -72,7 +72,7 @@ async def list_schools(
 @router.get("/{school_id}")
 async def get_school(
     school_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    _admin: Annotated[User, Depends(require_super_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolResponse:
     """Fetch one school by id."""
@@ -83,7 +83,7 @@ async def get_school(
 async def update_school(
     school_id: uuid.UUID,
     body: SchoolUpdate,
-    _admin: Annotated[User, Depends(require_admin)],
+    _admin: Annotated[User, Depends(require_super_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SchoolResponse:
     """Patch a school's name and/or short_name."""
@@ -105,7 +105,7 @@ async def update_school(
 @router.delete("/{school_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_school(
     school_id: uuid.UUID,
-    _admin: Annotated[User, Depends(require_admin)],
+    _admin: Annotated[User, Depends(require_super_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Delete a school. Refuses the default school and any school with FK dependents."""

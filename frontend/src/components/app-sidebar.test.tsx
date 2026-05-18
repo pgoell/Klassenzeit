@@ -29,11 +29,11 @@ describe("AppSidebar", () => {
     expect(await findByText("Default Schule")).toBeInTheDocument();
   });
 
-  it("renders the Admin group with Schools for admin users", async () => {
+  it("hides the Admin group for plain admin users (super-admin only after item 10h)", async () => {
     renderSidebar();
-    await waitFor(() => {
-      expect(screen.getByRole("link", { name: /schools/i })).toBeInTheDocument();
-    });
+    // Settle on the brand text before asserting absence; the default adminMe handler returns role="admin".
+    expect(await screen.findByText(/klassenzeit/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /schools/i })).not.toBeInTheDocument();
   });
 
   it("hides the Admin group for non-admin users", async () => {

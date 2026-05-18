@@ -86,10 +86,7 @@ export function AppSidebar() {
   const me = useMe();
   const logout = useLogout();
   const switchSchool = useSwitchSchool();
-  const navGroups =
-    me.data?.role === "admin" || me.data?.role === "super_admin"
-      ? [...NAV_GROUPS, ADMIN_NAV_GROUP]
-      : NAV_GROUPS;
+  const navGroups = me.data?.role === "super_admin" ? [...NAV_GROUPS, ADMIN_NAV_GROUP] : NAV_GROUPS;
 
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
 

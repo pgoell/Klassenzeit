@@ -18,7 +18,7 @@ async def _make_school(
 
 
 async def test_create_school_admin(client: AsyncClient, create_test_user, login_as) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.post(
         "/api/schools",
@@ -34,7 +34,7 @@ async def test_create_school_admin(client: AsyncClient, create_test_user, login_
 async def test_create_school_minimal_no_short_name(
     client: AsyncClient, create_test_user, login_as
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.post("/api/schools", json={"name": "Nur Name"})
     assert response.status_code == 201
@@ -44,7 +44,7 @@ async def test_create_school_minimal_no_short_name(
 async def test_create_school_duplicate_name(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     await _make_school(db_session, name="Doppelte")
     await db_session.commit()
@@ -55,7 +55,7 @@ async def test_create_school_duplicate_name(
 async def test_create_school_duplicate_short_name(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     await _make_school(db_session, name="Unique 1", short_name="DUP")
     await db_session.commit()
@@ -66,7 +66,7 @@ async def test_create_school_duplicate_short_name(
 async def test_list_schools_admin(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     await _make_school(db_session, name="Beta School")
     await db_session.commit()
@@ -81,7 +81,7 @@ async def test_list_schools_admin(
 async def test_get_school_admin(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="To Fetch", short_name="TF")
     await db_session.commit()
@@ -93,7 +93,7 @@ async def test_get_school_admin(
 
 
 async def test_get_school_not_found(client: AsyncClient, create_test_user, login_as) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.get(f"/api/schools/{uuid.uuid4()}")
     assert response.status_code == 404
@@ -102,7 +102,7 @@ async def test_get_school_not_found(client: AsyncClient, create_test_user, login
 async def test_update_school_admin(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="Old", short_name="OLD")
     await db_session.commit()
@@ -119,7 +119,7 @@ async def test_update_school_admin(
 async def test_update_school_partial(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="Stays", short_name="OLD")
     await db_session.commit()
@@ -133,7 +133,7 @@ async def test_update_school_partial(
 async def test_update_school_clear_short_name(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="Keeps", short_name="HAD")
     await db_session.commit()
@@ -145,7 +145,7 @@ async def test_update_school_clear_short_name(
 async def test_update_school_empty_body(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="Untouched")
     await db_session.commit()
@@ -156,7 +156,7 @@ async def test_update_school_empty_body(
 async def test_update_school_duplicate_name(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     await _make_school(db_session, name="Existing")
     other = await _make_school(db_session, name="Other")
@@ -166,7 +166,7 @@ async def test_update_school_duplicate_name(
 
 
 async def test_update_school_not_found(client: AsyncClient, create_test_user, login_as) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.patch(f"/api/schools/{uuid.uuid4()}", json={"name": "Anything"})
     assert response.status_code == 404
@@ -175,7 +175,7 @@ async def test_update_school_not_found(client: AsyncClient, create_test_user, lo
 async def test_update_default_school_rename(
     client: AsyncClient, create_test_user, login_as
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.patch(
         f"/api/schools/{DEFAULT_SCHOOL_ID}",
@@ -188,7 +188,7 @@ async def test_update_default_school_rename(
 async def test_delete_school_admin(
     client: AsyncClient, create_test_user, login_as, db_session
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     school = await _make_school(db_session, name="To Delete")
     await db_session.commit()
@@ -201,7 +201,7 @@ async def test_delete_school_with_users_blocked(
 ) -> None:
     school = await _make_school(db_session, name="Has Users")
     await db_session.commit()
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await create_test_user(email="resident@test.com", role="user", school_id=school.id)
     await login_as("admin@test.com", "testpassword123")
     response = await client.delete(f"/api/schools/{school.id}")
@@ -212,7 +212,7 @@ async def test_delete_school_with_users_blocked(
 async def test_delete_school_default_blocked(
     client: AsyncClient, create_test_user, login_as
 ) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.delete(f"/api/schools/{DEFAULT_SCHOOL_ID}")
     assert response.status_code == 409
@@ -220,7 +220,7 @@ async def test_delete_school_default_blocked(
 
 
 async def test_delete_school_not_found(client: AsyncClient, create_test_user, login_as) -> None:
-    await create_test_user(email="admin@test.com", role="admin")
+    await create_test_user(email="admin@test.com", role="super_admin")
     await login_as("admin@test.com", "testpassword123")
     response = await client.delete(f"/api/schools/{uuid.uuid4()}")
     assert response.status_code == 404
@@ -233,6 +233,22 @@ async def test_endpoints_require_admin_role(
     await db_session.commit()
     await create_test_user(email="user@test.com", role="user")
     await login_as("user@test.com", "testpassword123")
+
+    assert (await client.get("/api/schools")).status_code == 403
+    assert (await client.get(f"/api/schools/{school.id}")).status_code == 403
+    assert (await client.post("/api/schools", json={"name": "X"})).status_code == 403
+    assert (await client.patch(f"/api/schools/{school.id}", json={"name": "Y"})).status_code == 403
+    assert (await client.delete(f"/api/schools/{school.id}")).status_code == 403
+
+
+async def test_endpoints_require_super_admin_role(
+    client: AsyncClient, create_test_user, login_as, db_session
+) -> None:
+    """Plain admin role gets 403 on every /schools/* verb after item 10h."""
+    school = await _make_school(db_session, name="Gated SA")
+    await db_session.commit()
+    await create_test_user(email="plain_admin@test.com", role="admin")
+    await login_as("plain_admin@test.com", "testpassword123")
 
     assert (await client.get("/api/schools")).status_code == 403
     assert (await client.get(f"/api/schools/{school.id}")).status_code == 403
