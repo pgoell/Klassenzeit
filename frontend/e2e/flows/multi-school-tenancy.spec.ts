@@ -51,16 +51,9 @@ test.describe("multi-school cross-school isolation", () => {
     await page.getByRole("option", { name: "Schule B" }).click();
 
     await expect(picker).toContainText("Schule B");
-
-    // Force a reload to verify the server-side session active_school_id was
-    // updated; the rooms list refresh after the picker click depends on a
-    // queryClient.clear() refetch cycle that is not reliable in this branch.
-    await page.reload();
-
     await expect(page.getByRole("cell", { name: "SB Raum 1", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "SB Raum 2", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Turnhalle", exact: true })).toBeHidden();
-    await expect(picker).toContainText("Schule B");
   });
 
   test("cross-school deep-link returns 404", async ({ page, request, context }) => {
