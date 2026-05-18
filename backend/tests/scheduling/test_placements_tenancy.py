@@ -301,6 +301,75 @@ async def test_persist_solution_for_class_stamps_school_id(
     assert row.school_id == DEFAULT_SCHOOL_ID
 
 
+async def test_super_admin_with_other_school_param_can_pin_in_other_school(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    seeded_movable_placement: SeededMovablePlacement,
+) -> None:
+    """Super-admin scoped via ?school_id=<home> can pin placements in that school.
+
+    Uses the home-school fixture but routes the call through ?school_id=<home>
+    to prove the dependency resolves the override path. The DB row's school_id
+    after the pin must equal the resolved scope school (i.e. home).
+    """
+    sa, password = await create_test_user(
+        email="sa-place-pin@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    await login_as(sa.email, password)
+    fixture = seeded_movable_placement
+    response = await client.patch(
+        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin"
+        f"?school_id={DEFAULT_SCHOOL_ID}",
+        json={"pin_kind": PinKind.HARD.value},
+    )
+    assert response.status_code == 200
+    row = (
+        await db_session.execute(
+            select(ScheduledLesson).where(
+                ScheduledLesson.lesson_id == fixture.lesson_id,
+                ScheduledLesson.time_block_id == fixture.source_time_block_id,
+            )
+        )
+    ).scalar_one()
+    assert row.pin_kind == PinKind.HARD
+    assert row.school_id == DEFAULT_SCHOOL_ID
+
+
+async def test_admin_pinning_with_other_school_param_is_ignored(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_test_user,
+    login_as,
+    seeded_movable_placement: SeededMovablePlacement,
+    school_b_for_placements: School,
+) -> None:
+    """Plain admin's ?school_id query parameter is ignored: pin still lands in home."""
+    await create_test_user(
+        email="admin-pin-ignore@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    await login_as("admin-pin-ignore@test.com", "testpassword123")
+    fixture = seeded_movable_placement
+    # Admin passes school_id=B; should be ignored, pin lands in home (school A).
+    response = await client.patch(
+        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin"
+        f"?school_id={school_b_for_placements.id}",
+        json={"pin_kind": PinKind.HARD.value},
+    )
+    assert response.status_code == 200
+    row = (
+        await db_session.execute(
+            select(ScheduledLesson).where(
+                ScheduledLesson.lesson_id == fixture.lesson_id,
+                ScheduledLesson.time_block_id == fixture.source_time_block_id,
+            )
+        )
+    ).scalar_one()
+    assert row.pin_kind == PinKind.HARD
+    assert row.school_id == DEFAULT_SCHOOL_ID
+
+
 async def test_load_placements_filters_by_school_id(
     db_session: AsyncSession,
     seeded_movable_placement: SeededMovablePlacement,

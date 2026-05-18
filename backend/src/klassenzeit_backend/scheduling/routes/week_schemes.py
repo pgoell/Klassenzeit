@@ -8,8 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
-from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.auth.dependencies import get_scope_school_id
 from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
 from klassenzeit_backend.db.session import get_session
 from klassenzeit_backend.scheduling.schemas.week_scheme import (
@@ -73,16 +72,16 @@ async def _get_time_block(db: AsyncSession, scheme_id: uuid.UUID, block_id: uuid
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_week_scheme_route(
     body: WeekSchemeCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> WeekSchemeListResponse:
-    """Create a new week scheme in the current user's school.
+    """Create a new week scheme in the current operating school.
 
     Args:
         body: Name and optional description for the new week scheme.
-        current_user: Injected admin user; stamps ``school_id`` from the
-            current user onto the new row.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; stamped on the new row.
 
     Returns:
         The created week scheme as a WeekSchemeListResponse.
@@ -93,7 +92,7 @@ async def create_week_scheme_route(
     scheme = WeekScheme(
         name=body.name,
         description=body.description,
-        school_id=current_user.school_id,
+        school_id=scope_school_id,
     )
     db.add(scheme)
     try:
@@ -115,22 +114,21 @@ async def create_week_scheme_route(
 
 @router.get("")
 async def list_week_schemes(
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> list[WeekSchemeListResponse]:
-    """Return all week schemes in the current user's school ordered by name.
+    """Return all week schemes in the current operating school ordered by name.
 
     Args:
-        current_user: Injected admin user; scopes the query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the query.
 
     Returns:
-        List of week schemes in the user's school sorted alphabetically by name.
+        List of week schemes in the operating school sorted alphabetically by name.
     """
     result = await db.execute(
-        select(WeekScheme)
-        .where(WeekScheme.school_id == current_user.school_id)
-        .order_by(WeekScheme.name)
+        select(WeekScheme).where(WeekScheme.school_id == scope_school_id).order_by(WeekScheme.name)
     )
     return [
         WeekSchemeListResponse(
@@ -147,23 +145,24 @@ async def list_week_schemes(
 @router.get("/{scheme_id}")
 async def get_week_scheme_route(
     scheme_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> WeekSchemeDetailResponse:
     """Fetch a single week scheme by ID, including its time blocks.
 
     Args:
         scheme_id: UUID path parameter identifying the week scheme.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The matching week scheme with nested time blocks as a WeekSchemeDetailResponse.
 
     Raises:
-        HTTPException: 404 if no week scheme with that ID exists in the user's school.
+        HTTPException: 404 if no week scheme with that ID exists in the operating school.
     """
-    scheme = await _get_week_scheme(db, scheme_id, current_user.school_id)
+    scheme = await _get_week_scheme(db, scheme_id, scope_school_id)
     blocks_result = await db.execute(
         select(TimeBlock)
         .where(TimeBlock.week_scheme_id == scheme_id)
@@ -194,25 +193,26 @@ async def get_week_scheme_route(
 async def update_week_scheme_route(
     scheme_id: uuid.UUID,
     body: WeekSchemeUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> WeekSchemeListResponse:
     """Partially update a week scheme's name or description.
 
     Args:
         scheme_id: UUID path parameter identifying the week scheme to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         The updated week scheme as a WeekSchemeListResponse.
 
     Raises:
-        HTTPException: 404 if no week scheme with that ID exists in the user's school.
+        HTTPException: 404 if no week scheme with that ID exists in the operating school.
         HTTPException: 409 if the new name conflicts with an existing scheme.
     """
-    scheme = await _get_week_scheme(db, scheme_id, current_user.school_id)
+    scheme = await _get_week_scheme(db, scheme_id, scope_school_id)
     if body.name is not None:
         scheme.name = body.name
     if body.description is not None:
@@ -237,21 +237,22 @@ async def update_week_scheme_route(
 @router.delete("/{scheme_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_week_scheme_route(
     scheme_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
     """Delete a week scheme by ID.
 
     Args:
         scheme_id: UUID path parameter identifying the week scheme to delete.
-        current_user: Injected admin user; scopes the lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Raises:
-        HTTPException: 404 if no week scheme with that ID exists in the user's school.
+        HTTPException: 404 if no week scheme with that ID exists in the operating school.
         HTTPException: 409 if the scheme is referenced by classes (FK protection).
     """
-    scheme = await _get_week_scheme(db, scheme_id, current_user.school_id)
+    scheme = await _get_week_scheme(db, scheme_id, scope_school_id)
     await db.delete(scheme)
     try:
         await db.commit()
@@ -266,26 +267,26 @@ async def delete_week_scheme_route(
 async def create_time_block_route(
     scheme_id: uuid.UUID,
     body: TimeBlockCreate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TimeBlockResponse:
     """Create a new time block within a week scheme.
 
     Args:
         scheme_id: UUID path parameter identifying the parent week scheme.
         body: day_of_week, position, start_time, and end_time for the new block.
-        current_user: Injected admin user; the parent scheme is gated by their
-            school before the time block is created.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; the parent scheme is gated by this scope.
 
     Returns:
         The created time block as a TimeBlockResponse.
 
     Raises:
-        HTTPException: 404 if the week scheme does not exist in the user's school.
+        HTTPException: 404 if the week scheme does not exist in the operating school.
         HTTPException: 409 if a block with the same day_of_week+position already exists.
     """
-    await _get_week_scheme(db, scheme_id, current_user.school_id)
+    await _get_week_scheme(db, scheme_id, scope_school_id)
     block = TimeBlock(
         week_scheme_id=scheme_id,
         day_of_week=body.day_of_week,
@@ -318,8 +319,8 @@ async def update_time_block_route(
     scheme_id: uuid.UUID,
     block_id: uuid.UUID,
     body: TimeBlockUpdate,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> TimeBlockResponse:
     """Partially update a time block's fields.
 
@@ -327,9 +328,9 @@ async def update_time_block_route(
         scheme_id: UUID path parameter identifying the parent week scheme.
         block_id: UUID path parameter identifying the time block to patch.
         body: Fields to update; omitted fields remain unchanged.
-        current_user: Injected admin user; the parent scheme is gated by their
-            school before the time block is patched.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; the parent scheme is gated by this scope.
 
     Returns:
         The updated time block as a TimeBlockResponse.
@@ -339,7 +340,7 @@ async def update_time_block_route(
             the time block does not exist or belongs to a different scheme.
         HTTPException: 409 if the new day+position conflicts with an existing block.
     """
-    await _get_week_scheme(db, scheme_id, current_user.school_id)
+    await _get_week_scheme(db, scheme_id, scope_school_id)
     block = await _get_time_block(db, scheme_id, block_id)
     if body.day_of_week is not None:
         block.day_of_week = body.day_of_week
@@ -373,24 +374,24 @@ async def update_time_block_route(
 async def delete_time_block_route(
     scheme_id: uuid.UUID,
     block_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> None:
     """Delete a time block from a week scheme.
 
     Args:
         scheme_id: UUID path parameter identifying the parent week scheme.
         block_id: UUID path parameter identifying the time block to delete.
-        current_user: Injected admin user; the parent scheme is gated by their
-            school before the time block is deleted.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; the parent scheme is gated by this scope.
 
     Raises:
         HTTPException: 404 if the parent scheme is in a different school, or if
             the time block does not exist or belongs to a different scheme.
         HTTPException: 409 if the block is referenced by availabilities (FK protection).
     """
-    await _get_week_scheme(db, scheme_id, current_user.school_id)
+    await _get_week_scheme(db, scheme_id, scope_school_id)
     block = await _get_time_block(db, scheme_id, block_id)
     await db.delete(block)
     try:

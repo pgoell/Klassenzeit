@@ -332,3 +332,66 @@ async def test_generate_lessons_qualified_teacher_check_scoped_to_school(
     detail = response.json()["detail"]
     assert detail["code"] == "missing_qualified_teacher"
     assert str(subject.id) in detail["subject_ids"]
+
+
+async def test_super_admin_with_other_school_param_sees_other_teachers(
+    client: AsyncClient,
+    school_b_teachers,
+    create_teacher,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin with ?school_id=<other> sees the other school's teachers."""
+    sa, password = await create_test_user(
+        email="sa-teacher-other@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    home_teacher = await create_teacher(short_code="HOM")
+    other_teacher = await create_teacher(short_code="OTH", school_id=school_b_teachers.id)
+    await login_as(sa.email, password)
+    response = await client.get(f"/api/teachers?school_id={school_b_teachers.id}")
+    assert response.status_code == 200
+    ids = {row["id"] for row in response.json()}
+    assert str(other_teacher.id) in ids
+    assert str(home_teacher.id) not in ids
+
+
+async def test_super_admin_no_param_sees_home_teachers_only(
+    client: AsyncClient,
+    school_b_teachers,
+    create_teacher,
+    create_test_user,
+    login_as,
+) -> None:
+    """Super-admin without ?school_id sees home teachers only."""
+    sa, password = await create_test_user(
+        email="sa-teacher-home@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    home_teacher = await create_teacher(short_code="HM2")
+    other_teacher = await create_teacher(short_code="OT2", school_id=school_b_teachers.id)
+    await login_as(sa.email, password)
+    response = await client.get("/api/teachers")
+    assert response.status_code == 200
+    ids = {row["id"] for row in response.json()}
+    assert str(home_teacher.id) in ids
+    assert str(other_teacher.id) not in ids
+
+
+async def test_admin_with_other_school_param_is_ignored_on_teachers(
+    client: AsyncClient,
+    school_b_teachers,
+    create_teacher,
+    create_test_user,
+    login_as,
+) -> None:
+    """Plain admin with ?school_id=<other> still sees home school's teachers only."""
+    admin, password = await create_test_user(
+        email="admin-teacher-ignore@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+    )
+    home_teacher = await create_teacher(short_code="AHM")
+    other_teacher = await create_teacher(short_code="AOT", school_id=school_b_teachers.id)
+    await login_as(admin.email, password)
+    response = await client.get(f"/api/teachers?school_id={school_b_teachers.id}")
+    assert response.status_code == 200
+    ids = {row["id"] for row in response.json()}
+    assert str(home_teacher.id) in ids
+    assert str(other_teacher.id) not in ids

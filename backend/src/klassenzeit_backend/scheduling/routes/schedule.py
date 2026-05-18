@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import get_scope_school_id, require_admin
 from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
@@ -56,8 +56,8 @@ def _quality_issues_to_response(
 async def generate_schedule_for_class(
     class_id: uuid.UUID,
     request: Request,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> ScheduleResponse:
     """Run the solver for the given class, persist the placements, and return them.
 
@@ -65,8 +65,9 @@ async def generate_schedule_for_class(
         class_id: UUID path parameter identifying the school class.
         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend`` from
             ``app.state.settings``.
-        current_user: Injected admin user; scopes the room query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the solver IO.
 
     Returns:
         ``ScheduleResponse`` with placements and violations scoped to this class.
@@ -77,14 +78,12 @@ async def generate_schedule_for_class(
             different week_scheme, or if the rooms table is empty.
     """
     sibling_pins = await solver_io.collect_pinned_placements(
-        db, {class_id}, school_id=current_user.school_id
+        db, {class_id}, school_id=scope_school_id
     )
-    own_pins = await solver_io.collect_own_class_pins(
-        db, class_id, school_id=current_user.school_id
-    )
+    own_pins = await solver_io.collect_own_class_pins(db, class_id, school_id=scope_school_id)
     all_pins = sibling_pins + own_pins
     problem_json, class_lesson_ids, input_counts = await solver_io.build_problem_json(
-        db, class_id, school_id=current_user.school_id, pinned_placements=all_pins
+        db, class_id, school_id=scope_school_id, pinned_placements=all_pins
     )
     settings = request.app.state.settings
     deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
@@ -123,7 +122,7 @@ async def generate_schedule_for_class(
     )
     own_pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in own_pins}
     await solver_io.persist_solution_for_class(
-        db, class_id, filtered, school_id=current_user.school_id, pinned_keys=own_pinned_keys
+        db, class_id, filtered, school_id=scope_school_id, pinned_keys=own_pinned_keys
     )
     # build_problem_json has already verified the class exists; the scalar
     # below resolves its WeekScheme so the supervision rota can be scoped
@@ -133,15 +132,15 @@ async def generate_schedule_for_class(
         await db.execute(
             select(SchoolClass.week_scheme_id).where(
                 SchoolClass.id == class_id,
-                SchoolClass.school_id == current_user.school_id,
+                SchoolClass.school_id == scope_school_id,
             )
         )
     ).scalar_one()
     await solver_io.persist_supervision_assignments(
-        db, week_scheme_id, solution, school_id=current_user.school_id
+        db, week_scheme_id, solution, school_id=scope_school_id
     )
     await db.commit()
-    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=scope_school_id)
     return ScheduleResponse.model_validate(
         {**filtered, "quality_issues": _quality_issues_to_response(quality_issues)}
     )
@@ -150,8 +149,8 @@ async def generate_schedule_for_class(
 @router.post("/schedule/all")
 async def generate_schedule_for_all_classes(
     request: Request,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
     respect_pins: bool = True,
 ) -> WholeSchoolScheduleResponse:
     """Run the solver for every class in one transaction and persist atomically.
@@ -165,8 +164,9 @@ async def generate_schedule_for_all_classes(
 
     Args:
         request: The FastAPI request, used to read ``solve_deadline_ms_by_backend``.
-        current_user: Injected admin user; scopes the room query to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the solver IO.
         respect_pins: When true, pinned rows are threaded as solver input
             pins. Defaults to true.
 
@@ -179,13 +179,9 @@ async def generate_schedule_for_all_classes(
             classes, no rooms, heterogeneous week_schemes across classes,
             no time_blocks for the anchor class's week_scheme).
     """
-    pins = (
-        await solver_io.collect_all_pins(db, school_id=current_user.school_id)
-        if respect_pins
-        else []
-    )
+    pins = await solver_io.collect_all_pins(db, school_id=scope_school_id) if respect_pins else []
     problem_json, _, input_counts = await solver_io.build_problem_json(
-        db, class_id=None, school_id=current_user.school_id, pinned_placements=pins
+        db, class_id=None, school_id=scope_school_id, pinned_placements=pins
     )
     settings = request.app.state.settings
     deadline_ms = settings.solve_deadline_ms_by_backend[settings.solver_backend]
@@ -199,7 +195,7 @@ async def generate_schedule_for_all_classes(
     )
     pinned_keys = {(uuid.UUID(p["lesson_id"]), uuid.UUID(p["time_block_id"])) for p in pins}
     summaries = await solver_io.persist_solution_for_all_classes(
-        db, solution, school_id=current_user.school_id, pinned_keys=pinned_keys
+        db, solution, school_id=scope_school_id, pinned_keys=pinned_keys
     )
     await db.commit()
     return WholeSchoolScheduleResponse(
@@ -213,29 +209,28 @@ async def generate_schedule_for_all_classes(
 @router.get("/classes/{class_id}/schedule")
 async def read_schedule_for_class_route(
     class_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements for this class.
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        current_user: Injected admin user; scopes the class lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         ``ScheduleReadResponse`` with the class's persisted placements. Empty
         ``placements`` means the class exists but has never been scheduled.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist in the user's school.
+        HTTPException: 404 if the class doesn't exist in the operating school.
     """
-    placements = await solver_io.read_schedule_for_class(
-        db, class_id, school_id=current_user.school_id
-    )
-    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
+    placements = await solver_io.read_schedule_for_class(db, class_id, school_id=scope_school_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=scope_school_id)
     quality_report = await compute_quality_attribution_for_class(
-        db, class_id, school_id=current_user.school_id
+        db, class_id, school_id=scope_school_id
     )
     return ScheduleReadResponse(
         placements=placements,
@@ -247,8 +242,8 @@ async def read_schedule_for_class_route(
 @router.get("/classes/{class_id}/quality-issues")
 async def read_quality_issues_for_class_route(
     class_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> list[QualityIssueResponse]:
     """Return the soft-quality issues for the given class.
 
@@ -258,32 +253,34 @@ async def read_quality_issues_for_class_route(
 
     Args:
         class_id: UUID path parameter identifying the school class.
-        current_user: Injected admin user; scopes the class lookup to their school.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``.
 
     Returns:
         ``list[QualityIssueResponse]``; empty when no issues apply.
 
     Raises:
-        HTTPException: 404 if the class doesn't exist in the user's school.
+        HTTPException: 404 if the class doesn't exist in the operating school.
     """
-    quality_issues = await compute_quality_issues(db, class_id, school_id=current_user.school_id)
+    quality_issues = await compute_quality_issues(db, class_id, school_id=scope_school_id)
     return _quality_issues_to_response(quality_issues)
 
 
 @router.get("/teachers/{teacher_id}/schedule")
 async def read_schedule_for_teacher_route(
     teacher_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements for every lesson where Lesson.teacher_id matches.
 
     Args:
         teacher_id: UUID path parameter identifying the teacher.
-        current_user: Injected admin user; passes school_id through to
-            quality attribution so the lookup is tenant-scoped.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; passed through to quality attribution
+            so the lookup is tenant-scoped.
 
     Returns:
         ``ScheduleReadResponse`` with the teacher's persisted placements and the
@@ -296,13 +293,13 @@ async def read_schedule_for_teacher_route(
         HTTPException: 404 if the teacher doesn't exist.
     """
     placements = await solver_io.read_schedule_for_teacher(
-        db, teacher_id, school_id=current_user.school_id
+        db, teacher_id, school_id=scope_school_id
     )
     supervision_assignments = await solver_io.read_supervision_assignments_for_teacher(
-        db, teacher_id, school_id=current_user.school_id
+        db, teacher_id, school_id=scope_school_id
     )
     quality_report = await compute_quality_attribution_for_teacher(
-        db, teacher_id, school_id=current_user.school_id
+        db, teacher_id, school_id=scope_school_id
     )
     return ScheduleReadResponse(
         placements=placements,
@@ -370,25 +367,24 @@ async def cancel_schedule(
 @router.get("/rooms/{room_id}/schedule")
 async def read_schedule_for_room_route(
     room_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)],
 ) -> ScheduleReadResponse:
     """Return the persisted placements where ``ScheduledLesson.room_id`` matches.
 
     Args:
         room_id: UUID path parameter identifying the room.
-        current_user: Injected admin user; scopes the room lookup and the
-            placement join through ``Lesson.school_id``.
         db: Injected async database session.
+        scope_school_id: Per-request operating school resolved by
+            ``get_scope_school_id``; scopes the room lookup and the
+            placement join through ``Lesson.school_id``.
 
     Returns:
         ``ScheduleReadResponse`` with the room's persisted placements. Empty
         ``placements`` means the room exists but has no scheduled lessons yet.
 
     Raises:
-        HTTPException: 404 if the room doesn't exist in the user's school.
+        HTTPException: 404 if the room doesn't exist in the operating school.
     """
-    placements = await solver_io.read_schedule_for_room(
-        db, room_id, school_id=current_user.school_id
-    )
+    placements = await solver_io.read_schedule_for_room(db, room_id, school_id=scope_school_id)
     return ScheduleReadResponse(placements=placements)
