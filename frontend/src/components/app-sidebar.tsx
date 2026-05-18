@@ -78,7 +78,10 @@ export function AppSidebar() {
   const { collapsed, toggle } = useSidebar();
   const me = useMe();
   const logout = useLogout();
-  const navGroups = me.data?.role === "admin" ? [...NAV_GROUPS, ADMIN_NAV_GROUP] : NAV_GROUPS;
+  const navGroups =
+    me.data?.role === "admin" || me.data?.role === "super_admin"
+      ? [...NAV_GROUPS, ADMIN_NAV_GROUP]
+      : NAV_GROUPS;
 
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
 
@@ -169,6 +172,11 @@ export function AppSidebar() {
               <span className="text-xs text-muted-foreground">{me.data?.email ?? "…"}</span>
               {me.data?.school_name ? (
                 <span className="text-[10px] text-muted-foreground/80">{me.data.school_name}</span>
+              ) : null}
+              {me.data?.role === "super_admin" ? (
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                  {t("sidebar.superAdminBadge")}
+                </span>
               ) : null}
             </div>
           </div>

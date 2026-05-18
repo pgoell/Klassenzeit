@@ -16,6 +16,16 @@ export const adminMe = {
   created_at: "2026-04-17T00:00:00Z",
 };
 
+export const superAdminMe = {
+  id: "00000000-0000-0000-0000-000000000002",
+  email: "superadmin@example.com",
+  role: "super_admin",
+  force_password_change: false,
+  school_id: "00000000-0000-0000-0000-000000000001",
+  school_name: "Default Schule",
+  created_at: "2026-04-17T00:00:00Z",
+};
+
 export const initialSubjects = [
   {
     id: "11111111-1111-1111-1111-111111111111",

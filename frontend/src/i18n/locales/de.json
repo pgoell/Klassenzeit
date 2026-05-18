@@ -51,7 +51,8 @@
     "lessons": "Unterricht",
     "admin": "Administration",
     "schools": "Schulen",
-    "comingSoon": "Bald verfügbar"
+    "comingSoon": "Bald verfügbar",
+    "superAdminBadge": "Super-Admin"
   },
   "theme": {
     "toggle": "Farbschema umschalten"
