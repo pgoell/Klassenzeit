@@ -301,27 +301,21 @@ async def test_persist_solution_for_class_stamps_school_id(
     assert row.school_id == DEFAULT_SCHOOL_ID
 
 
-async def test_super_admin_with_other_school_param_can_pin_in_other_school(
+async def test_super_admin_can_pin_in_active_school(
     client: AsyncClient,
     db_session: AsyncSession,
     create_test_user,
     login_as,
     seeded_movable_placement: SeededMovablePlacement,
 ) -> None:
-    """Super-admin scoped via ?school_id=<home> can pin placements in that school.
-
-    Uses the home-school fixture but routes the call through ?school_id=<home>
-    to prove the dependency resolves the override path. The DB row's school_id
-    after the pin must equal the resolved scope school (i.e. home).
-    """
+    """Super-admin pins a placement; the row stamps with the session's active school."""
     sa, password = await create_test_user(
         email="sa-place-pin@test.com", role="super_admin", school_id=DEFAULT_SCHOOL_ID
     )
     await login_as(sa.email, password)
     fixture = seeded_movable_placement
     response = await client.patch(
-        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin"
-        f"?school_id={DEFAULT_SCHOOL_ID}",
+        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin",
         json={"pin_kind": PinKind.HARD.value},
     )
     assert response.status_code == 200
@@ -337,7 +331,7 @@ async def test_super_admin_with_other_school_param_can_pin_in_other_school(
     assert row.school_id == DEFAULT_SCHOOL_ID
 
 
-async def test_admin_pinning_with_other_school_param_is_ignored(
+async def test_admin_pin_stamps_session_active_school(
     client: AsyncClient,
     db_session: AsyncSession,
     create_test_user,
@@ -345,16 +339,17 @@ async def test_admin_pinning_with_other_school_param_is_ignored(
     seeded_movable_placement: SeededMovablePlacement,
     school_b_for_placements: School,
 ) -> None:
-    """Plain admin's ?school_id query parameter is ignored: pin still lands in home."""
+    """Plain admin's pin stamps the session's active school (home), not another school."""
     await create_test_user(
-        email="admin-pin-ignore@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+        email="admin-pin-home@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
     )
-    await login_as("admin-pin-ignore@test.com", "testpassword123")
+    await login_as("admin-pin-home@test.com", "testpassword123")
     fixture = seeded_movable_placement
-    # Admin passes school_id=B; should be ignored, pin lands in home (school A).
+    # school_b_for_placements is set up as a sibling fixture; the pin must land in
+    # the admin's home school regardless of which schools exist in the DB.
+    _ = school_b_for_placements
     response = await client.patch(
-        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin"
-        f"?school_id={school_b_for_placements.id}",
+        f"/api/placements/{fixture.lesson_id}/{fixture.source_time_block_id}/pin",
         json={"pin_kind": PinKind.HARD.value},
     )
     assert response.status_code == 200

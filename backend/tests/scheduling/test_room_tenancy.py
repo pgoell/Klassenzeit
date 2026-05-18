@@ -241,16 +241,16 @@ async def test_super_admin_with_active_school_sees_other_school_rooms(
     assert "Skip Me A" not in names
 
 
-async def test_admin_with_other_school_param_is_ignored(
+async def test_admin_without_switch_sees_home_school_only(
     client: AsyncClient,
     db_session: AsyncSession,
     school_b: School,
     create_test_user,
     login_as,
 ) -> None:
-    """Plain admin with ?school_id=<other> still sees home school only (param ignored)."""
+    """Plain admin sees home school's rooms only; session active_school = home."""
     admin, password = await create_test_user(
-        email="admin-ignore-param@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+        email="admin-home-only@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
     )
     room_in_a = Room(name="Admin Home", short_name="AH", school_id=DEFAULT_SCHOOL_ID)
     room_in_b = Room(name="Admin Other", short_name="AO", school_id=school_b.id)
@@ -258,7 +258,7 @@ async def test_admin_with_other_school_param_is_ignored(
     await db_session.flush()
 
     await login_as(admin.email, password)
-    response = await client.get(f"/api/rooms?school_id={school_b.id}")
+    response = await client.get("/api/rooms")
     assert response.status_code == 200
     names = {row["name"] for row in response.json()}
     assert "Admin Home" in names

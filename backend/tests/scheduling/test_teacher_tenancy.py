@@ -387,21 +387,21 @@ async def test_super_admin_no_param_sees_home_teachers_only(
     assert str(other_teacher.id) not in ids
 
 
-async def test_admin_with_other_school_param_is_ignored_on_teachers(
+async def test_admin_without_switch_sees_home_school_teachers_only(
     client: AsyncClient,
     school_b_teachers,
     create_teacher,
     create_test_user,
     login_as,
 ) -> None:
-    """Plain admin with ?school_id=<other> still sees home school's teachers only."""
+    """Plain admin sees home school's teachers only; session active_school = home."""
     admin, password = await create_test_user(
-        email="admin-teacher-ignore@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
+        email="admin-teacher-home@test.com", role="admin", school_id=DEFAULT_SCHOOL_ID
     )
     home_teacher = await create_teacher(short_code="AHM")
     other_teacher = await create_teacher(short_code="AOT", school_id=school_b_teachers.id)
     await login_as(admin.email, password)
-    response = await client.get(f"/api/teachers?school_id={school_b_teachers.id}")
+    response = await client.get("/api/teachers")
     assert response.status_code == 200
     ids = {row["id"] for row in response.json()}
     assert str(home_teacher.id) in ids
