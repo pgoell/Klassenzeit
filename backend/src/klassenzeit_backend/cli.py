@@ -5,6 +5,7 @@ and the ``cleanup-sessions`` command for removing expired sessions.
 """
 
 import asyncio
+import uuid
 
 import typer
 from sqlalchemy import select
@@ -32,6 +33,10 @@ cli = typer.Typer(no_args_is_help=True)
 
 E2E_ADMIN_EMAIL = "admin@example.com"
 E2E_ADMIN_PASSWORD = "test-password-12345"  # noqa: S105
+E2E_ADMIN_B_EMAIL = "admin-b@example.com"
+E2E_ADMIN_B_PASSWORD = "test-password-12345"  # noqa: S105
+E2E_SUPER_ADMIN_EMAIL = "super-admin@example.com"
+E2E_SUPER_ADMIN_PASSWORD = "test-password-12345"  # noqa: S105
 
 
 class DuplicateEmailError(ValueError):
@@ -44,11 +49,13 @@ async def create_admin_in_db(
     password: str,
     *,
     min_password_length: int = 12,
+    role: str = "admin",
+    school_id: uuid.UUID = DEFAULT_SCHOOL_ID,
 ) -> User:
     """Create an admin user in the database.
 
     Validates the password and checks for duplicate emails.
-    Does NOT commit — caller must commit or the test fixture rolls back.
+    Does NOT commit; the caller must commit or the test fixture rolls back.
 
     Raises ``DuplicateEmailError`` on duplicate email, ``ValueError`` on other
     validation failures.
@@ -67,8 +74,8 @@ async def create_admin_in_db(
     user = User(
         email=email,
         password_hash=hash_password(password),
-        role="admin",
-        school_id=DEFAULT_SCHOOL_ID,
+        role=role,
+        school_id=school_id,
     )
     db.add(user)
     await db.flush()

@@ -21,7 +21,6 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 
     **Follow-ups (P2, ordered by blast radius):**
 
-    - **10d: Multi-school Playwright E2E suite.** Two-school fixture exercising cross-school isolation through the UI. Trigger: ready.
     - **10f: Tenanted reference-data question.** Decide whether `Subject` is per-school or a shared catalog; same question for `PinKind`. Trigger: customer onboarding surfaces a school whose subject list differs materially from the default.
     - **10g: Audit log of super-admin cross-school writes.** Capture (super_admin_id, target_school_id, route, payload_summary, timestamp) for every write where `scope_school_id != current_user.school_id`. Trigger: a second super-admin user is provisioned, or compliance asks for the trail.
     - **10h: Tighten `/schools` admin visibility.** Today admin of school A sees all schools' names/IDs via `GET /schools` because the schools table is the tenant root. Decide whether admin should see only their own school via a new `GET /schools/me`, and whether the full listing remains super-admin only. Trigger: a customer raises information-disclosure concerns about school directory leakage.
@@ -120,6 +119,7 @@ Honest list of what is still missing or lackluster, ordered by impact on a real 
 - **Structured logging follow-ups.** Mute uvicorn `--access-log`, body / `Content-Length` logging (PII review), CloudWatch field renames, `solver-py` Rust-side logging, CRUD success / error instrumentation.
 - **Split `frontend/CLAUDE.md` into topic files under `.claude/rules/`.** Trigger at ~150 lines or topic-mixing.
 - **Migrate frontend pnpm pin to pnpm 11.** Pin sits at 10.33.2; revisit when a pnpm 11 feature becomes desired.
+- **E2E webServer serves stale `frontend/dist/`.** `frontend/e2e/playwright.config.ts` runs `vite preview` against the last build; a code change re-run without `mise run fe:build` exercises the OLD bundle and produces false-greens (or false-reds against a correct fix). Mitigations: chain `pnpm build` into the webServer command, switch to `vite dev`, or have `mise run e2e` depend on `fe:build`. Trigger: a future E2E iteration burns time on a stale-dist false-result.
 
 ### Auth maintenance
 

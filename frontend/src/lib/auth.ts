@@ -46,8 +46,7 @@ export function useSwitchSchool() {
       return data;
     },
     onSuccess: () => {
-      queryClient.clear();
-      void queryClient.invalidateQueries({ queryKey: meQueryKey });
+      void queryClient.resetQueries();
     },
   });
 }
