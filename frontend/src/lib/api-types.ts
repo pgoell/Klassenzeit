@@ -54,6 +54,11 @@ export interface paths {
         /**
          * Auth Me
          * @description Return the current authenticated user's profile.
+         *
+         *     The home school comes from ``user.school_id``; the active operating
+         *     school is read from the cookie session's ``active_school_id`` (set
+         *     at login or via ``POST /auth/switch-school``); the accessible-schools
+         *     list is computed via ``load_accessible_schools``.
          */
         get: operations["auth_me_api_auth_me_get"];
         put?: never;
@@ -218,6 +223,30 @@ export interface paths {
          * @description Patch a school's name and/or short_name.
          */
         patch: operations["update_school_api_schools__school_id__patch"];
+        trace?: never;
+    };
+    "/api/auth/switch-school": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch School
+         * @description Set the active school for the cookie session, then return /auth/me payload.
+         *
+         *     Returns 404 when the school row does not exist (regardless of role)
+         *     and 403 when the school exists but the user lacks access; the
+         *     existence-check fires first so callers can distinguish the two.
+         */
+        post: operations["switch_school_api_auth_switch_school_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/subjects": {
@@ -1697,6 +1726,19 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AccessibleSchool
+         * @description A school the current user can operate in.
+         */
+        AccessibleSchool: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * AvailabilityEntryInput
          * @description Single availability entry in request.
          */
@@ -2002,6 +2044,15 @@ export interface components {
             school_id: string;
             /** School Name */
             school_name: string;
+            /**
+             * Active School Id
+             * Format: uuid
+             */
+            active_school_id: string;
+            /** Active School Name */
+            active_school_name: string;
+            /** Accessible Schools */
+            accessible_schools: components["schemas"]["AccessibleSchool"][];
         };
         /**
          * MovePlacementRequest
@@ -2801,6 +2852,17 @@ export interface components {
         SwapPlacementsResponse: {
             a: components["schemas"]["PlacementResponse"];
             b: components["schemas"]["PlacementResponse"];
+        };
+        /**
+         * SwitchSchoolRequest
+         * @description Request body for ``POST /auth/switch-school``.
+         */
+        SwitchSchoolRequest: {
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
         };
         /**
          * TeacherAvailabilityEntry
@@ -3640,11 +3702,44 @@ export interface operations {
             };
         };
     };
+    switch_school_api_auth_switch_school_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchSchoolRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_subjects_api_subjects_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -3675,9 +3770,7 @@ export interface operations {
     };
     create_subject_route_api_subjects_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -3712,9 +3805,7 @@ export interface operations {
     };
     get_subject_api_subjects__subject_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 subject_id: string;
@@ -3747,9 +3838,7 @@ export interface operations {
     };
     delete_subject_api_subjects__subject_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 subject_id: string;
@@ -3780,9 +3869,7 @@ export interface operations {
     };
     update_subject_api_subjects__subject_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 subject_id: string;
@@ -3819,9 +3906,7 @@ export interface operations {
     };
     list_week_schemes_api_week_schemes_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -3852,9 +3937,7 @@ export interface operations {
     };
     create_week_scheme_route_api_week_schemes_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -3889,9 +3972,7 @@ export interface operations {
     };
     get_week_scheme_route_api_week_schemes__scheme_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -3924,9 +4005,7 @@ export interface operations {
     };
     delete_week_scheme_route_api_week_schemes__scheme_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -3957,9 +4036,7 @@ export interface operations {
     };
     update_week_scheme_route_api_week_schemes__scheme_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -3996,9 +4073,7 @@ export interface operations {
     };
     create_time_block_route_api_week_schemes__scheme_id__time_blocks_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -4035,9 +4110,7 @@ export interface operations {
     };
     delete_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -4069,9 +4142,7 @@ export interface operations {
     };
     update_time_block_route_api_week_schemes__scheme_id__time_blocks__block_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 scheme_id: string;
@@ -4109,9 +4180,7 @@ export interface operations {
     };
     list_rooms_api_rooms_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -4142,9 +4211,7 @@ export interface operations {
     };
     create_room_route_api_rooms_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -4179,9 +4246,7 @@ export interface operations {
     };
     get_room_api_rooms__room_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4214,9 +4279,7 @@ export interface operations {
     };
     delete_room_route_api_rooms__room_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4247,9 +4310,7 @@ export interface operations {
     };
     update_room_route_api_rooms__room_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4286,9 +4347,7 @@ export interface operations {
     };
     replace_room_suitability_api_rooms__room_id__suitability_put: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4325,9 +4384,7 @@ export interface operations {
     };
     replace_room_availability_api_rooms__room_id__availability_put: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4364,9 +4421,7 @@ export interface operations {
     };
     read_schedule_for_class_route_api_classes__class_id__schedule_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -4399,9 +4454,7 @@ export interface operations {
     };
     generate_schedule_for_class_api_classes__class_id__schedule_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -4436,7 +4489,6 @@ export interface operations {
         parameters: {
             query?: {
                 respect_pins?: boolean;
-                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -4468,9 +4520,7 @@ export interface operations {
     };
     read_quality_issues_for_class_route_api_classes__class_id__quality_issues_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -4503,9 +4553,7 @@ export interface operations {
     };
     read_schedule_for_teacher_route_api_teachers__teacher_id__schedule_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4602,9 +4650,7 @@ export interface operations {
     };
     read_schedule_for_room_route_api_rooms__room_id__schedule_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 room_id: string;
@@ -4639,7 +4685,6 @@ export interface operations {
         parameters: {
             query?: {
                 active?: boolean | null;
-                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -4671,9 +4716,7 @@ export interface operations {
     };
     create_teacher_route_api_teachers_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -4708,9 +4751,7 @@ export interface operations {
     };
     get_teacher_api_teachers__teacher_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4743,9 +4784,7 @@ export interface operations {
     };
     delete_teacher_route_api_teachers__teacher_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4776,9 +4815,7 @@ export interface operations {
     };
     update_teacher_route_api_teachers__teacher_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4815,9 +4852,7 @@ export interface operations {
     };
     replace_teacher_qualifications_api_teachers__teacher_id__qualifications_put: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4854,9 +4889,7 @@ export interface operations {
     };
     replace_teacher_availability_api_teachers__teacher_id__availability_put: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 teacher_id: string;
@@ -4893,9 +4926,7 @@ export interface operations {
     };
     list_stundentafeln_api_stundentafeln_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -4926,9 +4957,7 @@ export interface operations {
     };
     create_stundentafel_route_api_stundentafeln_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -4963,9 +4992,7 @@ export interface operations {
     };
     get_stundentafel_api_stundentafeln__tafel_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -4998,9 +5025,7 @@ export interface operations {
     };
     delete_stundentafel_route_api_stundentafeln__tafel_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -5031,9 +5056,7 @@ export interface operations {
     };
     update_stundentafel_route_api_stundentafeln__tafel_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -5070,9 +5093,7 @@ export interface operations {
     };
     create_stundentafel_entry_route_api_stundentafeln__tafel_id__entries_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -5109,9 +5130,7 @@ export interface operations {
     };
     delete_stundentafel_entry_api_stundentafeln__tafel_id__entries__entry_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -5143,9 +5162,7 @@ export interface operations {
     };
     update_stundentafel_entry_api_stundentafeln__tafel_id__entries__entry_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 tafel_id: string;
@@ -5183,9 +5200,7 @@ export interface operations {
     };
     list_school_classes_api_classes_get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -5216,9 +5231,7 @@ export interface operations {
     };
     create_school_class_route_api_classes_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -5253,9 +5266,7 @@ export interface operations {
     };
     get_school_class_api_classes__class_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -5288,9 +5299,7 @@ export interface operations {
     };
     delete_school_class_route_api_classes__class_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -5321,9 +5330,7 @@ export interface operations {
     };
     update_school_class_route_api_classes__class_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -5364,7 +5371,6 @@ export interface operations {
                 class_id?: string | null;
                 teacher_id?: string | null;
                 subject_id?: string | null;
-                school_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -5396,9 +5402,7 @@ export interface operations {
     };
     create_lesson_api_lessons_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
@@ -5433,9 +5437,7 @@ export interface operations {
     };
     get_lesson_api_lessons__lesson_id__get: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 lesson_id: string;
@@ -5468,9 +5470,7 @@ export interface operations {
     };
     delete_lesson_api_lessons__lesson_id__delete: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 lesson_id: string;
@@ -5501,9 +5501,7 @@ export interface operations {
     };
     update_lesson_api_lessons__lesson_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 lesson_id: string;
@@ -5540,9 +5538,7 @@ export interface operations {
     };
     generate_lessons_from_stundentafel_api_classes__class_id__generate_lessons_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 class_id: string;
@@ -5575,9 +5571,7 @@ export interface operations {
     };
     move_placement_route_api_placements__lesson_id___time_block_id__patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 lesson_id: string;
@@ -5615,9 +5609,7 @@ export interface operations {
     };
     pin_placement_route_api_placements__lesson_id___time_block_id__pin_patch: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 lesson_id: string;
@@ -5655,9 +5647,7 @@ export interface operations {
     };
     swap_placements_route_api_placements_swap_post: {
         parameters: {
-            query?: {
-                school_id?: string | null;
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: {
