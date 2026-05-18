@@ -6,15 +6,22 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import get_current_user
+from klassenzeit_backend.auth.dependencies import (
+    get_current_user,
+    load_accessible_schools,
+)
 from klassenzeit_backend.auth.passwords import (
     PasswordValidationError,
     hash_password,
     validate_password,
     verify_password,
 )
-from klassenzeit_backend.auth.schemas.me import ChangePasswordRequest, MeResponse
-from klassenzeit_backend.auth.sessions import delete_user_sessions
+from klassenzeit_backend.auth.schemas.me import (
+    AccessibleSchool,
+    ChangePasswordRequest,
+    MeResponse,
+)
+from klassenzeit_backend.auth.sessions import delete_user_sessions, lookup_session
 from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.user import User
 from klassenzeit_backend.db.session import get_session
@@ -29,20 +36,48 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def auth_me(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    kz_session: Annotated[str | None, Cookie()] = None,
 ) -> MeResponse:
-    """Return the current authenticated user's profile."""
-    school = await db.get(School, user.school_id)
-    if school is None:
+    """Return the current authenticated user's profile.
+
+    The home school comes from ``user.school_id``; the active operating
+    school is read from the cookie session's ``active_school_id`` (set
+    at login or via ``POST /auth/switch-school``); the accessible-schools
+    list is computed via ``load_accessible_schools``.
+    """
+    home_school = await db.get(School, user.school_id)
+    if home_school is None:
         raise RuntimeError(
             f"User {user.id} has school_id={user.school_id} but School row is missing"
         )
+
+    # get_current_user already 401s on a missing or invalid cookie; this
+    # narrow keeps the type checker honest without using ``assert``
+    # (Ruff S101 forbids it in non-test source).
+    if kz_session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    session = await lookup_session(db, uuid.UUID(kz_session))
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    active_school = await db.get(School, session.active_school_id)
+    if active_school is None:
+        raise RuntimeError(
+            f"Session {session.id} has active_school_id={session.active_school_id} "
+            "but School row is missing"
+        )
+
+    accessible = await load_accessible_schools(db, user)
+
     return MeResponse(
         id=user.id,
         email=user.email,
         role=user.role,
         force_password_change=user.force_password_change,
         school_id=user.school_id,
-        school_name=school.name,
+        school_name=home_school.name,
+        active_school_id=active_school.id,
+        active_school_name=active_school.name,
+        accessible_schools=[AccessibleSchool(id=s.id, name=s.name) for s in accessible],
     )
 
 
