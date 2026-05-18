@@ -6,7 +6,7 @@ Stack: FastAPI + SQLAlchemy async, Alembic, Pydantic. Served under `klassenzeit_
 
 Routes and route handlers live next to the aggregate they serve. Runtime state (engine, session factory, settings, rate limiter) lives on `app.state`, set in `lifespan`. No module-level globals.
 
-Aggregate-routes split across two trees: tenanted scheduling aggregates live at `klassenzeit_backend/scheduling/routes/<aggregate>.py`; auth and tenancy-control aggregates (users, sessions, schools) live at `klassenzeit_backend/auth/routes/<aggregate>.py`. `Schools` is itself the tenant, not a tenanted aggregate, so its CRUD lives under `auth/routes/schools.py`. When grepping for an aggregate's HTTP surface, search both trees.
+Aggregate-routes split across two trees: tenanted scheduling aggregates live at `klassenzeit_backend/scheduling/routes/<aggregate>.py`; auth and tenancy-control aggregates (users, sessions, schools) live at `klassenzeit_backend/auth/routes/<aggregate>.py`. `Schools` is itself the tenant, not a tenanted aggregate, so its CRUD lives under `auth/routes/schools.py` and every verb gates on `Depends(require_super_admin)` (not `require_admin`): managing the set of schools is a cross-tenant operation, so a school-bound admin must not see or mutate it. Reuse this shape for any future tenant-control surface (cross-school config, super-admin-only audit views, etc.). When grepping for an aggregate's HTTP surface, search both trees.
 
 ## Error handling
 
