@@ -16,6 +16,7 @@ from klassenzeit_backend.db.models.school_class import SchoolClass
 from klassenzeit_backend.db.models.session import UserSession
 from klassenzeit_backend.db.models.stundentafel import Stundentafel, StundentafelEntry
 from klassenzeit_backend.db.models.subject import Subject
+from klassenzeit_backend.db.models.super_admin_audit_log import SuperAdminAuditLog
 from klassenzeit_backend.db.models.supervision_assignment import SupervisionAssignment
 from klassenzeit_backend.db.models.teacher import Teacher, TeacherAvailability, TeacherQualification
 from klassenzeit_backend.db.models.user import User
@@ -35,6 +36,7 @@ __all__ = [
     "Stundentafel",
     "StundentafelEntry",
     "Subject",
+    "SuperAdminAuditLog",
     "SupervisionAssignment",
     "Teacher",
     "TeacherAvailability",
