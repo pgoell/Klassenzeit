@@ -15,6 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, FastAPI, Request, Response
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from klassenzeit_backend.auth.audit_middleware import SuperAdminAuditMiddleware
 from klassenzeit_backend.auth.rate_limit import LoginRateLimiter
 from klassenzeit_backend.auth.routes import auth_router
 from klassenzeit_backend.core.logging import (
@@ -110,6 +111,8 @@ def build_app(env: str | None) -> FastAPI:
     new_app.include_router(scheduling_router, prefix="/api")
     new_app.include_router(health_router, prefix="/api")
     include_testing_router_if_enabled(new_app, env)
+
+    new_app.add_middleware(SuperAdminAuditMiddleware)
 
     @new_app.middleware("http")
     async def log_http_request(
