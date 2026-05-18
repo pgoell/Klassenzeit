@@ -13,6 +13,9 @@ export const adminMe = {
   force_password_change: false,
   school_id: "00000000-0000-0000-0000-000000000001",
   school_name: "Default Schule",
+  active_school_id: "00000000-0000-0000-0000-000000000001",
+  active_school_name: "Default Schule",
+  accessible_schools: [{ id: "00000000-0000-0000-0000-000000000001", name: "Default Schule" }],
   created_at: "2026-04-17T00:00:00Z",
 };
 
@@ -23,6 +26,12 @@ export const superAdminMe = {
   force_password_change: false,
   school_id: "00000000-0000-0000-0000-000000000001",
   school_name: "Default Schule",
+  active_school_id: "00000000-0000-0000-0000-000000000001",
+  active_school_name: "Default Schule",
+  accessible_schools: [
+    { id: "00000000-0000-0000-0000-000000000001", name: "Default Schule" },
+    { id: "ffffffff-ffff-ffff-ffff-ffffffffffff", name: "Zweite Grundschule" },
+  ],
   created_at: "2026-04-17T00:00:00Z",
 };
 
@@ -258,6 +267,15 @@ export const defaultHandlers = [
   http.get(`${BASE}/api/auth/me`, () => HttpResponse.json(adminMe)),
   http.post(`${BASE}/api/auth/login`, async () => HttpResponse.json(null, { status: 204 })),
   http.post(`${BASE}/api/auth/logout`, () => HttpResponse.json(null, { status: 204 })),
+  http.post(`${BASE}/api/auth/switch-school`, async ({ request }) => {
+    const body = (await request.json()) as { school_id: string };
+    const target = adminMe.accessible_schools.find((s) => s.id === body.school_id);
+    return HttpResponse.json({
+      ...adminMe,
+      active_school_id: body.school_id,
+      active_school_name: target?.name ?? "Switched School",
+    });
+  }),
   http.get(`${BASE}/api/subjects`, () => HttpResponse.json(initialSubjects)),
   http.post(`${BASE}/api/subjects`, async ({ request }) => {
     const body = (await request.json()) as {

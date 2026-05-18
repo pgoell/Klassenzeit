@@ -52,7 +52,11 @@
     "admin": "Administration",
     "schools": "Schulen",
     "comingSoon": "Bald verfügbar",
-    "superAdminBadge": "Super-Admin"
+    "superAdminBadge": "Super-Admin",
+    "schoolPicker": {
+      "label": "Aktive Schule",
+      "switching": "Wechsle…"
+    }
   },
   "theme": {
     "toggle": "Farbschema umschalten"

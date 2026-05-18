@@ -17,7 +17,14 @@ import {
 import { useTranslation } from "react-i18next";
 import { useSidebar } from "@/components/sidebar-provider";
 import { Button } from "@/components/ui/button";
-import { useLogout, useMe } from "@/lib/auth";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useLogout, useMe, useSwitchSchool } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 type NavLabelKey =
@@ -78,6 +85,7 @@ export function AppSidebar() {
   const { collapsed, toggle } = useSidebar();
   const me = useMe();
   const logout = useLogout();
+  const switchSchool = useSwitchSchool();
   const navGroups =
     me.data?.role === "admin" || me.data?.role === "super_admin"
       ? [...NAV_GROUPS, ADMIN_NAV_GROUP]
@@ -170,8 +178,32 @@ export function AppSidebar() {
             </div>
             <div className="flex flex-col gap-0 leading-tight">
               <span className="text-xs text-muted-foreground">{me.data?.email ?? "…"}</span>
-              {me.data?.school_name ? (
-                <span className="text-[10px] text-muted-foreground/80">{me.data.school_name}</span>
+              {me.data?.accessible_schools && me.data.accessible_schools.length > 1 ? (
+                <Select
+                  value={me.data.active_school_id}
+                  onValueChange={(value) => {
+                    switchSchool.mutate(value);
+                  }}
+                  disabled={switchSchool.isPending}
+                >
+                  <SelectTrigger
+                    aria-label={t("sidebar.schoolPicker.label")}
+                    className="h-7 px-2 text-[10px]"
+                  >
+                    <SelectValue placeholder={me.data.active_school_name} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {me.data.accessible_schools.map((school) => (
+                      <SelectItem key={school.id} value={school.id}>
+                        {school.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : me.data?.active_school_name ? (
+                <span className="text-[10px] text-muted-foreground/80">
+                  {me.data.active_school_name}
+                </span>
               ) : null}
               {me.data?.role === "super_admin" ? (
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">

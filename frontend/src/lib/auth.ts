@@ -33,4 +33,23 @@ export function useLogout() {
   });
 }
 
+export function useSwitchSchool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (schoolId: string): Promise<Me> => {
+      const { data } = await client.POST("/api/auth/switch-school", {
+        body: { school_id: schoolId },
+      });
+      if (!data) {
+        throw new ApiError(500, null, "Empty response from /auth/switch-school");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      void queryClient.invalidateQueries({ queryKey: meQueryKey });
+    },
+  });
+}
+
 export { fetchMe };

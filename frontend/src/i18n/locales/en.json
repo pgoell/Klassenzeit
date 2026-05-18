@@ -52,7 +52,11 @@
     "admin": "Admin",
     "schools": "Schools",
     "comingSoon": "Coming soon",
-    "superAdminBadge": "Super Admin"
+    "superAdminBadge": "Super Admin",
+    "schoolPicker": {
+      "label": "Active school",
+      "switching": "Switching…"
+    }
   },
   "theme": {
     "toggle": "Toggle theme"
