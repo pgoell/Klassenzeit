@@ -106,6 +106,7 @@ fn ffd_never_places_a_lesson_on_a_break_time_block() {
         lahc_kempe_period: None,
         lahc_rr_k: 5,
         lahc_kempe_max_chain: 8,
+        lahc_home_room_period: None,
     };
 
     let solution = solve_with_config(&problem, &config).expect("solve succeeds");
