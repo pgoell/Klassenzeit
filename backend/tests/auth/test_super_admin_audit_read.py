@@ -352,3 +352,288 @@ async def test_audit_log_read_null_snapshot_row(
     assert row["actor_user_email"] == "deleted-user@example.com"
     assert row["target_school_id"] is None
     assert row["target_school_name"] is None
+
+
+# --- detail endpoint (item 10g.1b) ---
+
+
+async def _seed_audit_row_with_body(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID | None,
+    actor_email: str,
+    target_school_id: uuid.UUID | None,
+    target_school_name: str | None,
+    ts: datetime,
+    path_params: dict[str, object] | None = None,
+    request_body: dict[str, object] | list[object] | None = None,
+    request_body_truncated: bool = False,
+    request_id: str | None = None,
+    method: str = "PATCH",
+    route_template: str = "/api/schools/{school_id}",
+    response_status: int = 200,
+) -> SuperAdminAuditLog:
+    default_pp = {"school_id": str(target_school_id) if target_school_id else "deleted"}
+    row = SuperAdminAuditLog(
+        actor_user_id=actor_id,
+        actor_user_email=actor_email,
+        target_school_id=target_school_id,
+        target_school_name=target_school_name,
+        ts=ts,
+        method=method,
+        route_template=route_template,
+        path_params=path_params or default_pp,
+        request_body=request_body,
+        request_body_truncated=request_body_truncated,
+        request_id=request_id,
+        response_status=response_status,
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_unauthenticated_returns_401(client: AsyncClient) -> None:
+    row_id = uuid.uuid4()
+    resp = await client.get(f"/api/auth/admin/audit-log/{row_id}")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_admin_role_returns_403(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await create_test_user(email="admin-detail@example.com")
+    if user.role != "admin":
+        user.role = "admin"
+        await db_session.flush()
+    await login_as(user.email, password)
+    row_id = uuid.uuid4()
+    resp = await client.get(f"/api/auth/admin/audit-log/{row_id}")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_returns_404_for_missing_id(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-missing@example.com"
+    )
+    await login_as(user.email, password)
+    resp = await client.get(f"/api/auth/admin/audit-log/{uuid.uuid4()}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_returns_422_for_malformed_uuid(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-422@example.com"
+    )
+    await login_as(user.email, password)
+    resp = await client.get("/api/auth/admin/audit-log/not-a-uuid")
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_super_admin_happy_path(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-ok@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="Default Schule",
+        ts=datetime(2026, 7, 2, tzinfo=UTC),
+        path_params={"school_id": str(DEFAULT_SCHOOL_ID)},
+        request_body={"name": "Renamed"},
+        request_body_truncated=False,
+        request_id="req-abc",
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["id"] == str(row.id)
+    assert body["actor_user_email"] == user.email
+    assert body["path_params"] == {"school_id": str(DEFAULT_SCHOOL_ID)}
+    assert body["request_body"] == {"name": "Renamed"}
+    assert body["request_body_truncated"] is False
+    assert body["request_id"] == "req-abc"
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_redacts_top_level_sensitive_keys(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-redact-top@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 3, tzinfo=UTC),
+        request_body={"password": "p455w0rd", "token": "tk", "name": "keep"},
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] == {
+        "password": "[REDACTED]",
+        "token": "[REDACTED]",
+        "name": "keep",
+    }
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_redacts_nested_sensitive_keys(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-redact-nested@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 4, tzinfo=UTC),
+        request_body={"credentials": {"password_hash": "h", "user": "alice"}, "keep": 1},
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] == {
+        "credentials": {"password_hash": "[REDACTED]", "user": "alice"},
+        "keep": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_redacts_in_list_elements(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-redact-list@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 5, tzinfo=UTC),
+        request_body={"users": [{"name": "a", "pin": "1234"}, {"name": "b", "secret": "s"}]},
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] == {
+        "users": [
+            {"name": "a", "pin": "[REDACTED]"},
+            {"name": "b", "secret": "[REDACTED]"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_redacts_mixed_case_keys(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-redact-case@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 6, tzinfo=UTC),
+        request_body={"Password": "P", "API_KEY": "K", "name": "keep"},
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] == {
+        "Password": "[REDACTED]",
+        "API_KEY": "[REDACTED]",
+        "name": "keep",
+    }
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_handles_list_top_level_body(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-list-top@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 7, tzinfo=UTC),
+        request_body=[{"name": "a"}, {"password": "p"}],
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] == [{"name": "a"}, {"password": "[REDACTED]"}]
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_handles_null_request_body(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-null-body@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 8, tzinfo=UTC),
+        request_body=None,
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body"] is None
+
+
+@pytest.mark.asyncio
+async def test_audit_log_detail_passes_truncated_flag_through(
+    client: AsyncClient, db_session: AsyncSession, create_test_user, login_as
+) -> None:
+    user, password = await _make_super_admin(
+        db_session, create_test_user, email="super-detail-truncated@example.com"
+    )
+    row = await _seed_audit_row_with_body(
+        db_session,
+        actor_id=user.id,
+        actor_email=user.email,
+        target_school_id=DEFAULT_SCHOOL_ID,
+        target_school_name="X",
+        ts=datetime(2026, 7, 9, tzinfo=UTC),
+        request_body={"name": "x"},
+        request_body_truncated=True,
+    )
+    await db_session.commit()
+    await login_as(user.email, password)
+    body = (await client.get(f"/api/auth/admin/audit-log/{row.id}")).json()
+    assert body["request_body_truncated"] is True

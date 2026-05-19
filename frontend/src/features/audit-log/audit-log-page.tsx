@@ -1,7 +1,9 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EntityListTable } from "@/components/entity-list-table";
 import { Button } from "@/components/ui/button";
+import { AuditLogDetailDialog } from "./audit-log-detail-dialog";
 import { AuditLogFilters } from "./audit-log-filters";
 import { buildAuditLogColumns } from "./columns";
 import { useAuditLog } from "./hooks";
@@ -14,6 +16,7 @@ export function AuditLogPage() {
   const navigate = useNavigate();
   const query = useAuditLog(search);
   const columns = buildAuditLogColumns(t, i18n.language);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   const items = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
@@ -39,7 +42,17 @@ export function AuditLogPage() {
           {t("auditLog.empty")}
         </p>
       ) : (
-        <EntityListTable rows={items} rowKey={(r) => r.id} columns={columns} />
+        <EntityListTable
+          rows={items}
+          rowKey={(r) => r.id}
+          columns={columns}
+          actionsHeader={t("auditLog.detail.actionsHeader")}
+          actions={(row) => (
+            <Button size="sm" variant="ghost" onClick={() => setSelectedRowId(row.id)}>
+              {t("auditLog.detail.actionLabel")}
+            </Button>
+          )}
+        />
       )}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{t("auditLog.pagination.showing", { from, to, total })}</span>
@@ -60,6 +73,7 @@ export function AuditLogPage() {
           </Button>
         </div>
       </div>
+      <AuditLogDetailDialog auditLogId={selectedRowId} onClose={() => setSelectedRowId(null)} />
     </div>
   );
 }
