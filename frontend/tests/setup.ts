@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import {
   qualityReportByClassId,
   qualityReportByTeacherId,
+  resetAdminUsers,
+  resetAuditLogRows,
   roomAvailabilityByRoomId,
   roomSuitabilityByRoomId,
   server,
@@ -82,6 +84,8 @@ beforeEach(() => {
   for (const key of Object.keys(qualityReportByTeacherId)) {
     delete qualityReportByTeacherId[key];
   }
+  resetAuditLogRows();
+  resetAdminUsers();
 });
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

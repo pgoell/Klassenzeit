@@ -4,7 +4,7 @@ import type { components } from "@/lib/api-types";
 
 // jsdom's default window.location.origin is http://localhost:3000, which is
 // what the api-client resolves its baseUrl against during tests.
-const BASE = "http://localhost:3000";
+export const BASE = "http://localhost:3000";
 
 export const adminMe = {
   id: "00000000-0000-0000-0000-000000000001",
@@ -168,6 +168,37 @@ export const teacherAvailabilityByTeacherId: Record<
   "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": [],
 };
 
+export const initialAdminUsers: components["schemas"]["UserListItem"][] = [
+  {
+    id: "00000000-0000-0000-0000-000000000001",
+    email: "admin@example.com",
+    role: "admin",
+    is_active: true,
+    last_login_at: null,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000002",
+    email: "superadmin@example.com",
+    role: "super_admin",
+    is_active: true,
+    last_login_at: null,
+  },
+];
+
+// Mutable per-test bag for the admin-users handler. Reset in `beforeEach`
+// via `resetAdminUsers()`.
+export const adminUsers: components["schemas"]["UserListItem"][] = [...initialAdminUsers];
+export function resetAdminUsers() {
+  adminUsers.splice(0, adminUsers.length, ...initialAdminUsers);
+}
+
+// Mutable per-test bag for the audit-log handler. Reset in `beforeEach`
+// via `resetAuditLogRows()`.
+export const auditLogRows: components["schemas"]["AuditLogEntryItem"][] = [];
+export function resetAuditLogRows() {
+  auditLogRows.length = 0;
+}
+
 export const initialSchoolClasses = [
   {
     id: "88888888-8888-8888-8888-888888888888",
@@ -276,6 +307,10 @@ export const defaultHandlers = [
       active_school_name: target?.name ?? "Switched School",
     });
   }),
+  http.get(`${BASE}/api/auth/admin/users`, () => HttpResponse.json(adminUsers)),
+  http.get(`${BASE}/api/auth/admin/audit-log`, () =>
+    HttpResponse.json({ items: auditLogRows, total: auditLogRows.length }),
+  ),
   http.get(`${BASE}/api/subjects`, () => HttpResponse.json(initialSubjects)),
   http.post(`${BASE}/api/subjects`, async ({ request }) => {
     const body = (await request.json()) as {
