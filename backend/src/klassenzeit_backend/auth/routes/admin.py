@@ -60,7 +60,7 @@ async def admin_create_user(
         validate_password(body.password, min_length=settings.password_min_length)
     except PasswordValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
@@ -131,7 +131,7 @@ async def admin_reset_password(
         validate_password(body.new_password, min_length=settings.password_min_length)
     except PasswordValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
