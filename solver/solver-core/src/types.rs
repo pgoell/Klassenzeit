@@ -181,9 +181,9 @@ pub const PRODUCTION_ACTIVE_WEIGHTS: ConstraintWeights = ConstraintWeights {
     class_day_balance: 20, // ADR 0043: bumped from 5 to clear dreizuegig day-spread plateau
     prefer_class_teacher: 5, // item 67: tentative weight, mirrors prefer_home_room; revisit alongside item 73
     max_per_class_spread: 10, // item 57: per-class worst-case axis
-    max_per_class_interior_gaps: 10, // item 57: per-class worst-case axis
-    supervision_spread: 5,   // item 3: Hofpause supervision load-balance axis
-    soft_pin_miss: 5,        // item 5: tentative weight, mirrors prefer_home_room
+    max_per_class_interior_gaps: 25, // item 87 + ADR 0049: bumped from 10 to clear einzuegig interior_gap bar
+    supervision_spread: 5,           // item 3: Hofpause supervision load-balance axis
+    soft_pin_miss: 5,                // item 5: tentative weight, mirrors prefer_home_room
 };
 
 /// Complete solver input. Flat `Vec`s of relation pairs mirror the backend's SQL
@@ -722,7 +722,7 @@ mod tests {
             class_day_balance: 20,
             prefer_class_teacher: 5,
             max_per_class_spread: 10,
-            max_per_class_interior_gaps: 10,
+            max_per_class_interior_gaps: 25,
             supervision_spread: 5,
             soft_pin_miss: 5,
         };
