@@ -41,7 +41,8 @@ _W_CLASS_DAY_BALANCE = 20  # ADR 0043: bumped from 5 to clear LAHC day-spread pl
 _W_PREFER_CLASS_TEACHER = 5  # item 67: tentative, mirrors _W_PREFER_HOME_ROOM
 # item 57: mirror PRODUCTION_ACTIVE_WEIGHTS per-class worst-case axes
 _W_MAX_PER_CLASS_SPREAD = 10
-_W_MAX_PER_CLASS_INTERIOR_GAPS = 10
+# item 87 + ADR 0049: bumped from 10 to clear LAHC einzuegig interior_gap bar
+_W_MAX_PER_CLASS_INTERIOR_GAPS = 25
 _W_SOFT_PIN_MISS = 5  # ADR 0042: tentative weight, mirrors _W_PREFER_HOME_ROOM
 
 

@@ -7,11 +7,12 @@ no issues for any class.
 
 This guards against future solver / weight / seed changes producing
 visually bad schedules without a hard-violation gate to catch them.
-The test opts into the production 5000 ms LAHC pass (the rest of the
-backend test suite stays greedy-only via the per-backend zero entries
-in ``backend/.env.test``, per ADR 0038) because the soft costs the
-new constraints rely on are LAHC-driven;
-greedy alone produces a lopsided baseline that cannot pass the bar.
+The test opts into the production 60000 ms ``lahc_rr`` pass (matching
+the production-default backend deadline per ADR 0038) because the soft
+costs the new constraints rely on are LAHC-driven; greedy alone
+produces a lopsided baseline that cannot pass the bar. The full
+production budget is required to clear ``interior_gap`` reliably on
+einzuegig (item 87 closure: ADR 0049).
 """
 
 from collections.abc import Awaitable, Callable
@@ -39,7 +40,7 @@ async def test_grundschule_schedule_meets_quality_bar(
     login_as: LoginFn,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 5000)
+    monkeypatch.setitem(app.state.settings.solve_deadline_ms_by_backend, "lahc_rr", 60000)
     await seed_demo_grundschule(db_session)
     await db_session.flush()
 
