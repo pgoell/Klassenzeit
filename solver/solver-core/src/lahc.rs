@@ -4730,6 +4730,29 @@ fn try_home_room_repair_move(
     let lahc_threshold = lahc_list[(iter as usize) % lahc_list.len()];
     let old_room = p.room_id;
 
+    // Same-room invariant guard (`validate_no_room_hopping`): for every
+    // `(class, day_of_week, subject)` triple in the final placement set, all
+    // participating placements must share one room. The repair move rewrites a
+    // single placement's room_id, so it can split a triple when a sibling
+    // placement of the same triple lives in a different room than the proposed
+    // target. Reject in that case BEFORE the canonical-delta + LAHC accept
+    // stage so feasibility-rejecting paths leave `placements` and `state`
+    // untouched. O(placements) per check; precompute a
+    // `(class, day, subject) -> Vec<placement_idx>` index as a perf follow-up
+    // if benches regress.
+    if would_split_class_day_subject_room(
+        placements,
+        placement_idx,
+        &lesson.school_class_ids,
+        tb.day_of_week,
+        lesson.subject_id,
+        home_room,
+        lesson_lookup,
+        tb_lookup,
+    ) {
+        return false;
+    }
+
     // Check whether home_room is occupied at this TB. used_room is keyed by
     // (room, tb). If absent, we take path (A).
     if !state.used_room.contains(&(home_room, tb.id)) {
@@ -4780,6 +4803,23 @@ fn try_home_room_repair_move(
     if !idx.room_suits_subject(home_room, lesson.subject_id) {
         return false;
     }
+    // Same-room invariant guard for the displaced Q. Q's post-swap room is
+    // `old_room`; reject if any sibling placement of Q's
+    // `(class, day_of_week, subject)` triple lives in any room other than
+    // `old_room`. Symmetric with the P-side guard above (path (A) early-out
+    // also covers the P-side here because tb is fixed).
+    if would_split_class_day_subject_room(
+        placements,
+        q_idx,
+        &q_lesson.school_class_ids,
+        tb.day_of_week,
+        q_lesson.subject_id,
+        old_room,
+        lesson_lookup,
+        tb_lookup,
+    ) {
+        return false;
+    }
     // The (room_id, tb.id) entry for old_room is P's; the entry for home_room
     // is Q's. Both stay occupied post-swap (rooms persist, owners shift), so
     // the used_room HashSet is unchanged on accept.
@@ -4818,6 +4858,56 @@ fn saturating_apply_delta(score: u32, delta: i64) -> u32 {
         let abs = (-delta) as u32;
         score.saturating_sub(abs)
     }
+}
+
+/// True if moving the placement at `moving_idx` to `target_room` would split
+/// the `(class, day_of_week, subject)` triple across two rooms for any of the
+/// moving placement's member classes. Walks all OTHER placements (skipping
+/// `moving_idx`) and returns true on the first sibling whose
+/// `(class intersects member_classes, day_of_week == target_day,
+/// subject == subject)` triple lives in a room other than `target_room`.
+/// Mirrors the `validate_no_room_hopping` post-condition (`validate.rs`); used
+/// by `try_home_room_repair_move` to reject moves that would break the
+/// invariant. O(placements) per call.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
+fn would_split_class_day_subject_room(
+    placements: &[Placement],
+    moving_idx: usize,
+    member_classes: &[SchoolClassId],
+    target_day: u8,
+    subject: SubjectId,
+    target_room: RoomId,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+) -> bool {
+    for (q_idx, q) in placements.iter().enumerate() {
+        if q_idx == moving_idx {
+            continue;
+        }
+        let Some(q_lesson) = lesson_lookup.get(&q.lesson_id) else {
+            continue;
+        };
+        if q_lesson.subject_id != subject {
+            continue;
+        }
+        let Some(q_tb) = tb_lookup.get(&q.time_block_id) else {
+            continue;
+        };
+        if q_tb.day_of_week != target_day {
+            continue;
+        }
+        if !q_lesson
+            .school_class_ids
+            .iter()
+            .any(|c| member_classes.contains(c))
+        {
+            continue;
+        }
+        if q.room_id != target_room {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -10592,5 +10682,124 @@ mod tests {
         assert!(!accepted, "lahc-threshold-disallowed swap must reject");
         assert_eq!(placements, placements_before);
         assert_eq!(state.canonical_score, canonical_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_when_move_would_create_room_hop() {
+        // Reproducer for the validate_no_room_hopping invariant violation
+        // surfaced by `test_seeded_grundschule_dreizuegig_solves_without_pinned_teachers`.
+        // The repair move rewrites a SINGLE placement's room_id; when a sibling
+        // placement of the SAME (class, day_of_week, subject) triple lives in a
+        // DIFFERENT room than the proposed target, the move splits the triple
+        // across two rooms.
+        //
+        // Setup (path A, room-free target):
+        //   * `home_room_problem` with class_a's home_room = room_a.
+        //   * Add a third lesson `lesson_c` for class_a, same subject, also
+        //     `hours_per_week=1`, `preferred_block_size=1`. Teacher is teacher_a.
+        //   * Place P (lesson_a) in room_b at (d=0, p=0).
+        //   * Place sibling C (lesson_c) in room_b at (d=0, p=2). Same class,
+        //     same day, same subject, same room as P -> no hop currently.
+        //   * room_a (home_room) is FREE at (d=0, p=0) -> path A would fire.
+        //   * Without the fix: P moves to room_a, sibling stays in room_b ->
+        //     room hop on (class_a, day=0, subject). With the fix: reject.
+        let (
+            mut problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            subject,
+            room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let lesson_c = LessonId(lahc_uuid(62));
+        problem.lessons.push(Lesson {
+            id: lesson_c,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
+            lesson_group_id: None,
+        });
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let tb_d0_p2 = tb_at(&problem, 0, 2);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_c,
+                time_block_id: tb_d0_p2,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_a, tb_d0_p2));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p2));
+        state.used_room.insert((room_b, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p2));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        // Both placements miss home_room (room_a): canonical = 5 + 5 = 10.
+        state.canonical_score = 10;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let canonical_before = state.canonical_score;
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(
+            !accepted,
+            "move that would split (class, day, subject) across rooms must reject"
+        );
+        assert_eq!(placements, placements_before);
+        assert_eq!(state.canonical_score, canonical_before);
+        // Sanity: room bookkeeping is untouched.
+        assert!(state.used_room.contains(&(room_b, tb_d0_p0)));
+        assert!(state.used_room.contains(&(room_b, tb_d0_p2)));
+        assert!(!state.used_room.contains(&(room_a, tb_d0_p0)));
+        let _ = room_a;
     }
 }
