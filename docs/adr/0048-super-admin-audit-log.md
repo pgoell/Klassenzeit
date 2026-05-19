@@ -21,7 +21,7 @@ Capture is a single starlette `BaseHTTPMiddleware` that runs after the handler. 
 
 Snapshot columns (`actor_user_email`, `target_school_name`) preserve the trail across `ON DELETE SET NULL` on `users(id)` and `schools(id)`. Body capture is JSONB capped at 64 KiB with a truncation flag.
 
-Read API + UI shipped as part of follow-up 10g.1: `GET /api/auth/admin/audit-log` (super-admin-gated, paginated, filterable by actor / target school / time range) and a `/audit-log` React page rendering the list view. psql remains available for ad-hoc queries; the detail-drawer rendering of JSONB blobs is filed as 10g.1b.
+Read API + UI shipped as part of follow-up 10g.1: `GET /api/auth/admin/audit-log` (super-admin-gated, paginated, filterable by actor / target school / time range) and a `/audit-log` React page rendering the list view. psql remains available for ad-hoc queries. Detail-drawer rendering of JSONB blobs shipped via item 10g.1b with server-side redaction of sensitive keys in request bodies.
 
 ### Mechanism details
 
@@ -47,7 +47,7 @@ Principled trigger (super-admin elevation actually used) over literal "scope != 
 - Every super-admin elevated write performs two extra DB lookups (session, user) plus one insert. Acceptable given the rarity of super-admin requests.
 - New write routes do not need explicit audit wiring; the middleware applies the predicate by route template.
 - A 64 KiB body cap is enforced. Larger bodies are stored truncated with a flag; readers must check the flag.
-- Audit-row read access: list view shipped (item 10g.1). Detail-drawer rendering JSONB blobs (`path_params`, `request_body`) is filed as 10g.1b.
+- Audit-row read access: list view shipped (item 10g.1). Detail-drawer rendering JSONB blobs (`path_params`, `request_body`) shipped as 10g.1b with redaction.
 - DELETE rows lose the `target_school_id` FK link by design; queries reconstructing "which school did this row target" join on the snapshot name or fall through to the snapshot alone.
 
 ## Alternatives considered
@@ -59,6 +59,6 @@ Principled trigger (super-admin elevation actually used) over literal "scope != 
 
 ## Anchor
 
-- OPEN_THINGS items 10g (closed by this ADR), 10g.1 (read API + UI; shipped), and 10g.1b (detail-drawer follow-up).
+- OPEN_THINGS items 10g (closed by this ADR), 10g.1 (read API + UI; shipped), and 10g.1b (detail-drawer with redaction; shipped).
 - Builds on ADR 0045 (tenancy decisions) and ADR 0046 (multi-school membership + session-active-school).
 - Coordinates with item 10h (PR #291) super-admin gate on `/schools/*`.
