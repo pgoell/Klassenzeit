@@ -175,6 +175,8 @@ export const initialAdminUsers: components["schemas"]["UserListItem"][] = [
     role: "admin",
     is_active: true,
     last_login_at: null,
+    school_id: "00000000-0000-0000-0000-000000000001",
+    school_name: "Default Schule",
   },
   {
     id: "00000000-0000-0000-0000-000000000002",
@@ -182,6 +184,8 @@ export const initialAdminUsers: components["schemas"]["UserListItem"][] = [
     role: "super_admin",
     is_active: true,
     last_login_at: null,
+    school_id: "00000000-0000-0000-0000-000000000001",
+    school_name: "Default Schule",
   },
 ];
 

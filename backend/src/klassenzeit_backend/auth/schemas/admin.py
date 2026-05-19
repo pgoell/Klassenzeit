@@ -31,6 +31,8 @@ class UserListItem(BaseModel):
     role: str
     is_active: bool
     last_login_at: datetime | None
+    school_id: uuid.UUID
+    school_name: str
 
 
 class ResetPasswordRequest(BaseModel):
