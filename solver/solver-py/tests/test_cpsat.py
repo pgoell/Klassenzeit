@@ -477,9 +477,9 @@ def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> 
     """class_gap and teacher_gap axes: forced gap at position 1; class
     contributes 1 gap-hour (weight 10), teacher contributes 1 gap-hour
     (weight 10); subtotal = 20. Item 57 widens the canonical objective with
-    max_per_class_spread (2 placements on day 0, 0 on days 1-4 → spread=2,
-    weight 10 → 20) and max_per_class_interior_gaps (1 gap, weight 10 → 10).
-    Total = 20 + 20 + 10 = 50.
+    max_per_class_spread (2 placements on day 0, 0 on days 1-4 -> spread=2,
+    weight 10 -> 20) and max_per_class_interior_gaps (1 gap, weight 25 after
+    ADR 0049 -> 25). Total = 20 + 20 + 25 = 65.
     """
     problem_json = _cpsat_forced_class_gap_problem()
     out_json = solve_cpsat_json(problem_json, deadline_ms=2_000, seed=0)
@@ -487,7 +487,7 @@ def test_cpsat_objective_value_equals_score_solution_on_forced_gap_problem() -> 
     assert out["model_objective_value"] is not None
     canonical = score_solution_json(problem_json, json.dumps(out["placements"]))
     assert out["model_objective_value"] == canonical
-    assert out["model_objective_value"] == 50
+    assert out["model_objective_value"] == 65
 
 
 def _cpsat_forced_lopsided_spread_problem() -> str:
