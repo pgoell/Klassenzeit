@@ -18,7 +18,7 @@ fn solution_quality_report_survives_json_roundtrip_and_matches_soft_score() {
     // deadline_ms=None skips LAHC entirely (greedy-only); the parity invariant
     // and roundtrip behaviour are independent of the LAHC pass. Keeping it None
     // makes the test fast and deterministic.
-    let solution_json = solve_json_with_config(&problem_json, None, None, None).unwrap();
+    let solution_json = solve_json_with_config(&problem_json, None, None, None, None).unwrap();
 
     let solution: Solution = serde_json::from_str(&solution_json).unwrap();
     assert_eq!(

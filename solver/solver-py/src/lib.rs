@@ -22,13 +22,13 @@ fn py_solve_json(py: Python<'_>, problem_json: &str) -> PyResult<String> {
 
 /// Like [`py_solve_json`] but with an explicit LAHC deadline in milliseconds.
 /// `None` skips LAHC entirely (greedy-only); `Some(n)` runs LAHC for `n` ms
-/// wall-clock. Releases the GIL during the call. `lahc_rr_period` and
-/// `lahc_kempe_period` enable the corresponding LAHC moves; both default to
-/// `None` (disabled).
+/// wall-clock. Releases the GIL during the call. `lahc_rr_period`,
+/// `lahc_kempe_period`, and `lahc_home_room_period` enable the corresponding
+/// LAHC moves; all default to `None` (disabled).
 #[pyfunction]
 #[pyo3(
     name = "solve_json_with_config",
-    signature = (problem_json, deadline_ms, lahc_rr_period=None, lahc_kempe_period=None)
+    signature = (problem_json, deadline_ms, lahc_rr_period=None, lahc_kempe_period=None, lahc_home_room_period=None)
 )]
 fn py_solve_json_with_config(
     py: Python<'_>,
@@ -36,6 +36,7 @@ fn py_solve_json_with_config(
     deadline_ms: Option<u64>,
     lahc_rr_period: Option<u32>,
     lahc_kempe_period: Option<u32>,
+    lahc_home_room_period: Option<u32>,
 ) -> PyResult<String> {
     py.detach(|| {
         solver_core::solve_json_with_config(
@@ -43,6 +44,7 @@ fn py_solve_json_with_config(
             deadline_ms,
             lahc_rr_period,
             lahc_kempe_period,
+            lahc_home_room_period,
         )
     })
     .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -128,7 +130,7 @@ impl ProgressHandle {
 #[pyfunction]
 #[pyo3(
     name = "solve_json_with_progress",
-    signature = (problem_json, deadline_ms, progress, lahc_rr_period=None, lahc_kempe_period=None)
+    signature = (problem_json, deadline_ms, progress, lahc_rr_period=None, lahc_kempe_period=None, lahc_home_room_period=None)
 )]
 fn py_solve_json_with_progress(
     py: Python<'_>,
@@ -137,6 +139,7 @@ fn py_solve_json_with_progress(
     progress: &ProgressHandle,
     lahc_rr_period: Option<u32>,
     lahc_kempe_period: Option<u32>,
+    lahc_home_room_period: Option<u32>,
 ) -> PyResult<String> {
     let beacon_handle = Arc::clone(&progress.inner);
     py.detach(|| {
@@ -146,6 +149,7 @@ fn py_solve_json_with_progress(
             &beacon_handle,
             lahc_rr_period,
             lahc_kempe_period,
+            lahc_home_room_period,
         )
     })
     .map_err(|e| PyValueError::new_err(e.to_string()))
