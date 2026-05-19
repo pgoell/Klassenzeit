@@ -175,6 +175,8 @@ export const initialAdminUsers: components["schemas"]["UserListItem"][] = [
     role: "admin",
     is_active: true,
     last_login_at: null,
+    school_id: "00000000-0000-0000-0000-000000000001",
+    school_name: "Default Schule",
   },
   {
     id: "00000000-0000-0000-0000-000000000002",
@@ -182,6 +184,8 @@ export const initialAdminUsers: components["schemas"]["UserListItem"][] = [
     role: "super_admin",
     is_active: true,
     last_login_at: null,
+    school_id: "00000000-0000-0000-0000-000000000001",
+    school_name: "Default Schule",
   },
 ];
 
@@ -197,6 +201,19 @@ export function resetAdminUsers() {
 export const auditLogRows: components["schemas"]["AuditLogEntryItem"][] = [];
 export function resetAuditLogRows() {
   auditLogRows.length = 0;
+}
+
+// Mutable per-test bag for membership handlers. Reset in `beforeEach`
+// via `resetUserMembershipsByUserId()`. Tests seed by mutating the record
+// (e.g. `userMembershipsByUserId[userId] = [...]`).
+export const userMembershipsByUserId: Record<
+  string,
+  components["schemas"]["MembershipListItem"][]
+> = {};
+export function resetUserMembershipsByUserId() {
+  for (const key of Object.keys(userMembershipsByUserId)) {
+    delete userMembershipsByUserId[key];
+  }
 }
 
 export const initialSchoolClasses = [
@@ -311,6 +328,32 @@ export const defaultHandlers = [
   http.get(`${BASE}/api/auth/admin/audit-log`, () =>
     HttpResponse.json({ items: auditLogRows, total: auditLogRows.length }),
   ),
+  http.get(`${BASE}/api/auth/admin/users/:user_id/memberships`, ({ params }) => {
+    const userId = params.user_id as string;
+    return HttpResponse.json(userMembershipsByUserId[userId] ?? []);
+  }),
+  http.post(`${BASE}/api/auth/admin/users/:user_id/memberships`, async ({ params, request }) => {
+    const userId = params.user_id as string;
+    const body = (await request.json()) as { school_id: string };
+    const school = initialSchools.find((s) => s.id === body.school_id);
+    const schoolName = school?.name ?? "Unknown school";
+    const list = userMembershipsByUserId[userId] ?? [];
+    userMembershipsByUserId[userId] = [
+      ...list,
+      { school_id: body.school_id, school_name: schoolName },
+    ];
+    return HttpResponse.json(
+      { user_id: userId, school_id: body.school_id, school_name: schoolName },
+      { status: 201 },
+    );
+  }),
+  http.delete(`${BASE}/api/auth/admin/users/:user_id/memberships/:school_id`, ({ params }) => {
+    const userId = params.user_id as string;
+    const schoolId = params.school_id as string;
+    const list = userMembershipsByUserId[userId] ?? [];
+    userMembershipsByUserId[userId] = list.filter((m) => m.school_id !== schoolId);
+    return HttpResponse.json(null, { status: 204 });
+  }),
   http.get(`${BASE}/api/subjects`, () => HttpResponse.json(initialSubjects)),
   http.post(`${BASE}/api/subjects`, async ({ request }) => {
     const body = (await request.json()) as {

@@ -5,6 +5,7 @@ import {
   qualityReportByTeacherId,
   resetAdminUsers,
   resetAuditLogRows,
+  resetUserMembershipsByUserId,
   roomAvailabilityByRoomId,
   roomSuitabilityByRoomId,
   server,
@@ -86,6 +87,7 @@ beforeEach(() => {
   }
   resetAuditLogRows();
   resetAdminUsers();
+  resetUserMembershipsByUserId();
 });
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

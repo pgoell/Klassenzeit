@@ -60,7 +60,7 @@ async def admin_create_user(
         validate_password(body.password, min_length=settings.password_min_length)
     except PasswordValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
@@ -83,7 +83,7 @@ async def admin_list_users(
     active: bool | None = None,
 ) -> list[UserListItem]:
     """List all users, optionally filtered by active status."""
-    stmt = select(User)
+    stmt = select(User, School.name).join(School, School.id == User.school_id)
     if active is not None:
         stmt = stmt.where(User.is_active == active)
     result = await db.execute(stmt.order_by(User.created_at))
@@ -94,8 +94,10 @@ async def admin_list_users(
             role=u.role,
             is_active=u.is_active,
             last_login_at=u.last_login_at,
+            school_id=u.school_id,
+            school_name=school_name,
         )
-        for u in result.scalars()
+        for u, school_name in result.all()
     ]
 
 
@@ -129,7 +131,7 @@ async def admin_reset_password(
         validate_password(body.new_password, min_length=settings.password_min_length)
     except PasswordValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 

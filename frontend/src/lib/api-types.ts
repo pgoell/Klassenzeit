@@ -3283,6 +3283,13 @@ export interface components {
             is_active: boolean;
             /** Last Login At */
             last_login_at: string | null;
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
+            /** School Name */
+            school_name: string;
         };
         /**
          * UserResponse

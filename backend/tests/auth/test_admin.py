@@ -107,9 +107,15 @@ async def test_list_users(
     )
     response = await client.get("/api/auth/admin/users")
     assert response.status_code == 200
-    emails = [u["email"] for u in response.json()]
+    rows = response.json()
+    emails = [u["email"] for u in rows]
     assert "listadmin@test.com" in emails
     assert "listme@test.com" in emails
+    for u in rows:
+        assert "school_id" in u
+        assert "school_name" in u
+        assert isinstance(u["school_name"], str)
+        assert len(u["school_name"]) > 0
 
 
 async def test_list_users_filter_active(
