@@ -91,6 +91,7 @@ pub(crate) fn run(
     let mut change_rng = SmallRng::seed_from_u64(config.seed);
     let mut rr_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(1));
     let mut kempe_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(2));
+    let mut home_room_rng = SmallRng::seed_from_u64(config.seed.wrapping_add(3));
     let mut lahc_list = vec![state.canonical_score; LAHC_LIST_LEN];
     let lesson_lookup: HashMap<LessonId, &Lesson> =
         problem.lessons.iter().map(|l| (l.id, l)).collect();
@@ -210,6 +211,16 @@ pub(crate) fn run(
             .lahc_kempe_period
             .is_some_and(|n| n > 0 && (iter as u32) % n == 0)
             && !is_rr_iter;
+        // Home-room repair fires only when neither R&R nor Kempe claims the
+        // iteration. Mirrors the R&R/Kempe precedence ladder. Dedicated RNG
+        // channel `home_room_rng` consumes exactly one draw per fired iter so
+        // existing channels stay byte-identical to pre-PR behaviour when the
+        // new period is `None`.
+        let is_home_room_iter = config
+            .lahc_home_room_period
+            .is_some_and(|n| n > 0 && (iter as u32) % n == 0)
+            && !is_rr_iter
+            && !is_kempe_iter;
 
         if is_rr_iter {
             // Item 78: rescue FFD-unplaced lessons first. If rescue aborts
@@ -282,6 +293,27 @@ pub(crate) fn run(
                 &lahc_list,
                 iter,
                 config.lahc_kempe_max_chain as usize,
+            );
+        } else if is_home_room_iter {
+            // One RNG draw: the placement index. The kernel maintains
+            // state.canonical_score on accept; the per-iter running-best
+            // check below the chain handles snapshotting best_placements.
+            let placement_idx = home_room_rng.random_range(0..placements.len());
+            try_home_room_repair_move(
+                problem,
+                idx,
+                placement_idx,
+                &lesson_lookup,
+                &tb_lookup,
+                &subject_lookup,
+                &home_room_lookup,
+                &config.weights,
+                placements,
+                state,
+                pinned,
+                &lahc_list,
+                iter,
+                &room_order,
             );
         } else {
             // Three unconditional draws per Change-branch iteration. The
@@ -4608,29 +4640,184 @@ fn running_slice_from_placements(
         .saturating_add(subject_pref_total)
 }
 
-/// Stub for the home-room-repair LAHC move. The full kernel lands in Task 4
-/// of the item 86 plan; this stub exists so the RED unit tests in
-/// `try_home_room_repair_move_*` compile against the production signature
-/// while the GREEN implementation is being written.
-#[allow(clippy::too_many_arguments)]
-#[allow(dead_code)]
+/// Home-room repair move (item 86 option b). At a fixed time block, attempts
+/// to move the placement at `placement_idx` into its class's `home_room`. Two
+/// paths fused: (A) room-free: home_room is unbooked at the placement's TB,
+/// rewrite the placement's room_id; (B) collision-swap: home_room is held by
+/// exactly one other placement Q, swap rooms between P and Q. Both paths
+/// accept on the LAHC canonical-delta criterion against
+/// `lahc_list[iter % L]`. At a fixed time block, only the `prefer_home_room`
+/// axis can change (class/teacher gap, day balance, per-class spread,
+/// interior-gap, supervision-spread all partition on `(class|teacher, day)`
+/// not rooms), so the canonical delta is exactly
+/// `sum(home_room_penalty_one_class(class, new_room) - home_room_penalty_one_class(class, old_room))`
+/// summed across the affected member classes. Returns `true` on accept.
+/// Pure helper: feasibility-rejecting paths leave `placements` and `state`
+/// untouched.
+#[allow(clippy::too_many_arguments)] // Reason: internal helper
 fn try_home_room_repair_move(
     _problem: &Problem,
-    _idx: &Indexed,
-    _placement_idx: usize,
-    _lesson_lookup: &HashMap<LessonId, &Lesson>,
-    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    idx: &Indexed,
+    placement_idx: usize,
+    lesson_lookup: &HashMap<LessonId, &Lesson>,
+    tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
     _subject_lookup: &HashMap<SubjectId, &Subject>,
-    _home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
-    _weights: &ConstraintWeights,
-    _placements: &mut [Placement],
-    _state: &mut crate::solve::GreedyState,
-    _pinned: &HashSet<LessonId>,
-    _lahc_list: &[u32],
-    _iter: u64,
+    home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    weights: &ConstraintWeights,
+    placements: &mut [Placement],
+    state: &mut crate::solve::GreedyState,
+    pinned: &HashSet<LessonId>,
+    lahc_list: &[u32],
+    iter: u64,
     _room_order: &[usize],
 ) -> bool {
-    false
+    if placement_idx >= placements.len() {
+        return false;
+    }
+    let p = placements[placement_idx].clone();
+    let lesson = lesson_lookup[&p.lesson_id];
+    if lesson.preferred_block_size > 1 {
+        return false;
+    }
+    if lesson.lesson_group_id.is_some() {
+        return false;
+    }
+    if pinned.contains(&p.lesson_id) {
+        return false;
+    }
+    // Resolve home_room: all member classes must share the same Some(home).
+    let mut home_room: Option<RoomId> = None;
+    for cls in &lesson.school_class_ids {
+        match home_room_lookup.get(cls) {
+            Some(Some(h)) => match home_room {
+                None => home_room = Some(*h),
+                Some(existing) => {
+                    if existing != *h {
+                        return false;
+                    }
+                }
+            },
+            _ => return false,
+        }
+    }
+    let Some(home_room) = home_room else {
+        return false;
+    };
+    if p.room_id == home_room {
+        return false;
+    }
+
+    let Some(tb) = tb_lookup.get(&p.time_block_id) else {
+        return false;
+    };
+    if idx.room_blocked(home_room, tb.id) {
+        return false;
+    }
+
+    // Compute P's per-class delta: home_room_penalty_one_class(class, home)
+    // - home_room_penalty_one_class(class, old_room) for each member class.
+    let mut p_delta_signed: i64 = 0;
+    for cls in &lesson.school_class_ids {
+        let pre =
+            crate::score::home_room_penalty_one_class(*cls, home_room_lookup, p.room_id, weights)
+                as i64;
+        let post =
+            crate::score::home_room_penalty_one_class(*cls, home_room_lookup, home_room, weights)
+                as i64;
+        p_delta_signed += post - pre;
+    }
+
+    let lahc_threshold = lahc_list[(iter as usize) % lahc_list.len()];
+    let old_room = p.room_id;
+
+    // Check whether home_room is occupied at this TB. used_room is keyed by
+    // (room, tb). If absent, we take path (A).
+    if !state.used_room.contains(&(home_room, tb.id)) {
+        // Path (A): room-free.
+        // Subject suitability: if home_room is not suitable for the lesson's
+        // subject, the move is feasible only if we treat it as infeasible.
+        if !idx.room_suits_subject(home_room, lesson.subject_id) {
+            return false;
+        }
+        // Canonical accept: new_canonical = state.canonical_score + p_delta_signed.
+        let new_canonical = saturating_apply_delta(state.canonical_score, p_delta_signed);
+        if new_canonical > lahc_threshold {
+            return false;
+        }
+        // Apply: rewrite placement room; update used_room.
+        placements[placement_idx].room_id = home_room;
+        state.used_room.remove(&(old_room, tb.id));
+        state.used_room.insert((home_room, tb.id));
+        state.canonical_score = new_canonical;
+        return true;
+    }
+
+    // Path (B): collision-swap. Locate the placement Q whose
+    // (room_id, time_block_id) == (home_room, tb.id).
+    let q_idx_opt = placements
+        .iter()
+        .position(|q| q.room_id == home_room && q.time_block_id == tb.id);
+    let q_idx = match q_idx_opt {
+        Some(i) if i != placement_idx => i,
+        _ => return false,
+    };
+    let q = placements[q_idx].clone();
+    let q_lesson = lesson_lookup[&q.lesson_id];
+    if pinned.contains(&q.lesson_id) {
+        return false;
+    }
+    if q_lesson.lesson_group_id.is_some() {
+        return false;
+    }
+    if q_lesson.preferred_block_size > 1 {
+        return false;
+    }
+    // Q must fit subject-wise in P's old room.
+    if !idx.room_suits_subject(old_room, q_lesson.subject_id) {
+        return false;
+    }
+    // P must fit subject-wise in home_room.
+    if !idx.room_suits_subject(home_room, lesson.subject_id) {
+        return false;
+    }
+    // The (room_id, tb.id) entry for old_room is P's; the entry for home_room
+    // is Q's. Both stay occupied post-swap (rooms persist, owners shift), so
+    // the used_room HashSet is unchanged on accept.
+    //
+    // Compute Q's per-class delta: post is home_room_penalty_one_class(...,
+    // old_room) (Q's new room), pre is ...(..., home_room) (Q's current room).
+    let mut q_delta_signed: i64 = 0;
+    for cls in &q_lesson.school_class_ids {
+        let pre =
+            crate::score::home_room_penalty_one_class(*cls, home_room_lookup, q.room_id, weights)
+                as i64;
+        let post =
+            crate::score::home_room_penalty_one_class(*cls, home_room_lookup, old_room, weights)
+                as i64;
+        q_delta_signed += post - pre;
+    }
+    let total_delta_signed = p_delta_signed + q_delta_signed;
+    let new_canonical = saturating_apply_delta(state.canonical_score, total_delta_signed);
+    if new_canonical > lahc_threshold {
+        return false;
+    }
+    // Apply.
+    placements[placement_idx].room_id = home_room;
+    placements[q_idx].room_id = old_room;
+    state.canonical_score = new_canonical;
+    true
+}
+
+/// Saturating apply of a signed delta to an unsigned canonical score.
+/// Used by `try_home_room_repair_move` to compute `new_canonical` without
+/// underflowing or overflowing on extreme deltas.
+fn saturating_apply_delta(score: u32, delta: i64) -> u32 {
+    if delta >= 0 {
+        score.saturating_add(delta as u32)
+    } else {
+        let abs = (-delta) as u32;
+        score.saturating_sub(abs)
+    }
 }
 
 #[cfg(test)]
