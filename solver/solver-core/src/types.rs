@@ -49,6 +49,15 @@ pub struct SolveConfig {
     /// bake-off bench's `--kempe-max-chain` flag overrides this; promoted from
     /// the private `KEMPE_MAX_CHAIN` constant under OPEN_THINGS item 23.
     pub lahc_kempe_max_chain: u32,
+    /// Period for the home-room-repair LAHC move. `None` (default) disables
+    /// the move. `Some(n)` triggers a home-room-repair attempt every nth
+    /// iteration, taking precedence over Change/Swap on those iterations
+    /// but yielding to R&R and Kempe. The move attempts to move the chosen
+    /// placement into its class's home_room (room-free path), or swaps
+    /// rooms with the single-collision occupant (room-occupied path).
+    /// Production callers (backend `solver_io.py`) set this to `Some(7)`
+    /// for all three LAHC backends. See ADR 0050 (item 86 option b).
+    pub lahc_home_room_period: Option<u32>,
 }
 
 impl Default for SolveConfig {
@@ -62,6 +71,7 @@ impl Default for SolveConfig {
             lahc_kempe_period: None,
             lahc_rr_k: 5,
             lahc_kempe_max_chain: 8,
+            lahc_home_room_period: None,
         }
     }
 }
@@ -707,6 +717,7 @@ mod tests {
     fn solve_config_default_disables_rr() {
         let cfg = SolveConfig::default();
         assert_eq!(cfg.lahc_rr_period, None);
+        assert_eq!(cfg.lahc_home_room_period, None);
     }
 
     #[test]
