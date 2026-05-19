@@ -1,13 +1,14 @@
 """Admin user management routes."""
 
+import logging
 import uuid
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from klassenzeit_backend.auth.dependencies import require_admin
+from klassenzeit_backend.auth.dependencies import require_admin, require_super_admin
 from klassenzeit_backend.auth.passwords import (
     PasswordValidationError,
     hash_password,
@@ -16,6 +17,7 @@ from klassenzeit_backend.auth.passwords import (
 from klassenzeit_backend.auth.schemas.admin import (
     CreateUserRequest,
     ResetPasswordRequest,
+    SetRoleRequest,
     UserListItem,
     UserResponse,
 )
@@ -25,6 +27,8 @@ from klassenzeit_backend.db.session import get_session
 
 if TYPE_CHECKING:
     from klassenzeit_backend.core.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/admin", tags=["auth-admin"])
 
@@ -146,3 +150,57 @@ async def admin_activate_user(
     user = await _get_target_user(db, user_id)
     user.is_active = True
     await db.commit()
+
+
+@router.post("/users/{user_id}/role")
+async def admin_set_user_role(
+    user_id: uuid.UUID,
+    body: SetRoleRequest,
+    _admin: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> UserResponse:
+    """Set the target user's role. Requires super-admin.
+
+    Idempotent when the new role matches the current role. Enforces a
+    last-active-super-admin guard: refuses with 409
+    ``{"code": "last_super_admin"}`` when the change would drop the
+    count of active super-admins below 1. Invalidates the target's
+    sessions on actual change so a demoted super-admin loses any
+    previously-set ``active_school_id`` immediately.
+    """
+    target = await _get_target_user(db, user_id)
+    prev_role = target.role
+    new_role = body.role
+
+    if prev_role == new_role:
+        return UserResponse(id=target.id, email=target.email, role=target.role)
+
+    if prev_role == "super_admin" and target.is_active and new_role != "super_admin":
+        count_stmt = select(func.count(User.id)).where(
+            User.role == "super_admin",
+            User.is_active.is_(True),
+        )
+        active_super_admin_count = (await db.execute(count_stmt)).scalar_one()
+        if active_super_admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "last_super_admin"},
+            )
+
+    target.role = new_role
+    await delete_user_sessions(db, target.id)
+    await db.commit()
+    await db.refresh(target)
+
+    logger.info(
+        "admin.user_role.change",
+        extra={
+            "actor_id": str(_admin.id),
+            "target_id": str(target.id),
+            "from_role": prev_role,
+            "to_role": new_role,
+            "sessions_invalidated": True,
+        },
+    )
+
+    return UserResponse(id=target.id, email=target.email, role=target.role)

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr
 
@@ -36,3 +37,12 @@ class ResetPasswordRequest(BaseModel):
     """Request body for admin password reset."""
 
     new_password: str
+
+
+class SetRoleRequest(BaseModel):
+    """Request body for changing a user's role.
+
+    The `role` field is constrained to the three in-tree role strings.
+    """
+
+    role: Literal["user", "admin", "super_admin"]
