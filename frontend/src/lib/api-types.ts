@@ -173,6 +173,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/admin/users/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Set User Role
+         * @description Set the target user's role. Requires super-admin.
+         *
+         *     Idempotent when the new role matches the current role. Enforces a
+         *     last-active-super-admin guard: refuses with 409
+         *     ``{"code": "last_super_admin"}`` when the change would drop the
+         *     count of active super-admins below 1. Invalidates the target's
+         *     sessions on actual change so a demoted super-admin loses any
+         *     previously-set ``active_school_id`` immediately.
+         */
+        post: operations["admin_set_user_role_api_auth_admin_users__user_id__role_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schools": {
         parameters: {
             query?: never;
@@ -2605,6 +2632,19 @@ export interface components {
             short_name?: string | null;
         };
         /**
+         * SetRoleRequest
+         * @description Request body for changing a user's role.
+         *
+         *     The `role` field is constrained to the three in-tree role strings.
+         */
+        SetRoleRequest: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "admin" | "super_admin";
+        };
+        /**
          * StundentafelCreate
          * @description Request body for creating a Stundentafel.
          */
@@ -3523,6 +3563,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_set_user_role_api_auth_admin_users__user_id__role_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
