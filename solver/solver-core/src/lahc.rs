@@ -4608,6 +4608,31 @@ fn running_slice_from_placements(
         .saturating_add(subject_pref_total)
 }
 
+/// Stub for the home-room-repair LAHC move. The full kernel lands in Task 4
+/// of the item 86 plan; this stub exists so the RED unit tests in
+/// `try_home_room_repair_move_*` compile against the production signature
+/// while the GREEN implementation is being written.
+#[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
+fn try_home_room_repair_move(
+    _problem: &Problem,
+    _idx: &Indexed,
+    _placement_idx: usize,
+    _lesson_lookup: &HashMap<LessonId, &Lesson>,
+    _tb_lookup: &HashMap<TimeBlockId, &TimeBlock>,
+    _subject_lookup: &HashMap<SubjectId, &Subject>,
+    _home_room_lookup: &HashMap<SchoolClassId, Option<RoomId>>,
+    _weights: &ConstraintWeights,
+    _placements: &mut [Placement],
+    _state: &mut crate::solve::GreedyState,
+    _pinned: &HashSet<LessonId>,
+    _lahc_list: &[u32],
+    _iter: u64,
+    _room_order: &[usize],
+) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9380,5 +9405,1005 @@ mod tests {
         );
         assert!(!accepted, "daily-cap-breach swap must reject");
         assert_eq!(placements, placements_before);
+    }
+
+    // -- try_home_room_repair_move unit tests --
+
+    /// Build a Problem with two classes, two rooms, one TB-grid (2 days x 3
+    /// positions), one subject, two lessons. Class A's home_room is `room_a`;
+    /// class B's home_room is `room_b`. Each lesson has 1 hour, block_size 1,
+    /// no group. Room suitabilities are wide-open (every room suits the
+    /// subject). The caller passes the home_room for each class via the
+    /// `home_room_a` / `home_room_b` args (use `Some(...)` or `None`).
+    #[allow(clippy::type_complexity)]
+    fn home_room_problem(
+        home_room_a: Option<RoomId>,
+        home_room_b: Option<RoomId>,
+    ) -> (
+        Problem,
+        SchoolClassId,
+        SchoolClassId,
+        TeacherId,
+        TeacherId,
+        SubjectId,
+        RoomId,
+        RoomId,
+        LessonId,
+        LessonId,
+    ) {
+        use crate::types::{Room, SchoolClass, Subject, Teacher, TeacherQualification};
+        let class_a = SchoolClassId(lahc_uuid(50));
+        let class_b = SchoolClassId(lahc_uuid(51));
+        let teacher_a = TeacherId(lahc_uuid(20));
+        let teacher_b = TeacherId(lahc_uuid(21));
+        let subject = SubjectId(lahc_uuid(40));
+        let room_a = RoomId(lahc_uuid(30));
+        let room_b = RoomId(lahc_uuid(31));
+        let lesson_a = LessonId(lahc_uuid(60));
+        let lesson_b = LessonId(lahc_uuid(61));
+        let lesson_a_obj = Lesson {
+            id: lesson_a,
+            school_class_ids: vec![class_a],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_a],
+            teacher_pin: Some(teacher_a),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
+            lesson_group_id: None,
+        };
+        let lesson_b_obj = Lesson {
+            id: lesson_b,
+            school_class_ids: vec![class_b],
+            subject_id: subject,
+            teacher_candidates: vec![teacher_b],
+            teacher_pin: Some(teacher_b),
+            hours_per_week: 1,
+            preferred_block_size: 1,
+            pre_buffer_minutes: 0,
+            post_buffer_minutes: 0,
+            lesson_group_id: None,
+        };
+        // Build TBs manually so we get a 2x3 grid.
+        let mut time_blocks = Vec::new();
+        let mut tb_idx: u32 = 0;
+        for d in 0..2u8 {
+            for p in 0..3u8 {
+                time_blocks.push(TimeBlock {
+                    id: TimeBlockId(lahc_uuid((100 + tb_idx) as u8)),
+                    day_of_week: d,
+                    position: p,
+                    kind: TimeBlockKind::Lesson,
+                });
+                tb_idx += 1;
+            }
+        }
+        let problem = Problem {
+            time_blocks,
+            teachers: vec![
+                Teacher {
+                    id: teacher_a,
+                    max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
+                },
+                Teacher {
+                    id: teacher_b,
+                    max_hours_per_week: 40,
+                    reserve_hours_per_week: 0,
+                },
+            ],
+            rooms: vec![Room { id: room_a }, Room { id: room_b }],
+            subjects: vec![Subject {
+                id: subject,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 8,
+            }],
+            school_classes: vec![
+                SchoolClass {
+                    id: class_a,
+                    home_room_id: home_room_a,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+                SchoolClass {
+                    id: class_b,
+                    home_room_id: home_room_b,
+                    max_lessons_per_day: None,
+                    class_teacher_id: None,
+                },
+            ],
+            lessons: vec![lesson_a_obj, lesson_b_obj],
+            teacher_qualifications: vec![
+                TeacherQualification {
+                    teacher_id: teacher_a,
+                    subject_id: subject,
+                },
+                TeacherQualification {
+                    teacher_id: teacher_b,
+                    subject_id: subject,
+                },
+            ],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+        };
+        (
+            problem, class_a, class_b, teacher_a, teacher_b, subject, room_a, room_b, lesson_a,
+            lesson_b,
+        )
+    }
+
+    /// Permissive lahc_list: any canonical delta accepts.
+    fn permissive_lahc_list() -> Vec<u32> {
+        vec![u32::MAX; LAHC_LIST_LEN]
+    }
+
+    #[test]
+    fn try_home_room_repair_move_accepts_room_free_path() {
+        // Class A has home_room = room_a. Place lesson A in room_b at d0p0,
+        // while room_a is free at d0p0 -> move should land lesson A in room_a.
+        let (
+            problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            subject,
+            room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(/* room_a placeholder */ RoomId(lahc_uuid(30))), None);
+        let _ = subject;
+        let _ = class_a;
+        let _ = teacher_a;
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        // canonical pre = 5 (1 home_room miss * 5).
+        state.canonical_score = 5;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(accepted, "room-free home_room repair must accept");
+        assert_eq!(placements[0].room_id, room_a);
+        assert!(state.used_room.contains(&(room_a, tb_d0_p0)));
+        assert!(!state.used_room.contains(&(room_b, tb_d0_p0)));
+    }
+
+    #[test]
+    fn try_home_room_repair_move_accepts_room_occupied_single_collision_swap() {
+        // P: lesson_a in room_b @ d0p0; Q: lesson_b in room_a @ d0p0. Same TB.
+        // class_a's home_room is room_a; class_b's home_room is None.
+        // Subject is suitable in both rooms. Expect swap: P -> room_a, Q -> room_b.
+        let (
+            problem,
+            class_a,
+            class_b,
+            teacher_a,
+            teacher_b,
+            _subject,
+            room_a,
+            room_b,
+            lesson_a,
+            lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        // Pre: lesson_a in non-home (room_b) -> 5; lesson_b's class has no
+        // home_room so its contribution is 0. canonical_score = 5.
+        state.canonical_score = 5;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(accepted, "single-collision swap must accept");
+        assert_eq!(placements[0].room_id, room_a);
+        assert_eq!(placements[1].room_id, room_b);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_when_already_in_home_room() {
+        // Lesson A already in room_a (which is home_room). No-op reject.
+        let (
+            problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            room_a,
+            _room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_a,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "no-op repair must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_blocked_room() {
+        // home_room (room_a) is in room_blocked_times at d0p0.
+        use crate::types::RoomBlockedTime;
+        let (
+            mut problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        problem.room_blocked_times.push(RoomBlockedTime {
+            room_id: room_a,
+            time_block_id: tb_d0_p0,
+        });
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "blocked home_room must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_grouped_lesson() {
+        // Lesson A's lesson_group_id is Some -> reject.
+        let (
+            mut problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let group_id = LessonGroupId(lahc_uuid(70));
+        problem.lessons[0].lesson_group_id = Some(group_id);
+        let _ = room_a;
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "grouped-lesson repair must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_pinned_lesson() {
+        // lesson_a is in pinned set -> reject.
+        let (
+            problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            _room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let mut pinned: HashSet<LessonId> = HashSet::new();
+        pinned.insert(lesson_a);
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "pinned-lesson repair must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_no_home_room() {
+        // class_a has no home_room (None) -> reject.
+        let (
+            problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            _room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(None, None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "no-home-room repair must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_block_size_gt_1() {
+        // lesson_a.preferred_block_size = 2 -> reject.
+        let (
+            mut problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            _subject,
+            _room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        problem.lessons[0].preferred_block_size = 2;
+        problem.lessons[0].hours_per_week = 2;
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "block_size>1 repair must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_subject_unsuitable_in_collision_swap() {
+        // (B) path: Q (lesson_b) has a subject that is not suitable in P's
+        // old room (room_b). Concretely: a second subject for Q, with the
+        // room suitability table marking that subject as suitable only in
+        // room_a (Q's current room, the home_room). Swap proposal would put
+        // Q in room_b, which is not suitable.
+        use crate::types::{RoomSubjectSuitability, Subject};
+        let (
+            mut problem,
+            class_a,
+            class_b,
+            teacher_a,
+            teacher_b,
+            subject_main,
+            room_a,
+            room_b,
+            lesson_a,
+            lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        // Add a second subject only suitable in room_a.
+        let subject_locked = SubjectId(lahc_uuid(41));
+        problem.subjects.push(Subject {
+            id: subject_locked,
+            prefer_early_period: 0,
+            avoid_first_period: 0,
+            avoid_last_period: 0,
+            prefer_late_period: 0,
+            max_hours_per_day: 8,
+        });
+        // room_a entry: suits both subjects; room_b entry: suits only subject_main.
+        problem
+            .room_subject_suitabilities
+            .push(RoomSubjectSuitability {
+                room_id: room_a,
+                subject_id: subject_main,
+            });
+        problem
+            .room_subject_suitabilities
+            .push(RoomSubjectSuitability {
+                room_id: room_a,
+                subject_id: subject_locked,
+            });
+        problem
+            .room_subject_suitabilities
+            .push(RoomSubjectSuitability {
+                room_id: room_b,
+                subject_id: subject_main,
+            });
+        // Repoint lesson_b to subject_locked + add qualification for teacher_b.
+        problem.lessons[1].subject_id = subject_locked;
+        problem
+            .teacher_qualifications
+            .push(crate::types::TeacherQualification {
+                teacher_id: teacher_b,
+                subject_id: subject_locked,
+            });
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "subject-unsuitable collision swap must reject");
+        assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_rejects_when_lahc_accept_threshold_disallows() {
+        // Construct a case where the delta is +5 (worse) and lahc_list[iter % L] = 0.
+        // P is in home_room (room_a)... wait, that's the no-op reject case.
+        // To get a +5 delta, we need a swap that PUTS a class out of its home.
+        // Setup: lesson_a's class home_room = room_a; lesson_b's class home_room = room_b.
+        // P (lesson_a) in room_b (miss), Q (lesson_b) in room_a (miss). pre = 5 + 5 = 10.
+        // Post swap: P in room_a (hit, 0), Q in room_b (hit, 0). post = 0.
+        // delta = -10 (better). Always accepts. To force a worsening swap:
+        // Setup: lesson_a's class home_room = room_a; lesson_b's class home_room = room_a.
+        // P (lesson_a) in room_a (hit, 0), Q (lesson_b) in room_b (miss, 5). pre = 5.
+        // But P is already in home_room -> no-op reject before we even propose.
+        // Workable shape: a "swap into home_room for lesson_a, out of home_room for lesson_b
+        // where the canonical worsens overall". Set lesson_a home=room_a, lesson_b home=room_b.
+        // P (lesson_a) in room_b -> miss 5; Q (lesson_b) in room_a -> miss 5. pre = 10.
+        // Swap: P -> room_a (hit, 0), Q -> room_b (hit, 0). post = 0. delta = -10 (better).
+        // Hmm, can't easily build a +delta in a 2-class symmetric setup.
+        //
+        // Easier: use the room-free path and a very tight lahc_list[iter%L] = 0.
+        // pre = 5 (lesson_a in room_b, home is room_a, miss). post = 0 (lesson_a in room_a, hit).
+        // delta = -5. new_canonical = 0. 0 <= 0 -> accepts.
+        //
+        // To force a reject on threshold alone, we need a case where the move
+        // makes canonical WORSE. The hint is in the kernel: home_room_repair
+        // can't make a class's own home_room contribution worse (only better
+        // or equal), so the only "worsening" comes from (B) swaps where Q's
+        // class's home_room moves further away. That requires Q's class
+        // home_room to be in P's NEW room... but P's new room IS the home
+        // room of P. So Q's class home_room == P's home_room means Q is
+        // already in its own home_room (currently in room_a == Q's home).
+        // After swap, Q lands in room_b, away from its home_room. The Q class
+        // contribution rises from 0 -> 5. P contribution falls from 5 -> 0.
+        // Net delta = 0 (symmetric improve/regress). For a true +delta, the
+        // weight scaling has to be asymmetric per class - but
+        // weights.prefer_home_room is global. So the symmetric case nets to
+        // zero.
+        //
+        // The cleanest approach: pin lahc_list[iter%L] to 0 and prove that
+        // an equal-canonical swap (delta = 0, post = pre = 5) STILL accepts
+        // (LAHC accept uses `<=`). Conversely, use lahc_list[iter%L] = 4
+        // (one less than the current canonical), and the +0-delta swap
+        // would propose new_canonical = 5 which is > 4, reject.
+        //
+        // For room-free path: pre = 5, delta = -5, post = 0. accept iff 0 <= lahc_list[iter%L].
+        // Setting lahc_list[iter%L] = 0 still accepts (0 <= 0). To force a reject,
+        // make the move RAISE canonical somehow. Can't with home_room only.
+        //
+        // Simplest construction: weights.prefer_home_room = 0 (axis disabled).
+        // Then delta is always 0; post = pre = 0; accept iff 0 <= lahc_list[iter%L].
+        // Setting lahc_list[iter%L] = 0 still accepts.
+        //
+        // To make an *unambiguous* RED on the accept-threshold branch, we
+        // configure: weights.prefer_home_room = 5, lesson_a in room_b (miss),
+        // pre = 5. We RAISE state.canonical_score to a non-trivial value 5,
+        // and set lahc_list[iter%L] to LESS THAN the delta-applied value.
+        // Move delta = -5, new_canonical = 0. 0 <= lahc_list[iter%L] = 0?
+        // YES (still accepts). Make lahc_list[iter%L] = some value 0 cannot
+        // beat... not possible with unsigned ints and a 0 lower bound.
+        //
+        // So the threshold-disallows path requires a SYNTHETIC pre-canonical.
+        // Use pre = 5, lahc_list[iter%L] = 0, move delta = +5 (somehow).
+        // Achievable via the (B) path with asymmetric setup: P's class has
+        // home = room_a (current room_b -> 5 miss). Q's class has home = NONE.
+        // Pre: P contributes 5, Q contributes 0; canonical = 5.
+        // Post swap: P contributes 0, Q contributes 0 (no home); canonical = 0.
+        // delta = -5. Always accepts.
+        //
+        // The cleanest threshold test: pre = 0 (no misses), and propose a swap
+        // that would WORSEN by hitting an unmovable Q's class home_room. But
+        // P needs to currently NOT be in its home_room to be even eligible.
+        // The (B) swap path only swaps when P is in a non-home_room and home
+        // is occupied by Q. Pre: P (lesson_a, home=room_a) in room_b (miss=5).
+        // Q (lesson_b, home=room_c) in room_a (miss=5). Post: P in room_a (0),
+        // Q in room_b (miss=5 if home=room_c). canonical_delta = 0 - 5 + 5 - 5 = -5.
+        // Still better.
+        //
+        // Definitive threshold test: weights.prefer_home_room = 5, P in
+        // room_b (home=room_a, miss=5). pre = 5. lahc_list[iter%L] = u32::MAX.
+        // delta = -5. new_canonical = 0. accept. But we want REJECT.
+        //
+        // Set lahc_list[iter%L] = 0 minus delta = 0 - (-5) = 5; new_canonical
+        // = 0 <= 5 accepts. To get a reject: new_canonical > lahc_list[iter%L].
+        // That requires new_canonical > 0, meaning the move makes things
+        // WORSE. The only way with the (A) path is impossible: the move
+        // removes a non-zero home_room miss.
+        //
+        // Resolution: the threshold test pins the symmetric (B) case where
+        // the proposed delta is +5 by constructing Q's class with
+        // home_room = room_b (Q's NEW post-swap room). Then Q's contribution
+        // pre = 5 (Q in room_a, home=room_b), post = 0 (Q in room_b, home=room_b).
+        // P's contribution pre = 5 (P in room_b, home=room_a), post = 0
+        // (P in room_a, home=room_a). delta = -10. always better. Hmm.
+        //
+        // Wait - to construct a +delta, set Q's class home_room = ROOM_A
+        // (same as P's home_room). pre: P in room_b (miss), Q in room_a (hit).
+        // P contributes 5, Q contributes 0. canonical = 5.
+        // post swap: P in room_a (hit, 0), Q in room_b (miss, 5).
+        // delta = -5 + 5 = 0. new_canonical = 5. lahc_list[iter%L] = 4. reject.
+        //
+        // This is the construction. Q's class shares P's home_room.
+        let (
+            mut problem,
+            class_a,
+            class_b,
+            teacher_a,
+            teacher_b,
+            _subject,
+            room_a,
+            room_b,
+            lesson_a,
+            lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), Some(RoomId(lahc_uuid(30))));
+        // Force class_b's home to be room_a too (already set, but be explicit).
+        problem.school_classes[1].home_room_id = Some(room_a);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        state.canonical_score = 5; // P in room_b (miss=5), Q in room_a (hit=0).
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        // lahc_list[iter%L] = 4. new_canonical after swap = 0 - 5 + 5 + 0 = 5.
+        // 5 <= 4 ? NO -> reject.
+        let mut lahc_list = vec![u32::MAX; LAHC_LIST_LEN];
+        lahc_list[0] = 4;
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let placements_before = placements.clone();
+        let canonical_before = state.canonical_score;
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(!accepted, "lahc-threshold-disallowed swap must reject");
+        assert_eq!(placements, placements_before);
+        assert_eq!(state.canonical_score, canonical_before);
     }
 }
