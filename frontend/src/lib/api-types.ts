@@ -200,6 +200,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/admin/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Audit Log
+         * @description List super-admin audited writes; newest first; filterable; paginated.
+         */
+        get: operations["list_audit_log_api_auth_admin_audit_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schools": {
         parameters: {
             query?: never;
@@ -1764,6 +1784,48 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * AuditLogEntryItem
+         * @description One audited write, list-view shape (no JSONB blobs).
+         */
+        AuditLogEntryItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Actor User Id */
+            actor_user_id: string | null;
+            /** Actor User Email */
+            actor_user_email: string;
+            /** Target School Id */
+            target_school_id: string | null;
+            /** Target School Name */
+            target_school_name: string | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Method */
+            method: string;
+            /** Route Template */
+            route_template: string;
+            /** Response Status */
+            response_status: number;
+        };
+        /**
+         * AuditLogListResponse
+         * @description Paginated audit-log list response.
+         */
+        AuditLogListResponse: {
+            /** Items */
+            items: components["schemas"]["AuditLogEntryItem"][];
+            /** Total */
+            total: number;
         };
         /**
          * AvailabilityEntryInput
@@ -3599,6 +3661,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_audit_log_api_auth_admin_audit_log_get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+                actor_user_id?: string | null;
+                target_school_id?: string | null;
+                from_ts?: string | null;
+                to_ts?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogListResponse"];
                 };
             };
             /** @description Validation Error */
