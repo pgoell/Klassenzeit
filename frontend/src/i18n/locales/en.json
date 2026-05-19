@@ -51,6 +51,7 @@
     "lessons": "Lessons",
     "admin": "Admin",
     "schools": "Schools",
+    "auditLog": "Audit log",
     "comingSoon": "Coming soon",
     "superAdminBadge": "Super Admin",
     "schoolPicker": {
@@ -243,6 +244,33 @@
       "editDescription": "Update {{name}}.",
       "deleteTitle": "Delete school",
       "deleteDescription": "This will permanently delete \"{{name}}\". Schools that still have users or schedule data cannot be deleted."
+    }
+  },
+  "auditLog": {
+    "title": "Audit log",
+    "subtitle": "Super-admin cross-school writes.",
+    "empty": "No audit-log entries match the current filters.",
+    "columns": {
+      "ts": "Time",
+      "actor": "Actor",
+      "method": "Method",
+      "route": "Route",
+      "school": "School",
+      "status": "Status"
+    },
+    "filters": {
+      "actor": "Actor",
+      "actorAll": "All actors",
+      "school": "School",
+      "schoolAll": "All schools",
+      "from": "From",
+      "to": "To",
+      "clear": "Clear filters"
+    },
+    "pagination": {
+      "showing": "Showing {{from}}-{{to}} of {{total}}",
+      "prev": "Previous",
+      "next": "Next"
     }
   },
   "teachers": {

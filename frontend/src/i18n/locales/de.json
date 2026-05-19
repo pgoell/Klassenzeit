@@ -51,6 +51,7 @@
     "lessons": "Unterricht",
     "admin": "Administration",
     "schools": "Schulen",
+    "auditLog": "Audit-Log",
     "comingSoon": "Bald verfügbar",
     "superAdminBadge": "Super-Admin",
     "schoolPicker": {
@@ -243,6 +244,33 @@
       "editDescription": "{{name}} aktualisieren.",
       "deleteTitle": "Schule löschen",
       "deleteDescription": "\"{{name}}\" wird endgültig gelöscht. Schulen mit Nutzern oder Stundenplandaten können nicht gelöscht werden."
+    }
+  },
+  "auditLog": {
+    "title": "Audit-Log",
+    "subtitle": "Übergreifende Schreibzugriffe der Super-Admins.",
+    "empty": "Keine Audit-Log-Einträge zu den aktuellen Filtern.",
+    "columns": {
+      "ts": "Zeit",
+      "actor": "Akteur",
+      "method": "Methode",
+      "route": "Route",
+      "school": "Schule",
+      "status": "Status"
+    },
+    "filters": {
+      "actor": "Akteur",
+      "actorAll": "Alle Akteure",
+      "school": "Schule",
+      "schoolAll": "Alle Schulen",
+      "from": "Von",
+      "to": "Bis",
+      "clear": "Filter zurücksetzen"
+    },
+    "pagination": {
+      "showing": "{{from}}-{{to}} von {{total}}",
+      "prev": "Zurück",
+      "next": "Weiter"
     }
   },
   "teachers": {

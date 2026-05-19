@@ -11,6 +11,7 @@ import {
   LogOut,
   type LucideIcon,
   PanelLeft,
+  ScrollText,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -37,7 +38,8 @@ type NavLabelKey =
   | "sidebar.schoolClasses"
   | "sidebar.stundentafeln"
   | "sidebar.lessons"
-  | "sidebar.schools";
+  | "sidebar.schools"
+  | "sidebar.auditLog";
 
 type GroupLabelKey = "sidebar.main" | "sidebar.data" | "sidebar.admin";
 
@@ -77,7 +79,10 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ADMIN_NAV_GROUP: NavGroup = {
   labelKey: "sidebar.admin",
-  items: [{ to: "/schools", labelKey: "sidebar.schools", icon: ShieldCheck }],
+  items: [
+    { to: "/schools", labelKey: "sidebar.schools", icon: ShieldCheck },
+    { to: "/audit-log", labelKey: "sidebar.auditLog", icon: ScrollText },
+  ],
 };
 
 export function AppSidebar() {
