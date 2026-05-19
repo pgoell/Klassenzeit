@@ -10,10 +10,10 @@
 
 ## Architecture at a glance
 
-- `backend/` — FastAPI + SQLAlchemy async, served under `klassenzeit_backend`. Runtime state lives on `app.state`, set in `lifespan`.
-- `frontend/` — Vite 8 + React 19 SPA with TanStack Router/Query, shadcn/ui, react-i18next. Proxies API to `:8000` in dev.
-- `solver/` — Rust workspace: `solver-core` (pure), `solver-py` (PyO3 via maturin), `solver-bench` (bake-off binary).
-- `deploy/` — staging compose for the Hetzner VPS. Runbook: `deploy/README.md`. Decisions: `docs/adr/0009-deployment-topology.md`.
+- `backend/`: FastAPI + SQLAlchemy async, served under `klassenzeit_backend`. Runtime state lives on `app.state`, set in `lifespan`.
+- `frontend/`: Vite 8 + React 19 SPA with TanStack Router/Query, shadcn/ui, react-i18next. Proxies API to `:8000` in dev.
+- `solver/`: Rust workspace: `solver-core` (pure), `solver-py` (PyO3 via maturin), `solver-bench` (bake-off binary).
+- `deploy/`: staging compose for the Hetzner VPS. Runbook: `deploy/README.md`. Decisions: `docs/adr/0009-deployment-topology.md`.
 - Dev loop via `mise` tasks; Postgres via `podman compose` from root `compose.yaml` (local dev only, distinct from `deploy/compose.yaml`).
 - **Multi-tenant by `school_id`.** Every aggregate root carries a NOT NULL `school_id` FK to `schools.id`; users have a home `school_id` plus an M:N `user_school_memberships` join (super-admins implicitly access every school). Routes scope by `scope_school_id: Annotated[uuid.UUID, Depends(get_scope_school_id)]` (transitively gates on `require_admin`), which reads `session.active_school_id`; cross-tenant access returns 404, not 403. Users switch the active school via `POST /auth/switch-school` (validates against accessible schools or super-admin); `/auth/me` exposes `active_school_id`, `active_school_name`, and `accessible_schools`. See ADR 0045, ADR 0046, ADR 0047 (reference-data tenancy: subjects per-school, pin-kind global enum), and ADR 0048 (super-admin cross-school write audit log) for tenancy decisions.
 
