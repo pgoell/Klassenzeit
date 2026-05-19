@@ -718,7 +718,7 @@ async def test_run_solve_passes_deadline_ms_to_binding(
 ) -> None:
     seen: dict[str, object] = {}
 
-    def fake_solve_json_with_config(problem_json: str, deadline_ms: int | None) -> str:
+    def fake_solve_json_with_config(problem_json: str, deadline_ms: int | None, **_: object) -> str:
         seen["deadline_ms"] = deadline_ms
         return '{"placements": [], "violations": [], "soft_score": 0}'
 
