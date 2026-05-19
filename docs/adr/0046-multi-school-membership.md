@@ -32,8 +32,9 @@ other multi-tenant SaaS.
   different school POSTs to `/auth/switch-school` and clears the
   TanStack Query cache to refresh every scoped view.
 - Access validation runs at session-create and at switch time. There
-  is no per-request re-validation; revocation requires a re-login
-  until the admin grant/revoke endpoint (10j) ships.
+  is no per-request re-validation; the admin revoke endpoint (item
+  10j) deletes the target's sessions on success so a cached
+  `active_school_id` cannot outlive the revoke.
 
 ## Consequences
 
@@ -45,8 +46,9 @@ other multi-tenant SaaS.
   see brief loading states across the app. This is deliberate:
   selective invalidation across all aggregate queries is more brittle
   than a full reset.
-- Admin endpoints for granting / revoking memberships are out of
-  scope. Operators provision multi-school access via psql until
-  item 10j ships, mirroring how super-admin promotion works today.
+- Admin endpoints for granting / revoking memberships ship as item
+  10j (`GET` / `POST` / `DELETE /api/auth/admin/users/{user_id}/memberships`,
+  super-admin gated). Grant is purely additive and does not invalidate
+  sessions; revoke deletes the target's sessions before commit.
 - Supersedes the per-request override decision in ADR 0045's
   2026-05-18 super-admin addendum.

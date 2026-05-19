@@ -200,6 +200,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/admin/users/{user_id}/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin List User Memberships
+         * @description List the explicit school memberships for a user. Requires super-admin.
+         */
+        get: operations["admin_list_user_memberships_api_auth_admin_users__user_id__memberships_get"];
+        put?: never;
+        /**
+         * Admin Grant User Membership
+         * @description Grant a school membership to a user. Requires super-admin.
+         *
+         *     Rejects with 409 ``{"code": "membership_redundant_home_school"}`` when
+         *     the school is already the user's home school, and 409
+         *     ``{"code": "membership_exists"}`` when a membership row already exists.
+         *     Does NOT invalidate the target's sessions (grant is purely additive).
+         */
+        post: operations["admin_grant_user_membership_api_auth_admin_users__user_id__memberships_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/admin/users/{user_id}/memberships/{school_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Admin Revoke User Membership
+         * @description Revoke a school membership from a user. Requires super-admin.
+         *
+         *     Returns 404 when the target user, target school, or membership row is
+         *     absent. On success, invalidates every session for the target so a
+         *     cached ``session.active_school_id`` cannot outlive the revoke.
+         */
+        delete: operations["admin_revoke_user_membership_api_auth_admin_users__user_id__memberships__school_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/admin/audit-log": {
         parameters: {
             query?: never;
@@ -2144,6 +2197,51 @@ export interface components {
             accessible_schools: components["schemas"]["AccessibleSchool"][];
         };
         /**
+         * MembershipGrantRequest
+         * @description Request body for granting a school membership to a user.
+         */
+        MembershipGrantRequest: {
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
+        };
+        /**
+         * MembershipListItem
+         * @description Single entry in the per-user memberships listing.
+         *
+         *     Omits ``user_id`` because the list URL already carries it; mirroring
+         *     the same id on every row would be duplicate metadata.
+         */
+        MembershipListItem: {
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
+            /** School Name */
+            school_name: string;
+        };
+        /**
+         * MembershipResponse
+         * @description Response body for grant: echoes user_id so the caller can correlate.
+         */
+        MembershipResponse: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /**
+             * School Id
+             * Format: uuid
+             */
+            school_id: string;
+            /** School Name */
+            school_name: string;
+        };
+        /**
          * MovePlacementRequest
          * @description Body for `PATCH /api/placements/{lesson_id}/{time_block_id}`.
          */
@@ -3662,6 +3760,108 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_list_user_memberships_api_auth_admin_users__user_id__memberships_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MembershipListItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_grant_user_membership_api_auth_admin_users__user_id__memberships_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MembershipGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MembershipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_revoke_user_membership_api_auth_admin_users__user_id__memberships__school_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+                school_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
