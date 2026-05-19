@@ -627,10 +627,14 @@ async def run_solve(
                         problem_json,
                         deadline_ms,
                         progress_handle,
+                        lahc_home_room_period=7,
                     )
                 else:
                     solution_json = await asyncio.to_thread(
-                        _solve_json_with_config, problem_json, deadline_ms
+                        _solve_json_with_config,
+                        problem_json,
+                        deadline_ms,
+                        lahc_home_room_period=7,
                     )
             case "lahc_rr":
                 if progress_handle is not None:
@@ -640,6 +644,7 @@ async def run_solve(
                         deadline_ms,
                         progress_handle,
                         25,
+                        lahc_home_room_period=7,
                     )
                 else:
                     solution_json = await asyncio.to_thread(
@@ -647,6 +652,7 @@ async def run_solve(
                         problem_json,
                         deadline_ms,
                         lahc_rr_period=25,
+                        lahc_home_room_period=7,
                     )
             case "lahc_rr_kempe":
                 if progress_handle is not None:
@@ -657,6 +663,7 @@ async def run_solve(
                         progress_handle,
                         25,
                         23,
+                        lahc_home_room_period=7,
                     )
                 else:
                     solution_json = await asyncio.to_thread(
@@ -665,6 +672,7 @@ async def run_solve(
                         deadline_ms,
                         lahc_rr_period=25,
                         lahc_kempe_period=23,
+                        lahc_home_room_period=7,
                     )
             case "cpsat":
                 if progress_handle is not None:
