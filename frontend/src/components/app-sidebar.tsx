@@ -13,6 +13,7 @@ import {
   PanelLeft,
   ScrollText,
   ShieldCheck,
+  UserCog,
   Users,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -39,6 +40,7 @@ type NavLabelKey =
   | "sidebar.stundentafeln"
   | "sidebar.lessons"
   | "sidebar.schools"
+  | "sidebar.users"
   | "sidebar.auditLog";
 
 type GroupLabelKey = "sidebar.main" | "sidebar.data" | "sidebar.admin";
@@ -81,6 +83,7 @@ const ADMIN_NAV_GROUP: NavGroup = {
   labelKey: "sidebar.admin",
   items: [
     { to: "/schools", labelKey: "sidebar.schools", icon: ShieldCheck },
+    { to: "/admin-users", labelKey: "sidebar.users", icon: UserCog },
     { to: "/audit-log", labelKey: "sidebar.auditLog", icon: ScrollText },
   ],
 };

@@ -30,7 +30,8 @@
     },
     "start": "Start",
     "end": "Ende",
-    "position": "Stunde"
+    "position": "Stunde",
+    "remove": "Entfernen"
   },
   "nav": {
     "dashboard": "Übersicht",
@@ -51,6 +52,7 @@
     "lessons": "Unterricht",
     "admin": "Administration",
     "schools": "Schulen",
+    "users": "Benutzer",
     "auditLog": "Audit-Log",
     "comingSoon": "Bald verfügbar",
     "superAdminBadge": "Super-Admin",
@@ -271,6 +273,48 @@
       "showing": "{{from}}-{{to}} von {{total}}",
       "prev": "Zurück",
       "next": "Weiter"
+    }
+  },
+  "adminUsers": {
+    "title": "Benutzer",
+    "subtitle": "Schulübergreifende Benutzerkonten und Schul-Mitgliedschaften.",
+    "columns": {
+      "email": "E-Mail",
+      "role": "Rolle",
+      "active": "Aktiv",
+      "lastLogin": "Letzter Login",
+      "homeSchool": "Heimatschule"
+    },
+    "roles": {
+      "user": "Benutzer",
+      "admin": "Admin",
+      "super_admin": "Super-Admin"
+    },
+    "activeYes": "Ja",
+    "activeNo": "Nein",
+    "never": "Nie",
+    "manageSchools": "Schulen verwalten",
+    "loadError": "Benutzer konnten nicht geladen werden.",
+    "empty": "Noch keine Benutzer.",
+    "dialog": {
+      "title": "Schulen für {{email}} verwalten",
+      "description": "Explizite Schul-Mitgliedschaften jenseits der Heimatschule vergeben oder entziehen.",
+      "homeSchool": "Heimatschule",
+      "memberships": "Zusätzliche Mitgliedschaften",
+      "noMemberships": "Noch keine zusätzlichen Mitgliedschaften.",
+      "grant": "Neue Schule freigeben",
+      "grantButton": "Freigeben",
+      "pickSchool": "Schule wählen",
+      "confirmRemoveTitle": "Schul-Mitgliedschaft entfernen",
+      "confirmRemoveBody": "Zugang zu {{schoolName}} entfernen? Alle Sessions dieses Benutzers werden ungültig."
+    },
+    "toast": {
+      "grantSuccess": "Zugang zu {{schoolName}} freigegeben.",
+      "grantConflictExists": "Benutzer hat bereits Zugang zu dieser Schule.",
+      "grantConflictHome": "Diese Schule ist bereits die Heimatschule.",
+      "grantError": "Mitgliedschaft konnte nicht freigegeben werden.",
+      "revokeSuccess": "Zugang zu {{schoolName}} entfernt. Sessions ungültig.",
+      "revokeError": "Mitgliedschaft konnte nicht entfernt werden."
     }
   },
   "teachers": {

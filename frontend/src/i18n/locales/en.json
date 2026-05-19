@@ -30,7 +30,8 @@
     },
     "start": "Start",
     "end": "End",
-    "position": "Period"
+    "position": "Period",
+    "remove": "Remove"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -51,6 +52,7 @@
     "lessons": "Lessons",
     "admin": "Admin",
     "schools": "Schools",
+    "users": "Users",
     "auditLog": "Audit log",
     "comingSoon": "Coming soon",
     "superAdminBadge": "Super Admin",
@@ -271,6 +273,48 @@
       "showing": "Showing {{from}}-{{to}} of {{total}}",
       "prev": "Previous",
       "next": "Next"
+    }
+  },
+  "adminUsers": {
+    "title": "Users",
+    "subtitle": "Cross-school user accounts and school memberships.",
+    "columns": {
+      "email": "Email",
+      "role": "Role",
+      "active": "Active",
+      "lastLogin": "Last login",
+      "homeSchool": "Home school"
+    },
+    "roles": {
+      "user": "User",
+      "admin": "Admin",
+      "super_admin": "Super Admin"
+    },
+    "activeYes": "Yes",
+    "activeNo": "No",
+    "never": "Never",
+    "manageSchools": "Manage schools",
+    "loadError": "Could not load users.",
+    "empty": "No users yet.",
+    "dialog": {
+      "title": "Manage schools for {{email}}",
+      "description": "Grant or revoke explicit school memberships beyond the user's primary school.",
+      "homeSchool": "Home school",
+      "memberships": "Additional memberships",
+      "noMemberships": "No additional memberships yet.",
+      "grant": "Grant a new school",
+      "grantButton": "Grant",
+      "pickSchool": "Pick a school",
+      "confirmRemoveTitle": "Remove school membership",
+      "confirmRemoveBody": "Remove access to {{schoolName}}? All of this user's sessions will be invalidated."
+    },
+    "toast": {
+      "grantSuccess": "Granted access to {{schoolName}}.",
+      "grantConflictExists": "User already has access to that school.",
+      "grantConflictHome": "That school is already the home school.",
+      "grantError": "Could not grant membership.",
+      "revokeSuccess": "Removed access to {{schoolName}}. Sessions invalidated.",
+      "revokeError": "Could not remove membership."
     }
   },
   "teachers": {
