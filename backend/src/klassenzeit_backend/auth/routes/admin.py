@@ -16,13 +16,18 @@ from klassenzeit_backend.auth.passwords import (
 )
 from klassenzeit_backend.auth.schemas.admin import (
     CreateUserRequest,
+    MembershipGrantRequest,
+    MembershipListItem,
+    MembershipResponse,
     ResetPasswordRequest,
     SetRoleRequest,
     UserListItem,
     UserResponse,
 )
 from klassenzeit_backend.auth.sessions import delete_user_sessions
+from klassenzeit_backend.db.models.school import School
 from klassenzeit_backend.db.models.user import User
+from klassenzeit_backend.db.models.user_school_membership import UserSchoolMembership
 from klassenzeit_backend.db.session import get_session
 
 if TYPE_CHECKING:
@@ -100,6 +105,14 @@ async def _get_target_user(db: AsyncSession, user_id: uuid.UUID) -> User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return user
+
+
+async def _get_school_or_404(db: AsyncSession, school_id: uuid.UUID) -> School:
+    """Load a school by ID or raise 404."""
+    school = await db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return school
 
 
 @router.post("/users/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -204,3 +217,119 @@ async def admin_set_user_role(
     )
 
     return UserResponse(id=target.id, email=target.email, role=target.role)
+
+
+@router.get("/users/{user_id}/memberships")
+async def admin_list_user_memberships(
+    user_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> list[MembershipListItem]:
+    """List the explicit school memberships for a user. Requires super-admin."""
+    await _get_target_user(db, user_id)
+    result = await db.execute(
+        select(UserSchoolMembership.school_id, School.name)
+        .join(School, School.id == UserSchoolMembership.school_id)
+        .where(UserSchoolMembership.user_id == user_id)
+        .order_by(School.name)
+    )
+    return [MembershipListItem(school_id=row[0], school_name=row[1]) for row in result.all()]
+
+
+@router.post("/users/{user_id}/memberships", status_code=status.HTTP_201_CREATED)
+async def admin_grant_user_membership(
+    user_id: uuid.UUID,
+    body: MembershipGrantRequest,
+    _admin: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> MembershipResponse:
+    """Grant a school membership to a user. Requires super-admin.
+
+    Rejects with 409 ``{"code": "membership_redundant_home_school"}`` when
+    the school is already the user's home school, and 409
+    ``{"code": "membership_exists"}`` when a membership row already exists.
+    Does NOT invalidate the target's sessions (grant is purely additive).
+    """
+    target = await _get_target_user(db, user_id)
+    school = await _get_school_or_404(db, body.school_id)
+
+    if body.school_id == target.school_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "membership_redundant_home_school"},
+        )
+
+    existing = await db.execute(
+        select(UserSchoolMembership).where(
+            UserSchoolMembership.user_id == user_id,
+            UserSchoolMembership.school_id == body.school_id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "membership_exists"},
+        )
+
+    db.add(UserSchoolMembership(user_id=user_id, school_id=body.school_id))
+    await db.commit()
+
+    logger.info(
+        "admin.user_membership.grant",
+        extra={
+            "actor_id": str(_admin.id),
+            "target_id": str(target.id),
+            "school_id": str(body.school_id),
+            "sessions_invalidated": False,
+        },
+    )
+
+    return MembershipResponse(
+        user_id=target.id,
+        school_id=school.id,
+        school_name=school.name,
+    )
+
+
+@router.delete(
+    "/users/{user_id}/memberships/{school_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def admin_revoke_user_membership(
+    user_id: uuid.UUID,
+    school_id: uuid.UUID,
+    _admin: Annotated[User, Depends(require_super_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """Revoke a school membership from a user. Requires super-admin.
+
+    Returns 404 when the target user, target school, or membership row is
+    absent. On success, invalidates every session for the target so a
+    cached ``session.active_school_id`` cannot outlive the revoke.
+    """
+    target = await _get_target_user(db, user_id)
+    await _get_school_or_404(db, school_id)
+
+    result = await db.execute(
+        select(UserSchoolMembership).where(
+            UserSchoolMembership.user_id == user_id,
+            UserSchoolMembership.school_id == school_id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    await db.delete(membership)
+    await delete_user_sessions(db, target.id)
+    await db.commit()
+
+    logger.info(
+        "admin.user_membership.revoke",
+        extra={
+            "actor_id": str(_admin.id),
+            "target_id": str(target.id),
+            "school_id": str(school_id),
+            "sessions_invalidated": True,
+        },
+    )

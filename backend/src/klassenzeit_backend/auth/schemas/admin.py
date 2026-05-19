@@ -46,3 +46,28 @@ class SetRoleRequest(BaseModel):
     """
 
     role: Literal["user", "admin", "super_admin"]
+
+
+class MembershipGrantRequest(BaseModel):
+    """Request body for granting a school membership to a user."""
+
+    school_id: uuid.UUID
+
+
+class MembershipResponse(BaseModel):
+    """Response body for grant: echoes user_id so the caller can correlate."""
+
+    user_id: uuid.UUID
+    school_id: uuid.UUID
+    school_name: str
+
+
+class MembershipListItem(BaseModel):
+    """Single entry in the per-user memberships listing.
+
+    Omits ``user_id`` because the list URL already carries it; mirroring
+    the same id on every row would be duplicate metadata.
+    """
+
+    school_id: uuid.UUID
+    school_name: str
