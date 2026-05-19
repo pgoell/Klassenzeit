@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,19 @@ class AuditLogEntryItem(BaseModel):
     method: str
     route_template: str
     response_status: int
+
+
+class AuditLogEntryDetail(AuditLogEntryItem):
+    """Full audited write including JSONB payloads and truncation flag.
+
+    ``request_body`` mirrors the ORM ``Mapped[dict | list | None]`` column;
+    a top-level JSON array body must validate through. Sensitive keys are
+    redacted server-side before serialization (see route module).
+    """
+
+    path_params: dict[str, Any]
+    request_body: dict[str, Any] | list[Any] | None
+    request_body_truncated: bool
 
 
 class AuditLogListResponse(BaseModel):
