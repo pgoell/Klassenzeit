@@ -203,6 +203,12 @@ export function resetAuditLogRows() {
   auditLogRows.length = 0;
 }
 
+// Per-test override map for /api/auth/admin/audit-log/{id}. Keyed by row id.
+export const auditLogDetailById: Record<string, components["schemas"]["AuditLogEntryDetail"]> = {};
+export function resetAuditLogDetail() {
+  for (const k of Object.keys(auditLogDetailById)) delete auditLogDetailById[k];
+}
+
 // Mutable per-test bag for membership handlers. Reset in `beforeEach`
 // via `resetUserMembershipsByUserId()`. Tests seed by mutating the record
 // (e.g. `userMembershipsByUserId[userId] = [...]`).
@@ -328,6 +334,14 @@ export const defaultHandlers = [
   http.get(`${BASE}/api/auth/admin/audit-log`, () =>
     HttpResponse.json({ items: auditLogRows, total: auditLogRows.length }),
   ),
+  http.get(`${BASE}/api/auth/admin/audit-log/:id`, ({ params }) => {
+    const id = String(params.id);
+    const detail = auditLogDetailById[id];
+    if (!detail) {
+      return HttpResponse.json({ detail: "audit log row not found" }, { status: 404 });
+    }
+    return HttpResponse.json(detail);
+  }),
   http.get(`${BASE}/api/auth/admin/users/:user_id/memberships`, ({ params }) => {
     const userId = params.user_id as string;
     return HttpResponse.json(userMembershipsByUserId[userId] ?? []);

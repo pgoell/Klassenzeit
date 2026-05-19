@@ -273,6 +273,23 @@
       "showing": "Showing {{from}}-{{to}} of {{total}}",
       "prev": "Previous",
       "next": "Next"
+    },
+    "detail": {
+      "title": "Audit log entry",
+      "subtitle": "Full request payload for the selected row.",
+      "actionsHeader": "Actions",
+      "actionLabel": "Details",
+      "requestId": "Request id",
+      "pathParams": "Path params",
+      "requestBody": "Request body",
+      "noBody": "No body captured for this request.",
+      "truncated": "The captured body was truncated by the audit middleware.",
+      "copy": "Copy",
+      "copied": "Copied",
+      "loading": "Loading..."
+    },
+    "errors": {
+      "detailFetchFailed": "Could not load audit-log detail."
     }
   },
   "adminUsers": {

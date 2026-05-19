@@ -273,6 +273,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/admin/audit-log/{audit_log_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Audit Log Detail
+         * @description Return one audited write with ``path_params`` and ``request_body``.
+         *
+         *     Sensitive keys in ``request_body`` are redacted server-side.
+         */
+        get: operations["read_audit_log_detail_api_auth_admin_audit_log__audit_log_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schools": {
         parameters: {
             query?: never;
@@ -1837,6 +1859,52 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * AuditLogEntryDetail
+         * @description Full audited write including JSONB payloads and truncation flag.
+         *
+         *     ``request_body`` mirrors the ORM ``Mapped[dict | list | None]`` column;
+         *     a top-level JSON array body must validate through. Sensitive keys are
+         *     redacted server-side before serialization (see route module).
+         */
+        AuditLogEntryDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Actor User Id */
+            actor_user_id: string | null;
+            /** Actor User Email */
+            actor_user_email: string;
+            /** Target School Id */
+            target_school_id: string | null;
+            /** Target School Name */
+            target_school_name: string | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Method */
+            method: string;
+            /** Route Template */
+            route_template: string;
+            /** Response Status */
+            response_status: number;
+            /** Path Params */
+            path_params: {
+                [key: string]: unknown;
+            };
+            /** Request Body */
+            request_body: {
+                [key: string]: unknown;
+            } | unknown[] | null;
+            /** Request Body Truncated */
+            request_body_truncated: boolean;
         };
         /**
          * AuditLogEntryItem
@@ -3906,6 +3974,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditLogListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_audit_log_detail_api_auth_admin_audit_log__audit_log_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                audit_log_id: string;
+            };
+            cookie?: {
+                kz_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogEntryDetail"];
                 };
             };
             /** @description Validation Error */

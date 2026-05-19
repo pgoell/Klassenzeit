@@ -273,6 +273,23 @@
       "showing": "{{from}}-{{to}} von {{total}}",
       "prev": "Zurück",
       "next": "Weiter"
+    },
+    "detail": {
+      "title": "Audit-Log-Eintrag",
+      "subtitle": "Vollständige Anfragedaten für die ausgewählte Zeile.",
+      "actionsHeader": "Aktionen",
+      "actionLabel": "Details",
+      "requestId": "Anfrage-ID",
+      "pathParams": "Pfadparameter",
+      "requestBody": "Request Body",
+      "noBody": "Für diese Anfrage wurde kein Body erfasst.",
+      "truncated": "Der erfasste Body wurde durch die Audit-Middleware gekürzt.",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "loading": "Lädt..."
+    },
+    "errors": {
+      "detailFetchFailed": "Audit-Log-Detail konnte nicht geladen werden."
     }
   },
   "adminUsers": {
