@@ -58,6 +58,7 @@ def solve_json_with_progress(
     progress: ProgressHandle,
     lahc_rr_period: int | None = ...,
     lahc_kempe_period: int | None = ...,
+    lahc_home_room_period: int | None = ...,
 ) -> str:
     """Solve a Problem encoded as JSON with a live ProgressHandle.
 
@@ -126,6 +127,7 @@ def solve_json_with_config(
     deadline_ms: int | None,
     lahc_rr_period: int | None = None,
     lahc_kempe_period: int | None = None,
+    lahc_home_room_period: int | None = None,
 ) -> str:
     """Solve a Problem encoded as JSON with an explicit LAHC deadline.
 
@@ -133,11 +135,13 @@ def solve_json_with_config(
     the canonical choice for binding-contract tests. ``deadline_ms=Some(n)``
     matches the production behaviour of ``solve_json`` when ``n == 200``.
 
-    ``lahc_rr_period`` and ``lahc_kempe_period`` enable the corresponding
-    LAHC moves; both default to ``None`` (disabled), preserving the
-    pre-Sprint-4 single-Change behaviour. The bake-off backends pass
-    ``lahc_rr_period=25`` (R&R only) or ``lahc_rr_period=25,
-    lahc_kempe_period=23`` (R&R + Kempe).
+    ``lahc_rr_period``, ``lahc_kempe_period``, and ``lahc_home_room_period``
+    enable the corresponding LAHC moves; all default to ``None`` (disabled),
+    preserving the pre-Sprint-4 single-Change behaviour. The bake-off
+    backends pass ``lahc_rr_period=25`` (R&R only) or ``lahc_rr_period=25,
+    lahc_kempe_period=23`` (R&R + Kempe). ``lahc_home_room_period`` enables
+    the home-room-repair move (ADR 0050, item 86 option b); production
+    callers pass ``Some(7)``.
 
     The input JSON may include a ``pinned_placements`` array of
     ``{lesson_id, time_block_id, room_id, teacher_id?}`` entries; the

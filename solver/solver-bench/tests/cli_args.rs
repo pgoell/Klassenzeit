@@ -209,3 +209,63 @@ fn jobs_flag_rejects_missing_value() {
         "expected nonzero exit on --jobs without value"
     );
 }
+
+#[test]
+fn home_room_period_flag_round_trips_through_supervisor() {
+    let out = cli_args_outfile("home-room-period");
+    let status = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "1s",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--backends",
+            "lahc",
+            "--home-room-period",
+            "11",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .status()
+        .expect("spawn supervisor");
+    assert!(
+        status.success(),
+        "supervisor exited non-zero with --home-room-period 11"
+    );
+    // The flag isn't rendered as a column today; the round-trip lives in the
+    // cell-child subprocess accepting `--home-room-period`. Successful exit
+    // implies the supervisor forwarded the flag and the cell parsed it.
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn home_room_period_flag_rejects_non_integer() {
+    let out = cli_args_outfile("home-room-period-non-integer");
+    let output = Command::new(env!("CARGO_BIN_EXE_solver-bench"))
+        .args([
+            "--budget",
+            "200ms",
+            "--seeds",
+            "1",
+            "--fixtures",
+            "grundschule",
+            "--home-room-period",
+            "abc",
+            "--out",
+            out.to_str().expect("path utf-8"),
+        ])
+        .output()
+        .expect("spawn supervisor");
+    assert!(
+        !output.status.success(),
+        "expected nonzero exit on --home-room-period abc"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--home-room-period"),
+        "stderr should mention --home-room-period: {stderr}"
+    );
+    let _ = std::fs::remove_file(&out);
+}

@@ -73,3 +73,4 @@ sections, and add the new entry to the index below.
 | 0047 | [Reference-data tenancy: subjects per-school, pin-kind global enum](0047-reference-data-tenancy.md) | Accepted |
 | 0048 | [Super-admin cross-school write audit log](0048-super-admin-audit-log.md) | Accepted |
 | 0049 | [Bump `max_per_class_interior_gaps` weight to clear LAHC einzuegig interior-gap bar](0049-interior-gaps-weight-bump.md) | Accepted |
+| 0050 | [Home-Room Repair LAHC Move](0050-home-room-repair-lahc-move.md) | Accepted |

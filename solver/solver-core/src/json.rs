@@ -19,7 +19,7 @@ use crate::types::{Placement, Problem, SolveConfig, Violation};
 /// [`Error::Input`] so callers can distinguish client mistakes from
 /// solver-internal issues.
 pub fn solve_json(json: &str) -> Result<String, Error> {
-    solve_json_with_config(json, Some(200), None, None)
+    solve_json_with_config(json, Some(200), None, None, None)
 }
 
 /// Solve a timetable problem supplied as a JSON string with an explicit LAHC
@@ -35,11 +35,17 @@ pub fn solve_json(json: &str) -> Result<String, Error> {
 /// moves; both default to `None` (disabled), preserving the pre-Sprint-4
 /// single-Change behaviour. The bake-off backends pass `Some(25)` (R&R only)
 /// or `Some(25)` plus `Some(23)` (R&R plus Kempe).
+///
+/// `lahc_home_room_period` enables the home-room-repair LAHC move (ADR 0050,
+/// item 86 option b); `None` (default) disables it, `Some(n)` triggers the
+/// move every nth iteration. Production callers pass `Some(7)` for all three
+/// LAHC backends; see `backend/.../solver_io.py`.
 pub fn solve_json_with_config(
     json: &str,
     deadline_ms: Option<u64>,
     lahc_rr_period: Option<u32>,
     lahc_kempe_period: Option<u32>,
+    lahc_home_room_period: Option<u32>,
 ) -> Result<String, Error> {
     let problem: Problem =
         serde_json::from_str(json).map_err(|e| Error::Input(format!("json: {e}")))?;
@@ -48,6 +54,7 @@ pub fn solve_json_with_config(
         deadline: deadline_ms.map(Duration::from_millis),
         lahc_rr_period,
         lahc_kempe_period,
+        lahc_home_room_period,
         ..SolveConfig::default()
     };
     let solution = solve_with_config(&problem, &config)?;
@@ -60,13 +67,15 @@ pub fn solve_json_with_config(
 /// exit at the next iteration boundary and the returned `Solution` JSON
 /// carries `"was_cancelled": true`. Weights and config defaults match
 /// [`solve_json_with_config`] so the only knobs exposed are the deadline
-/// and the optional LAHC move-period overrides.
+/// and the optional LAHC move-period overrides (including
+/// `lahc_home_room_period`, which defaults to `None` = disabled).
 pub fn solve_json_with_progress(
     problem_json: &str,
     deadline_ms: Option<u64>,
     beacon: &std::sync::Arc<ProgressBeacon>,
     lahc_rr_period: Option<u32>,
     lahc_kempe_period: Option<u32>,
+    lahc_home_room_period: Option<u32>,
 ) -> Result<String, Error> {
     let problem: Problem =
         serde_json::from_str(problem_json).map_err(|e| Error::Input(format!("json: {e}")))?;
@@ -75,6 +84,7 @@ pub fn solve_json_with_progress(
         deadline: deadline_ms.map(Duration::from_millis),
         lahc_rr_period,
         lahc_kempe_period,
+        lahc_home_room_period,
         ..SolveConfig::default()
     };
     let (solution, _stats) = solve_with_progress(&problem, &config, beacon)?;
@@ -286,7 +296,7 @@ mod tests {
 
     #[test]
     fn solve_json_with_config_none_skips_lahc_and_returns_greedy() {
-        let out = solve_json_with_config(&trivially_empty_json(), None, None, None).unwrap();
+        let out = solve_json_with_config(&trivially_empty_json(), None, None, None, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["placements"].as_array().unwrap().len(), 0);
         assert_eq!(parsed["violations"].as_array().unwrap().len(), 0);
@@ -295,7 +305,7 @@ mod tests {
     #[test]
     fn solve_json_with_config_some_matches_solve_json_for_default_deadline() {
         let problem = trivially_empty_json();
-        let with_config = solve_json_with_config(&problem, Some(200), None, None).unwrap();
+        let with_config = solve_json_with_config(&problem, Some(200), None, None, None).unwrap();
         let default = solve_json(&problem).unwrap();
         let with_config_parsed: serde_json::Value = serde_json::from_str(&with_config).unwrap();
         let default_parsed: serde_json::Value = serde_json::from_str(&default).unwrap();

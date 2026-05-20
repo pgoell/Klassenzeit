@@ -682,6 +682,7 @@ fn test_lahc_change_move_rejects_buffer_violation() {
         lahc_kempe_period: None,
         lahc_rr_k: 5,
         lahc_kempe_max_chain: 8,
+        lahc_home_room_period: None,
     };
     let solution = solve_with_config(&problem, &cfg)
         .expect("LAHC Change move must respect travel-buffer at every accepted move");
@@ -710,6 +711,7 @@ fn test_lahc_swap_move_rejects_buffer_violation() {
             lahc_kempe_period: None,
             lahc_rr_k: 5,
             lahc_kempe_max_chain: 8,
+            lahc_home_room_period: None,
         };
         let solution = solve_with_config(&problem, &cfg)
             .unwrap_or_else(|e| panic!("seed {seed}: LAHC Swap must respect travel-buffer: {e:?}"));
@@ -787,6 +789,7 @@ fn test_lahc_kempe_chain_rejects_buffer_violation() {
             lahc_kempe_period: Some(1),
             lahc_rr_k: 5,
             lahc_kempe_max_chain: 8,
+            lahc_home_room_period: None,
         };
         let solution = solve_with_config(&problem, &cfg).unwrap_or_else(|e| {
             panic!("seed {seed}: LAHC Kempe must respect travel-buffer: {e:?}")

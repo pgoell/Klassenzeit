@@ -54,7 +54,14 @@ fn cancel_returns_best_so_far_promptly() {
     let beacon_observer = std::sync::Arc::clone(&beacon);
 
     let handle = thread::spawn(move || {
-        solver_core::solve_json_with_progress(&problem_json, Some(10_000), &beacon, None, None)
+        solver_core::solve_json_with_progress(
+            &problem_json,
+            Some(10_000),
+            &beacon,
+            None,
+            None,
+            None,
+        )
     });
 
     thread::sleep(Duration::from_millis(50));
@@ -82,7 +89,7 @@ fn beacon_iter_advances_during_solve() {
     let beacon_observer = std::sync::Arc::clone(&beacon);
 
     let handle = thread::spawn(move || {
-        solver_core::solve_json_with_progress(&problem_json, Some(500), &beacon, None, None)
+        solver_core::solve_json_with_progress(&problem_json, Some(500), &beacon, None, None, None)
     });
 
     let mut seen_progress = false;

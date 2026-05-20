@@ -88,7 +88,7 @@ async def test_run_solve_lahc_dispatch_calls_solve_json_with_config_no_period_kw
         deadline_ms=None,
         solver_backend="lahc",
     )
-    assert captured["kwargs"] == {}
+    assert captured["kwargs"] == {"lahc_home_room_period": 7}
 
 
 async def test_run_solve_lahc_rr_dispatch_passes_period_kwarg(
@@ -108,7 +108,7 @@ async def test_run_solve_lahc_rr_dispatch_passes_period_kwarg(
         deadline_ms=None,
         solver_backend="lahc_rr",
     )
-    assert captured["kwargs"] == {"lahc_rr_period": 25}
+    assert captured["kwargs"] == {"lahc_rr_period": 25, "lahc_home_room_period": 7}
 
 
 async def test_run_solve_lahc_rr_kempe_dispatch_passes_both_period_kwargs(
@@ -128,7 +128,11 @@ async def test_run_solve_lahc_rr_kempe_dispatch_passes_both_period_kwargs(
         deadline_ms=None,
         solver_backend="lahc_rr_kempe",
     )
-    assert captured["kwargs"] == {"lahc_rr_period": 25, "lahc_kempe_period": 23}
+    assert captured["kwargs"] == {
+        "lahc_rr_period": 25,
+        "lahc_kempe_period": 23,
+        "lahc_home_room_period": 7,
+    }
 
 
 async def test_run_solve_cpsat_dispatch_calls_solve_cpsat_json(

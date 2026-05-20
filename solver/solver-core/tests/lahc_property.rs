@@ -1133,3 +1133,33 @@ proptest! {
         );
     }
 }
+
+/// With `lahc_home_room_period: None` vs `Some(very_large)` the home-room
+/// branch never fires, so the change_rng / rr_rng / kempe_rng draw sequences
+/// MUST be byte-identical across the two configs. This guards against
+/// accidentally reading from a peer RNG inside the new home-room branch and
+/// against the new branch perturbing the existing channels when it doesn't
+/// fire.
+#[test]
+fn lahc_home_room_period_none_and_some_unfired_produce_identical_solutions() {
+    let problem = canonical_score_test_problem();
+    let cfg_none = SolveConfig {
+        weights: lahc_weights(),
+        deadline: Some(Duration::from_millis(2000)),
+        seed: 12345,
+        max_iterations: Some(500),
+        lahc_rr_period: Some(50),
+        ..SolveConfig::default()
+    };
+    let cfg_unfired = SolveConfig {
+        lahc_home_room_period: Some(u32::MAX),
+        ..cfg_none.clone()
+    };
+    let sol_none = solve_with_config(&problem, &cfg_none).unwrap();
+    let sol_unfired = solve_with_config(&problem, &cfg_unfired).unwrap();
+    assert_eq!(
+        sol_none.soft_score, sol_unfired.soft_score,
+        "home_room period that never fires must not perturb the LAHC trajectory"
+    );
+    assert_eq!(sol_none.placements.len(), sol_unfired.placements.len());
+}

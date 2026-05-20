@@ -189,6 +189,7 @@ struct SupervisorArgs {
     rr_k_values: Option<Vec<u32>>,
     rr_period_values: Option<Vec<u32>>,
     kempe_max_chain_values: Option<Vec<u32>>,
+    home_room_period: Option<u32>,
     append: bool,
     teacher_pins: TeacherPinsMode,
     jobs: NonZeroUsize,
@@ -204,6 +205,7 @@ fn default_supervisor_args() -> SupervisorArgs {
         rr_k_values: None,
         rr_period_values: None,
         kempe_max_chain_values: None,
+        home_room_period: None,
         append: false,
         teacher_pins: TeacherPinsMode::On,
         jobs: default_jobs(),
@@ -285,6 +287,13 @@ fn parse_supervisor_args(raw: Vec<String>) -> Result<SupervisorArgs, String> {
                 let v = iter.next().ok_or("--kempe-max-chain needs a value")?;
                 args.kempe_max_chain_values = Some(parse_u32_csv("--kempe-max-chain", &v)?);
             }
+            "--home-room-period" => {
+                let v = iter.next().ok_or("--home-room-period needs a value")?;
+                args.home_room_period = Some(
+                    v.parse::<u32>()
+                        .map_err(|e| format!("--home-room-period must be a u32: {e}"))?,
+                );
+            }
             "--teacher-pins" => {
                 let v = iter.next().ok_or("--teacher-pins needs a value")?;
                 args.teacher_pins = TeacherPinsMode::parse_teacher_pins_mode(&v)?;
@@ -314,6 +323,7 @@ struct CellArgs {
     rr_k: Option<u32>,
     rr_period: Option<u32>,
     kempe_max_chain: Option<u32>,
+    home_room_period: Option<u32>,
     teacher_pins: TeacherPinsMode,
 }
 
@@ -325,6 +335,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
     let mut rr_k: Option<u32> = None;
     let mut rr_period: Option<u32> = None;
     let mut kempe_max_chain: Option<u32> = None;
+    let mut home_room_period: Option<u32> = None;
     let mut teacher_pins: Option<TeacherPinsMode> = None;
     let mut iter = raw.into_iter();
     while let Some(flag) = iter.next() {
@@ -376,6 +387,16 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
                         })?,
                 );
             }
+            "--home-room-period" => {
+                home_room_period = Some(
+                    iter.next()
+                        .ok_or("--home-room-period needs a value")?
+                        .parse::<u32>()
+                        .map_err(|e| {
+                            format!("--home-room-period must be a positive integer: {e}")
+                        })?,
+                );
+            }
             "--teacher-pins" => {
                 teacher_pins = Some(TeacherPinsMode::parse_teacher_pins_mode(
                     &iter.next().ok_or("--teacher-pins needs a value")?,
@@ -392,6 +413,7 @@ fn parse_cell_args(raw: Vec<String>) -> Result<CellArgs, String> {
         rr_k,
         rr_period,
         kempe_max_chain,
+        home_room_period,
         teacher_pins: teacher_pins.unwrap_or(TeacherPinsMode::On),
     })
 }
@@ -410,7 +432,10 @@ fn main() -> ExitCode {
 /// (k, period) pair; non-RR backends always produce one CellSpec with
 /// `rr_k = rr_period = None`. Kempe-using backends with a chain-depth sweep
 /// expand by an outer loop over depths, leaving non-Kempe backends with
-/// `kempe_max_chain = None` (renders `-`).
+/// `kempe_max_chain = None` (renders `-`). `home_room_period` is a single-value
+/// override applied uniformly across every cell in the plan; `None` falls
+/// through to the production default (`Some(7)`) at the `SolveConfig` literal.
+/// Sweep parity for `--home-room-period` is a follow-up.
 #[derive(Debug, Clone)]
 struct CellSpec {
     fixture: &'static str,
@@ -418,6 +443,7 @@ struct CellSpec {
     rr_k: Option<u32>,
     rr_period: Option<u32>,
     kempe_max_chain: Option<u32>,
+    home_room_period: Option<u32>,
 }
 
 fn build_plan(
@@ -426,6 +452,7 @@ fn build_plan(
     rr_k_values: Option<&[u32]>,
     rr_period_values: Option<&[u32]>,
     kempe_max_chain_values: Option<&[u32]>,
+    home_room_period: Option<u32>,
 ) -> Vec<CellSpec> {
     let mut plan: Vec<CellSpec> = Vec::new();
     for (name, _) in FIXTURES.iter() {
@@ -460,6 +487,7 @@ fn build_plan(
                                     rr_k: Some(*k),
                                     rr_period: Some(*p),
                                     kempe_max_chain: *k_chain,
+                                    home_room_period,
                                 });
                             }
                         }
@@ -471,6 +499,7 @@ fn build_plan(
                             rr_k: None,
                             rr_period: None,
                             kempe_max_chain: *k_chain,
+                            home_room_period,
                         });
                     }
                 }
@@ -513,6 +542,7 @@ fn run_supervisor(raw: Vec<String>) -> ExitCode {
         args.rr_k_values.as_deref(),
         args.rr_period_values.as_deref(),
         args.kempe_max_chain_values.as_deref(),
+        args.home_room_period,
     );
     let cells_attempted = plan.len();
     let render_kempe_chain_col = plan.iter().any(|c| c.kempe_max_chain.is_some());
@@ -606,6 +636,9 @@ fn spawn_cell(
     }
     if let Some(c) = spec.kempe_max_chain {
         cmd.arg("--kempe-max-chain").arg(c.to_string());
+    }
+    if let Some(p) = spec.home_room_period {
+        cmd.arg("--home-room-period").arg(p.to_string());
     }
     cmd.arg("--teacher-pins")
         .arg(teacher_pins.teacher_pins_label());
@@ -832,6 +865,7 @@ fn run_cell_child(raw: Vec<String>) -> ExitCode {
                 rr_k: args.rr_k,
                 rr_period: args.rr_period,
                 kempe_max_chain: args.kempe_max_chain,
+                home_room_period: args.home_room_period,
             },
         ),
     };
@@ -859,11 +893,14 @@ fn read_self_peak_kb() -> u64 {
 }
 
 /// Per-cell overrides forwarded from the supervisor's CLI flags into the
-/// LAHC dispatch. `None` means "use `SolveConfig::default()` for this knob".
+/// LAHC dispatch. `None` means "use `SolveConfig::default()` for this knob",
+/// except `home_room_period` which falls through to the production default of
+/// `Some(7)` to mirror `solver_io.py` (ADR 0050).
 struct LahcCellOverrides {
     rr_k: Option<u32>,
     rr_period: Option<u32>,
     kempe_max_chain: Option<u32>,
+    home_room_period: Option<u32>,
 }
 
 fn run_lahc_cell(
@@ -878,6 +915,7 @@ fn run_lahc_cell(
         rr_k: rr_k_override,
         rr_period: rr_period_override,
         kempe_max_chain: kempe_max_chain_override,
+        home_room_period: home_room_period_override,
     } = overrides;
     let weights = PRODUCTION_ACTIVE_WEIGHTS.clone();
     let greedy_cfg = SolveConfig {
@@ -921,6 +959,11 @@ fn run_lahc_cell(
     let lahc_kempe_max_chain =
         kempe_max_chain_override.unwrap_or(SolveConfig::default().lahc_kempe_max_chain);
 
+    // Production default for `lahc_home_room_period` is `Some(7)` so the bench
+    // mirrors the backend `solver_io.py` dispatch (ADR 0050). Override via
+    // `--home-room-period <n>` for A/B comparison.
+    let lahc_home_room_period = home_room_period_override.or(Some(7));
+
     for seed in 1..=seeds {
         let cfg = SolveConfig {
             weights: weights.clone(),
@@ -930,6 +973,7 @@ fn run_lahc_cell(
             lahc_kempe_period,
             lahc_rr_k,
             lahc_kempe_max_chain,
+            lahc_home_room_period,
             ..SolveConfig::default()
         };
         let start = Instant::now();
@@ -2307,6 +2351,7 @@ mod tests {
             rr_k,
             rr_period,
             kempe_max_chain: None,
+            home_room_period: None,
         }
     }
 
