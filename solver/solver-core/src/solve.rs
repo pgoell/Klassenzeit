@@ -2168,6 +2168,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         }
     }
 
@@ -3484,6 +3485,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let idx = crate::index::Indexed::new(&problem);
@@ -3628,6 +3630,7 @@ mod tests {
             teacher_blocked_times: vec![],
             room_blocked_times: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let idx = crate::index::Indexed::new(&problem);
@@ -3912,6 +3915,7 @@ mod tests {
                     kind: PinKind::Hard,
                 },
             ],
+            pre_first_slot_grace_minutes: 0,
         };
         // class_day_balance == 0 baseline: with every weight zero the picker
         // keeps the first feasible window (lowest-tb-id tiebreak). The first
@@ -4068,6 +4072,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let idx = crate::index::Indexed::new(&problem);
@@ -4226,6 +4231,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let idx = crate::index::Indexed::new(&problem);
@@ -4404,6 +4410,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let idx = crate::index::Indexed::new(&problem);

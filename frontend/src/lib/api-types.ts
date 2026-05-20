@@ -3416,6 +3416,11 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+            /**
+             * Pre First Slot Grace Minutes
+             * @default 0
+             */
+            pre_first_slot_grace_minutes: number;
         };
         /**
          * WeekSchemeDetailResponse
@@ -3431,6 +3436,8 @@ export interface components {
             name: string;
             /** Description */
             description: string | null;
+            /** Pre First Slot Grace Minutes */
+            pre_first_slot_grace_minutes: number;
             /** Time Blocks */
             time_blocks: components["schemas"]["TimeBlockResponse"][];
             /**
@@ -3458,6 +3465,8 @@ export interface components {
             name: string;
             /** Description */
             description: string | null;
+            /** Pre First Slot Grace Minutes */
+            pre_first_slot_grace_minutes: number;
             /**
              * Created At
              * Format: date-time
@@ -3478,6 +3487,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+            /** Pre First Slot Grace Minutes */
+            pre_first_slot_grace_minutes?: number | null;
         };
         /**
          * WholeSchoolScheduleResponse

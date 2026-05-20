@@ -528,6 +528,12 @@ def _emit_travel_buffer(  # noqa: PLR0912 (per-side / per-class / per-teacher br
     for tb in problem["time_blocks"]:
         tb_kind_at[(tb["day_of_week"], tb["position"])] = tb.get("kind", "lesson")
 
+    # Pre-school grace window: when grace >= lesson.pre_buffer_minutes, the
+    # implicit pre-school slot covers the Wegezeit and the pos==0 forbid
+    # clause is dropped per-lesson. Mirrors the Rust LAHC gate in
+    # solver-core/src/validate.rs. ADR 0044 amendment.
+    grace = int(problem.get("pre_first_slot_grace_minutes", 0))
+
     # Pre-compute, for each (lesson, day, covered_position), the anchors of
     # that lesson whose window covers the position. Used to look up the
     # "other lesson's anchor covering prev_pos / next_pos" quickly.
@@ -552,10 +558,11 @@ def _emit_travel_buffer(  # noqa: PLR0912 (per-side / per-class / per-teacher br
             y_var = anchor_vars[key]
 
             if pre > 0:
-                if start_pos == 0:
-                    # First slot on the day: no slot exists for the pre-buffer.
+                if start_pos == 0 and grace < pre:
+                    # First slot on the day, no pre-school grace covering the
+                    # Wegezeit: no slot exists for the pre-buffer.
                     model.add(y_var == 0)
-                else:
+                elif start_pos > 0:
                     prev_pos = start_pos - 1
                     prev_kind = tb_kind_at.get((day, prev_pos))
                     # If the slot exists and is a break, the implication is

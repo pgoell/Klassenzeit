@@ -155,6 +155,7 @@ mod tests {
                 subject_id: SubjectId(u(5)),
             }],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         }
     }
 

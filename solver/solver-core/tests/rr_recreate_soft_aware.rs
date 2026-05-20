@@ -100,6 +100,7 @@ fn lahc_rr_recreate_picks_lowest_soft_delta() {
         teacher_blocked_times: vec![],
         room_blocked_times: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
 
     let config = SolveConfig {

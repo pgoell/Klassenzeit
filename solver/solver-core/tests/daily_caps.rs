@@ -85,6 +85,7 @@ fn caps_subject_hours_per_class_per_day_to_two_by_default() {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
 
     let solution = solve_with_config(&problem, &SolveConfig::default()).expect("greedy succeeds");
@@ -187,6 +188,7 @@ fn caps_total_lessons_per_class_per_day_when_set() {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
 
     let solution = solve_with_config(&problem, &SolveConfig::default()).expect("greedy succeeds");

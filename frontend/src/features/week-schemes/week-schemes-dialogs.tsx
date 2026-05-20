@@ -61,14 +61,19 @@ export function WeekSchemeFormDialog({
     : t("weekSchemes.dialog.createDescription");
 
   async function handleWeekSchemeSubmit(values: WeekSchemeFormValues) {
-    const body = {
-      name: values.name,
-      description: values.description ? values.description : null,
-    };
     if (scheme) {
-      await updateMutation.mutateAsync({ id: scheme.id, body });
+      const updateBody = {
+        name: values.name,
+        description: values.description ? values.description : null,
+      };
+      await updateMutation.mutateAsync({ id: scheme.id, body: updateBody });
     } else {
-      await createMutation.mutateAsync(body);
+      const createBody = {
+        name: values.name,
+        description: values.description ? values.description : null,
+        pre_first_slot_grace_minutes: 0,
+      };
+      await createMutation.mutateAsync(createBody);
     }
     form.reset();
     onOpenChange(false);

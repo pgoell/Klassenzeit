@@ -184,6 +184,7 @@ fn build_five_position_problem(break_pos: Option<u8>) -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -517,6 +518,7 @@ fn build_ffd_buffered_problem() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -660,6 +662,7 @@ fn build_lahc_move_site_problem() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: pinned,
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

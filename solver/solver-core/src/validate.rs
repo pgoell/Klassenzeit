@@ -703,33 +703,35 @@ pub fn validate_travel_buffer(problem: &Problem, placements: &[Placement]) -> Re
         }
 
         if lesson.pre_buffer_minutes > 0 {
-            if pos == 0 {
+            if pos == 0 && problem.pre_first_slot_grace_minutes < lesson.pre_buffer_minutes {
                 return Err(Error::Input(format!(
                     "TravelBufferConflict: lesson={} day={} position={} reason=first_slot side=pre",
                     lesson.id.0, day, pos
                 )));
             }
-            let prev_pos = pos - 1;
-            let prev_is_break = tb_by_day_pos
-                .get(&(day, prev_pos))
-                .is_some_and(|t| t.kind == TimeBlockKind::Break);
-            if !prev_is_break {
-                for class_id in &lesson.school_class_ids {
-                    if let Some(&conflict) = class_occ.get(&(*class_id, day, prev_pos)) {
-                        if conflict != lesson.id {
-                            return Err(Error::Input(format!(
-                                "TravelBufferConflict: lesson={} class={} day={} position={} conflicting_lesson={} side=pre",
-                                lesson.id.0, class_id.0, day, pos, conflict.0
-                            )));
+            if pos > 0 {
+                let prev_pos = pos - 1;
+                let prev_is_break = tb_by_day_pos
+                    .get(&(day, prev_pos))
+                    .is_some_and(|t| t.kind == TimeBlockKind::Break);
+                if !prev_is_break {
+                    for class_id in &lesson.school_class_ids {
+                        if let Some(&conflict) = class_occ.get(&(*class_id, day, prev_pos)) {
+                            if conflict != lesson.id {
+                                return Err(Error::Input(format!(
+                                    "TravelBufferConflict: lesson={} class={} day={} position={} conflicting_lesson={} side=pre",
+                                    lesson.id.0, class_id.0, day, pos, conflict.0
+                                )));
+                            }
                         }
                     }
-                }
-                if let Some(&conflict) = teacher_occ.get(&(p.teacher_id, day, prev_pos)) {
-                    if conflict != lesson.id {
-                        return Err(Error::Input(format!(
-                            "TravelBufferConflict: lesson={} teacher={} day={} position={} conflicting_lesson={} side=pre",
-                            lesson.id.0, p.teacher_id.0, day, pos, conflict.0
-                        )));
+                    if let Some(&conflict) = teacher_occ.get(&(p.teacher_id, day, prev_pos)) {
+                        if conflict != lesson.id {
+                            return Err(Error::Input(format!(
+                                "TravelBufferConflict: lesson={} teacher={} day={} position={} conflicting_lesson={} side=pre",
+                                lesson.id.0, p.teacher_id.0, day, pos, conflict.0
+                            )));
+                        }
                     }
                 }
             }
@@ -915,26 +917,28 @@ pub(crate) fn would_violate_travel_buffer(
     };
 
     if lesson.pre_buffer_minutes > 0 {
-        if pos == 0 {
+        if pos == 0 && problem.pre_first_slot_grace_minutes < lesson.pre_buffer_minutes {
             return true;
         }
-        let prev_pos = pos - 1;
-        let prev_tb = problem
-            .time_blocks
-            .iter()
-            .find(|t| t.day_of_week == day && t.position == prev_pos);
-        let prev_is_break = prev_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
-        if !prev_is_break && !is_self(day, prev_pos) {
-            for class_id in &lesson.school_class_ids {
-                if let Some(positions) = state.class_positions.get(&(*class_id, day)) {
+        if pos > 0 {
+            let prev_pos = pos - 1;
+            let prev_tb = problem
+                .time_blocks
+                .iter()
+                .find(|t| t.day_of_week == day && t.position == prev_pos);
+            let prev_is_break = prev_tb.is_some_and(|t| t.kind == TimeBlockKind::Break);
+            if !prev_is_break && !is_self(day, prev_pos) {
+                for class_id in &lesson.school_class_ids {
+                    if let Some(positions) = state.class_positions.get(&(*class_id, day)) {
+                        if positions.contains(&prev_pos) {
+                            return true;
+                        }
+                    }
+                }
+                if let Some(positions) = state.teacher_positions.get(&(teacher, day)) {
                     if positions.contains(&prev_pos) {
                         return true;
                     }
-                }
-            }
-            if let Some(positions) = state.teacher_positions.get(&(teacher, day)) {
-                if positions.contains(&prev_pos) {
-                    return true;
                 }
             }
         }
@@ -1097,6 +1101,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         }
     }
 
@@ -2037,5 +2042,95 @@ mod tests {
             },
         ];
         validate_class_subject_teacher_uniformity(&p, &placements).unwrap();
+    }
+
+    fn problem_for_buffer_pos0(grace: u8, pre_buffer: u8) -> Problem {
+        let class_id = SchoolClassId(uuid(50));
+        let teacher_id = TeacherId(uuid(51));
+        let subject_id = SubjectId(uuid(52));
+        let room_id = RoomId(uuid(53));
+        let tb_id = TimeBlockId(uuid(54));
+        let lesson_id = LessonId(uuid(55));
+        Problem {
+            time_blocks: vec![TimeBlock {
+                id: tb_id,
+                day_of_week: 0,
+                position: 0,
+                kind: TimeBlockKind::Lesson,
+            }],
+            teachers: vec![Teacher {
+                id: teacher_id,
+                max_hours_per_week: 10,
+                reserve_hours_per_week: 0,
+            }],
+            rooms: vec![Room { id: room_id }],
+            subjects: vec![Subject {
+                id: subject_id,
+                prefer_early_period: 0,
+                avoid_first_period: 0,
+                avoid_last_period: 0,
+                prefer_late_period: 0,
+                max_hours_per_day: 2,
+            }],
+            school_classes: vec![SchoolClass {
+                id: class_id,
+                home_room_id: Some(room_id),
+                max_lessons_per_day: None,
+                class_teacher_id: None,
+            }],
+            lessons: vec![Lesson {
+                id: lesson_id,
+                school_class_ids: vec![class_id],
+                subject_id,
+                teacher_candidates: vec![teacher_id],
+                teacher_pin: Some(teacher_id),
+                hours_per_week: 1,
+                preferred_block_size: 1,
+                lesson_group_id: None,
+                pre_buffer_minutes: pre_buffer,
+                post_buffer_minutes: 0,
+            }],
+            teacher_qualifications: vec![TeacherQualification {
+                teacher_id,
+                subject_id,
+            }],
+            teacher_blocked_times: vec![],
+            room_blocked_times: vec![],
+            room_subject_suitabilities: vec![],
+            pinned_placements: vec![],
+            pre_first_slot_grace_minutes: grace,
+        }
+    }
+
+    fn placement_at_day0_pos0(problem: &Problem) -> Placement {
+        Placement {
+            lesson_id: problem.lessons[0].id,
+            time_block_id: problem.time_blocks[0].id,
+            room_id: problem.rooms[0].id,
+            teacher_id: problem.teachers[0].id,
+        }
+    }
+
+    #[test]
+    fn validate_travel_buffer_first_slot_grace_covers_pre_buffer() {
+        let problem = problem_for_buffer_pos0(15, 15);
+        let placement = placement_at_day0_pos0(&problem);
+        assert!(validate_travel_buffer(&problem, &[placement]).is_ok());
+    }
+
+    #[test]
+    fn validate_travel_buffer_first_slot_grace_too_small_still_rejects() {
+        let problem = problem_for_buffer_pos0(10, 15);
+        let placement = placement_at_day0_pos0(&problem);
+        let err = validate_travel_buffer(&problem, &[placement]).unwrap_err();
+        assert!(format!("{err:?}").contains("reason=first_slot side=pre"));
+    }
+
+    #[test]
+    fn validate_travel_buffer_default_grace_rejects_pos0_as_before() {
+        let problem = problem_for_buffer_pos0(0, 15);
+        let placement = placement_at_day0_pos0(&problem);
+        let err = validate_travel_buffer(&problem, &[placement]).unwrap_err();
+        assert!(format!("{err:?}").contains("reason=first_slot side=pre"));
     }
 }

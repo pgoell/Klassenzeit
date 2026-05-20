@@ -125,6 +125,7 @@ fn pessimal_input_problem() -> Problem {
             subject_id: SubjectId(ffd_uuid(41)),
         }],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

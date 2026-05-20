@@ -244,6 +244,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         serde_json::to_string(&p).unwrap()
     }
@@ -290,6 +291,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         serde_json::to_string(&p).unwrap()
     }
@@ -372,6 +374,7 @@ mod tests {
                 teacher_id: None,
                 kind: PinKind::Hard,
             }],
+            pre_first_slot_grace_minutes: 0,
         };
         let json = serde_json::to_string(&original).unwrap();
         let parsed: Problem = serde_json::from_str(&json).unwrap();
