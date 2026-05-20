@@ -47,3 +47,40 @@ The move scope is n=1 cells only. Doppelstunden (`preferred_block_size > 1`), gr
 - ADR 0043 (precedent for canonical-delta soft-axis weight bumps).
 - ADR 0049 (precedent for the production-budget flake-loop as a ship gate).
 - OPEN_THINGS item 86 closed by this PR.
+
+## Bug fix (2026-05-20 refresh)
+
+The 2026-05-20 production bench refresh (PR #302) surfaced 8 panic cells
+from `try_home_room_repair_move` (validator violations: `room hopping for
+class ...`, `double-booking: class ...`, `double-booking: teacher ...`).
+The kernel decision (route a home-room-repair move through the LAHC inner
+loop, period = 7) stays; the implementation had one bug shape across both
+accept paths.
+
+**Cause.** Paths A and B in `try_home_room_repair_move` rewrite
+`Placement.room_id` but do not update `state.locked_room` for the affected
+`(class, day, subject)` triple. A subsequent cross-day Change move
+(`try_change_move_n1`'s `new_day_lock` path) reads the stale entry and
+places a sibling at the original room on the same day. Now P at home_room
+and the new sibling at old_room split the triple, which
+`validate_no_room_hopping` flags at the post-solve validator pass. The
+double-booking variants surface downstream when the stale placement
+collides with another lesson at the stale room's tb.
+
+**Fix.** Path A accept now rewrites `state.locked_room[(class, day,
+subject)].0` to `home_room` for each member class of P's lesson. Path B
+accept rewrites both P's triple (target `home_room`) and Q's triple
+(target `old_room`). Implementation is a `for cls in
+&lesson.school_class_ids` loop with `get_mut` then `entry.0 = ...` at
+each accept site; no-op when the entry is absent.
+
+Validation: two new unit tests in `solver-core/src/lahc.rs::tests`
+(`try_home_room_repair_move_path_a_updates_locked_room` and
+`try_home_room_repair_move_path_b_updates_locked_room_both_sides`) plus
+the integration regression test
+`solver-core/tests/lahc_home_room_validator.rs` cover the fix; the post-
+fix production bench refresh clears all 8 previously-panicking cells.
+
+Items 88 (P0 active sprint) and 90 (P2 follow-on) close on this fix. See
+`solver/CLAUDE.md` for the new invariant rule (`state.locked_room` write-
+side maintenance on same-day room-rewrite kernels).
