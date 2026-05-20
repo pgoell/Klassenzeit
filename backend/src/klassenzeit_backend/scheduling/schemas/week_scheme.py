@@ -44,6 +44,7 @@ class WeekSchemeCreate(BaseModel):
 
     name: str
     description: str | None = None
+    pre_first_slot_grace_minutes: int = Field(default=0, ge=0, le=60)
 
 
 class WeekSchemeUpdate(BaseModel):
@@ -51,6 +52,7 @@ class WeekSchemeUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
+    pre_first_slot_grace_minutes: int | None = Field(default=None, ge=0, le=60)
 
 
 class WeekSchemeListResponse(BaseModel):
@@ -59,6 +61,7 @@ class WeekSchemeListResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
+    pre_first_slot_grace_minutes: int
     created_at: datetime
     updated_at: datetime
 
@@ -69,6 +72,7 @@ class WeekSchemeDetailResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
+    pre_first_slot_grace_minutes: int
     time_blocks: list[TimeBlockResponse]
     created_at: datetime
     updated_at: datetime

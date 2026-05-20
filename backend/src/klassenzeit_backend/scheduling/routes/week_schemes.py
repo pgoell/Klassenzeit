@@ -92,6 +92,7 @@ async def create_week_scheme_route(
     scheme = WeekScheme(
         name=body.name,
         description=body.description,
+        pre_first_slot_grace_minutes=body.pre_first_slot_grace_minutes,
         school_id=scope_school_id,
     )
     db.add(scheme)
@@ -107,6 +108,7 @@ async def create_week_scheme_route(
         id=scheme.id,
         name=scheme.name,
         description=scheme.description,
+        pre_first_slot_grace_minutes=scheme.pre_first_slot_grace_minutes,
         created_at=scheme.created_at,
         updated_at=scheme.updated_at,
     )
@@ -135,6 +137,7 @@ async def list_week_schemes(
             id=s.id,
             name=s.name,
             description=s.description,
+            pre_first_slot_grace_minutes=s.pre_first_slot_grace_minutes,
             created_at=s.created_at,
             updated_at=s.updated_at,
         )
@@ -183,6 +186,7 @@ async def get_week_scheme_route(
         id=scheme.id,
         name=scheme.name,
         description=scheme.description,
+        pre_first_slot_grace_minutes=scheme.pre_first_slot_grace_minutes,
         time_blocks=time_blocks,
         created_at=scheme.created_at,
         updated_at=scheme.updated_at,
@@ -217,6 +221,8 @@ async def update_week_scheme_route(
         scheme.name = body.name
     if body.description is not None:
         scheme.description = body.description
+    if body.pre_first_slot_grace_minutes is not None:
+        scheme.pre_first_slot_grace_minutes = body.pre_first_slot_grace_minutes
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -229,6 +235,7 @@ async def update_week_scheme_route(
         id=scheme.id,
         name=scheme.name,
         description=scheme.description,
+        pre_first_slot_grace_minutes=scheme.pre_first_slot_grace_minutes,
         created_at=scheme.created_at,
         updated_at=scheme.updated_at,
     )

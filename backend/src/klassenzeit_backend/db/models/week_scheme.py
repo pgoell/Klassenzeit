@@ -39,6 +39,11 @@ class WeekScheme(Base):
     )
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pre_first_slot_grace_minutes: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        server_default="0",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

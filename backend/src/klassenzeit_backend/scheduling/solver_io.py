@@ -33,7 +33,7 @@ from klassenzeit_backend.db.models.teacher import (
     TeacherAvailability,
     TeacherQualification,
 )
-from klassenzeit_backend.db.models.week_scheme import TimeBlock
+from klassenzeit_backend.db.models.week_scheme import TimeBlock, WeekScheme
 from klassenzeit_backend.scheduling.schemas.schedule import (
     ClassScheduleSummary,
     PlacementResponse,
@@ -313,6 +313,10 @@ async def build_problem_json(
             detail="class's week_scheme has no time_blocks configured",
         )
 
+    week_scheme = (
+        await db.execute(select(WeekScheme).where(WeekScheme.id == requested_class.week_scheme_id))
+    ).scalar_one()
+
     lessons = (
         (await db.execute(select(Lesson).where(Lesson.school_id == school_id))).scalars().all()
     )
@@ -554,6 +558,7 @@ async def build_problem_json(
             for s in room_subject_suitabilities
         ],
         "pinned_placements": pinned_placements or [],
+        "pre_first_slot_grace_minutes": week_scheme.pre_first_slot_grace_minutes,
     }
 
     class_lesson_ids: set[UUID]

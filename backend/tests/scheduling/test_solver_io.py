@@ -233,6 +233,7 @@ async def test_build_problem_json_returns_populated_shape(
         "room_blocked_times",
         "room_subject_suitabilities",
         "pinned_placements",
+        "pre_first_slot_grace_minutes",
     }
     assert set(problem.keys()) == expected_keys
 
