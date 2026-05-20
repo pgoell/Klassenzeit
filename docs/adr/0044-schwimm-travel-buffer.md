@@ -42,3 +42,26 @@ Persist three new fields and enforce a discrete one-slot rule in every solver pa
 - ADR 0030 (CP-SAT objective mirror).
 - ADR 0040 (TimeBlock.kind for break slots).
 - OPEN_THINGS item 8 closed by this PR.
+
+## Amendment (2026-05-20)
+
+The "First-slot-of-day grace via pre-school-day buffer" item originally listed
+under "Alternatives considered" and "Consequences > Parking lot" is implemented.
+
+`Problem` gains a scalar `pre_first_slot_grace_minutes: u8` field (additive
+wire format, `#[serde(default)]`). The validator and hot-path predicate
+relax the `pos == 0` rejection for `pre_buffer_minutes > 0` lessons when
+`pre_first_slot_grace_minutes >= lesson.pre_buffer_minutes`. CP-SAT mirrors
+the relaxation per-lesson at model-build time. Default grace=0 preserves
+the original reject-all semantic.
+
+`WeekScheme` gains a matching `pre_first_slot_grace_minutes: SmallInteger`
+column (NOT NULL, server_default=0). Pydantic clamps writes to 0-60. The
+solver_io passthrough reads the column and stamps the field on the wire
+format.
+
+The remaining "Alternatives considered" entries (`Continuous-minute math`,
+`Couple Room.is_external to buffer enforcement`) stay parking-lot. The
+"last-slot of day post-buffer" relaxation is intentionally NOT shipped:
+there is no customer signal, and the physical model (Hort/daycare) differs
+from the pre-school pocket the pre-buffer side addresses.
