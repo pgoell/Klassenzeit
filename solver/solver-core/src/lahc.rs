@@ -4771,6 +4771,21 @@ fn try_home_room_repair_move(
         placements[placement_idx].room_id = home_room;
         state.used_room.remove(&(old_room, tb.id));
         state.used_room.insert((home_room, tb.id));
+        // Same-room invariant maintenance: rewrite locked_room entries
+        // that bound this `(class, day, subject)` triple to old_room so
+        // downstream moves (cross-day Change, future home-room) do not
+        // read a stale value and split the triple at validator time.
+        // No-op when no entry exists (locked_room is Some-only). ADR 0050,
+        // item 88.
+        for cls in &lesson.school_class_ids {
+            if let Some(entry) =
+                state
+                    .locked_room
+                    .get_mut(&(*cls, tb.day_of_week, lesson.subject_id))
+            {
+                entry.0 = home_room;
+            }
+        }
         state.canonical_score = new_canonical;
         return true;
     }
@@ -4844,6 +4859,25 @@ fn try_home_room_repair_move(
     // Apply.
     placements[placement_idx].room_id = home_room;
     placements[q_idx].room_id = old_room;
+    // Same-room invariant maintenance for the post-swap pair. P moves
+    // to home_room; Q moves to old_room. Mirror Path A's sync on both
+    // sides. ADR 0050, item 88.
+    for cls in &lesson.school_class_ids {
+        if let Some(entry) = state
+            .locked_room
+            .get_mut(&(*cls, tb.day_of_week, lesson.subject_id))
+        {
+            entry.0 = home_room;
+        }
+    }
+    for cls in &q_lesson.school_class_ids {
+        if let Some(entry) = state
+            .locked_room
+            .get_mut(&(*cls, tb.day_of_week, q_lesson.subject_id))
+        {
+            entry.0 = old_room;
+        }
+    }
     state.canonical_score = new_canonical;
     true
 }
@@ -10399,6 +10433,178 @@ mod tests {
         );
         assert!(!accepted, "block_size>1 repair must reject");
         assert_eq!(placements, placements_before);
+    }
+
+    #[test]
+    fn try_home_room_repair_move_path_a_updates_locked_room() {
+        // Path A (room-free) accept must rewrite the affected
+        // `(class, day, subject)` entry in `state.locked_room` to point at
+        // the new room (home_room).
+        let (
+            problem,
+            class_a,
+            _class_b,
+            teacher_a,
+            _teacher_b,
+            subject,
+            room_a,
+            room_b,
+            lesson_a,
+            _lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), None);
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let day_of_week: u8 = 0;
+        let mut placements = vec![Placement {
+            lesson_id: lesson_a,
+            time_block_id: tb_d0_p0,
+            room_id: room_b,
+            teacher_id: teacher_a,
+        }];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        state
+            .locked_room
+            .insert((class_a, day_of_week, subject), (room_b, 1));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        state.canonical_score = 5;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let mut room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        room_order.sort_unstable_by_key(|&i| problem.rooms[i].id.0);
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(accepted, "Path A must accept the move");
+        assert_eq!(
+            state.locked_room.get(&(class_a, day_of_week, subject)),
+            Some(&(room_a, 1u32)),
+            "Path A accept must update locked_room to (home_room=room_a, 1); stale lock would split (class, day, subject) on downstream cross-day moves",
+        );
+    }
+
+    #[test]
+    fn try_home_room_repair_move_path_b_updates_locked_room_both_sides() {
+        // Path B (collision-swap) accept must rewrite locked_room entries
+        // for BOTH participants. P moves from room_b -> room_a; Q moves
+        // from room_a -> room_b.
+        let (
+            problem,
+            class_a,
+            class_b,
+            teacher_a,
+            teacher_b,
+            subject,
+            room_a,
+            room_b,
+            lesson_a,
+            lesson_b,
+        ) = home_room_problem(Some(RoomId(lahc_uuid(30))), Some(RoomId(lahc_uuid(31))));
+        let tb_d0_p0 = tb_at(&problem, 0, 0);
+        let day_of_week: u8 = 0;
+        let mut placements = vec![
+            Placement {
+                lesson_id: lesson_a,
+                time_block_id: tb_d0_p0,
+                room_id: room_b,
+                teacher_id: teacher_a,
+            },
+            Placement {
+                lesson_id: lesson_b,
+                time_block_id: tb_d0_p0,
+                room_id: room_a,
+                teacher_id: teacher_b,
+            },
+        ];
+        let mut state = crate::solve::GreedyState::new();
+        state.used_teacher.insert((teacher_a, tb_d0_p0));
+        state.used_teacher.insert((teacher_b, tb_d0_p0));
+        state.used_class.insert((class_a, tb_d0_p0));
+        state.used_class.insert((class_b, tb_d0_p0));
+        state.used_room.insert((room_a, tb_d0_p0));
+        state.used_room.insert((room_b, tb_d0_p0));
+        state
+            .locked_room
+            .insert((class_a, day_of_week, subject), (room_b, 1));
+        state
+            .locked_room
+            .insert((class_b, day_of_week, subject), (room_a, 1));
+        let weights = ConstraintWeights {
+            prefer_home_room: 5,
+            ..ConstraintWeights::default()
+        };
+        state.canonical_score = 10;
+        let idx = crate::index::Indexed::new(&problem);
+        let lesson_lookup: HashMap<LessonId, &Lesson> =
+            problem.lessons.iter().map(|l| (l.id, l)).collect();
+        let tb_lookup: HashMap<TimeBlockId, &TimeBlock> =
+            problem.time_blocks.iter().map(|tb| (tb.id, tb)).collect();
+        let subject_lookup: HashMap<SubjectId, &Subject> =
+            problem.subjects.iter().map(|s| (s.id, s)).collect();
+        let home_room_lookup: HashMap<SchoolClassId, Option<RoomId>> = problem
+            .school_classes
+            .iter()
+            .map(|c| (c.id, c.home_room_id))
+            .collect();
+        let pinned: HashSet<LessonId> = HashSet::new();
+        let lahc_list = permissive_lahc_list();
+        let room_order: Vec<usize> = (0..problem.rooms.len()).collect();
+        let accepted = try_home_room_repair_move(
+            &problem,
+            &idx,
+            0,
+            &lesson_lookup,
+            &tb_lookup,
+            &subject_lookup,
+            &home_room_lookup,
+            &weights,
+            &mut placements,
+            &mut state,
+            &pinned,
+            &lahc_list,
+            0,
+            &room_order,
+        );
+        assert!(accepted, "Path B must accept the swap");
+        assert_eq!(
+            state.locked_room.get(&(class_a, day_of_week, subject)),
+            Some(&(room_a, 1u32)),
+            "P's locked_room must update to home_room (room_a)",
+        );
+        assert_eq!(
+            state.locked_room.get(&(class_b, day_of_week, subject)),
+            Some(&(room_b, 1u32)),
+            "Q's locked_room must update to its post-swap room (room_b)",
+        );
     }
 
     #[test]
