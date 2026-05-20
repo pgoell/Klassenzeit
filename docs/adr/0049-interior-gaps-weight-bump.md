@@ -40,3 +40,24 @@ Validation: a 20-iter flake-loop on `test_grundschule_schedule_meets_quality_bar
 - ADR 0038 (per-backend deadline configuration).
 - ADR 0043 (precedent for single-weight bump in `PRODUCTION_ACTIVE_WEIGHTS`).
 - OPEN_THINGS item 87 closed by this PR.
+
+## Ratification (2026-05-21 review)
+
+The 2026-05-20 production bench refresh (commit `65caf0b` / PR #302) is the first post-bump production data. Verdict: hold `max_per_class_interior_gaps = 25`.
+
+Observed (dreizuegig, pinned, 20 seeds × 60s, median):
+
+- lahc: total_interior_gaps = 4 (was 0)
+- lahc_rr: total_interior_gaps = 3 (was 0)
+- lahc_kempe: total_interior_gaps = 3 (was 0)
+- lahc_rr_kempe: total_interior_gaps = 2 (was 0); still passes predicate at threshold
+
+Observed (dreizuegig, unpinned): (7, 5, 6, 5).
+
+Grundschule (einzuegig) and zweizuegig stay at 0 across all LAHC variants; the einzuegig flake-loop closure (item 87) remains intact at production wall-clock.
+
+Why hold: the customer-facing integration test (`backend/tests/scheduling/test_grundschule_schedule_quality.py::test_grundschule_schedule_meets_quality_bar`) runs on einzuegig; lowering the weight re-opens that flake. The dreizuegig regression is bench-only (no integration test asserts the dreizuegig `interior_gap` predicate). The bench `Quality (pass / 5)` column is informational and does not gate CI.
+
+Reserved escalation: the "Add a directed interior-gap LAHC move" alternative (above) becomes the right next step when a customer-shaped dreizuegig deployment surfaces visible interior-gap complaints, or when a solver-quality sprint scopes the move's blast radius (`.workbench/autopilot.md` rule 8 LAHC-move exception applies on validation, i.e. a production-budget bench refresh of the pinned + unpinned cross-section). OPEN_THINGS item 91 (post-rewrite) holds the re-open trigger language.
+
+Status remains `Accepted`; original decision date (`2026-05-19`) unchanged.
