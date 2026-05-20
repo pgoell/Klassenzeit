@@ -84,6 +84,7 @@ fn make_problem(
         room_blocked_times: vec![],
         room_subject_suitabilities: Vec::<RoomSubjectSuitability>::new(),
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

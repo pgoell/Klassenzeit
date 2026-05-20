@@ -178,6 +178,7 @@ fn asymmetric_problem_and_placements() -> (Problem, Vec<Placement>) {
         room_blocked_times: vec![],
         room_subject_suitabilities: Vec::<RoomSubjectSuitability>::new(),
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
     let placements = vec![
         supscore_placement(900, 1, 100, 10), // teacher 10 at position 0

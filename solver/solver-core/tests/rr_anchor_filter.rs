@@ -104,6 +104,7 @@ fn build_anchor_filter_fixture() -> Problem {
         room_blocked_times,
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -275,6 +276,7 @@ fn build_many_anchors_fixture() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

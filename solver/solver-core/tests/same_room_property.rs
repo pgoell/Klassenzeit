@@ -129,6 +129,7 @@ fn forced_hop_problem() -> Problem {
         }],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -265,6 +266,7 @@ fn same_room_grundschule() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

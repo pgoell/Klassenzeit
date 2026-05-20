@@ -109,6 +109,7 @@ fn solve_produces_supervision_assignments_for_break_blocks() {
         room_blocked_times: vec![],
         room_subject_suitabilities: Vec::<RoomSubjectSuitability>::new(),
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
 
     // Greedy-only (no LAHC); the FFD pass is enough to place the single

@@ -95,6 +95,7 @@ fn ffd_never_places_a_lesson_on_a_break_time_block() {
         room_blocked_times: vec![],
         room_subject_suitabilities: Vec::<RoomSubjectSuitability>::new(),
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     };
 
     let config = SolveConfig {

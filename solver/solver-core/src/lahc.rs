@@ -5435,6 +5435,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -5577,6 +5578,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -5795,6 +5797,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
 
@@ -5896,6 +5899,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
         let used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -5940,6 +5944,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -5981,6 +5986,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let idx = crate::index::Indexed::new(&problem);
         let mut used: HashSet<(RoomId, TimeBlockId)> = HashSet::new();
@@ -6105,6 +6111,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let cfg = SolveConfig {
@@ -6295,6 +6302,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         (problem, lesson_ids, tb_ids, room)
     }
@@ -6788,6 +6796,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let placements = vec![
@@ -6949,6 +6958,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let lesson_lookup: HashMap<LessonId, &Lesson> =
             problem.lessons.iter().map(|l| (l.id, l)).collect();
@@ -7121,6 +7131,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let mut placements = vec![
             Placement {
@@ -7431,6 +7442,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         // L0 at (D=0, P=0, room_a) and L1 at (D=1, P=0, room_b) form the
         // chain. lesson_lock_d1 at (D=1, P=0, room_a) and lesson_lock_d0 at
@@ -7697,6 +7709,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let placements = vec![Placement {
             lesson_id: lesson,
@@ -7871,6 +7884,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
 
         let placements = vec![
@@ -8048,6 +8062,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         }
     }
 
@@ -8288,6 +8303,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let tb_d0_p0 = time_blocks[0].id;
         let tb_d0_p1 = time_blocks[1].id;
@@ -8427,6 +8443,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let tb_d0_p0 = time_blocks[0].id;
         let tb_d0_p1 = time_blocks[1].id;
@@ -9808,6 +9825,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         (
             problem, class_a, class_b, teacher_a, teacher_b, subject, room_a, room_b, lesson_a,

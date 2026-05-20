@@ -94,6 +94,7 @@ prop_compose! {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         }
     }
 }
@@ -172,6 +173,7 @@ proptest! {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let placements = [Placement { lesson_id, time_block_id: tb_id, room_id, teacher_id }];
         let weights = ConstraintWeights {
@@ -225,6 +227,7 @@ proptest! {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let placements = [Placement { lesson_id, time_block_id: tb_id, room_id, teacher_id }];
         let weights = ConstraintWeights {
@@ -302,6 +305,7 @@ fn build_class_day_balance_problem() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

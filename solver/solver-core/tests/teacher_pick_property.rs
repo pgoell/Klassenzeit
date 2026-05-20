@@ -87,6 +87,7 @@ fn pinned_problem_with_n_candidates(num_candidates: u8, pin_idx: u8) -> Problem 
         room_blocked_times: vec![],
         room_subject_suitabilities: vec![],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

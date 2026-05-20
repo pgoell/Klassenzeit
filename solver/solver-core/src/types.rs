@@ -228,6 +228,14 @@ pub struct Problem {
     /// deserialise to an empty Vec.
     #[serde(default)]
     pub pinned_placements: Vec<PinnedPlacement>,
+    /// Minutes of pre-school grace at the school. When non-zero, any
+    /// [`Lesson`] with `pre_buffer_minutes <= pre_first_slot_grace_minutes`
+    /// may be placed at day-position 0; the implicit pre-school window
+    /// covers the lesson's required Wegezeit. Default 0 reproduces the
+    /// historic reject-all semantic. Wire format is additive: callers
+    /// omitting the field deserialise to 0. ADR 0044.
+    #[serde(default)]
+    pub pre_first_slot_grace_minutes: u8,
 }
 
 /// Discriminator for [`PinnedPlacement`]. Hard pins seed FFD and block
@@ -754,6 +762,7 @@ mod tests {
             room_blocked_times: vec![],
             room_subject_suitabilities: vec![],
             pinned_placements: vec![],
+            pre_first_slot_grace_minutes: 0,
         };
         let json = serde_json::to_string(&original).unwrap();
         let parsed: Problem = serde_json::from_str(&json).unwrap();

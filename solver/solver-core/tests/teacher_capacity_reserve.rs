@@ -126,6 +126,7 @@ fn capacity_probe_problem(max: u8, reserve: u8) -> Problem {
             subject_id: SubjectId(reserve_uuid(40)),
         }],
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 

@@ -136,6 +136,7 @@ pub fn grundschule_fixture() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -314,6 +315,7 @@ pub fn zweizuegig_fixture() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -646,6 +648,7 @@ pub fn dreizuegig_fixture() -> Problem {
         room_blocked_times: vec![],
         room_subject_suitabilities: suits,
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
 
@@ -1255,5 +1258,6 @@ pub fn ffd_lock_in_grundschule() -> Problem {
         room_blocked_times: blocked_room_blocks,
         room_subject_suitabilities,
         pinned_placements: vec![],
+        pre_first_slot_grace_minutes: 0,
     }
 }
