@@ -17,7 +17,7 @@ jobs:
     name: Lint + test + build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       - name: Regenerate OpenAPI types
         run: mise run fe:types
@@ -66,7 +66,7 @@ jobs:
       KZ_ENV: test
       KZ_DATABASE_URL: postgresql+psycopg://klassenzeit:klassenzeit@localhost:5433/klassenzeit_test
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       - name: Install frontend deps
         run: mise exec -- pnpm -C frontend install --frozen-lockfile
