@@ -5,7 +5,7 @@ Applies to the `solver/` Cargo workspace. On top of `.claude/CLAUDE.md`.
 ## Workspace layout
 
 - **`solver-core`**: pure Rust library (algorithm, constraint model, typed errors; no PyO3, no Python, no I/O).
-- **`solver-py`**: `cdylib` crate wrapping `solver-core` via PyO3 (`0.28`); maturin builds it into the `klassenzeit_solver` Python package. Thin wrappers only.
+- **`solver-py`**: `cdylib` crate wrapping `solver-core` via PyO3 (`0.29`); maturin builds it into the `klassenzeit_solver` Python package. Thin wrappers only.
 - **`solver-bench`**: Rust binary running the feasibility bake-off. Imports `solver_core::test_fixtures` (default-on `fixtures` feature). Manual CLI, no external runtime deps. ADR 0029.
 - **Root** `Cargo.toml` declares `edition = "2021"`, `rust-version = "1.85"`, `resolver = "2"`, shared dev-dep `proptest = "1"`; root `pyproject.toml` is a uv workspace; backend pulls `klassenzeit-solver = { workspace = true }`. Hand-maintained `.pyi` stubs in `solver/solver-py/python/klassenzeit_solver/*.pyi` ship in the same commit as a Rust binding change.
 
