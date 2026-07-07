@@ -20,14 +20,14 @@ The scheduled GitHub repo settings drift-check ([`.github/workflows/audit.yml`](
 
 ## What happened
 
-`bash scripts/apply-github-settings.sh --check` returned exit code 5: the live branch-protection settings on `master` no longer match `docs/superpowers/branch-protection.json`. The job's "Check repo settings drift" step prints a unified diff between the two normalized documents.
+`bash scripts/apply-github-settings.sh --check` returned exit code 5: the live branch-protection settings on `master` no longer match `.github/branch-protection.json`. The job's "Check repo settings drift" step prints a unified diff between the two normalized documents.
 
 ## What to do
 
 1. Open the run log linked above and scroll to the `Check repo settings drift` step. The unified diff identifies which fields changed.
 2. Decide which side is the source of truth:
    - **The JSON is right** (someone toggled a setting in the GitHub UI by mistake): run `mise run repo:apply-settings` locally to push the JSON back to GitHub.
-   - **The live setting is right** (the JSON is stale, e.g. a workflow rename made a required-check name obsolete): edit `docs/superpowers/branch-protection.json` to match the live setting, push the change, and merge.
+   - **The live setting is right** (the JSON is stale, e.g. a workflow rename made a required-check name obsolete): edit `.github/branch-protection.json` to match the live setting, push the change, and merge.
 3. Re-trigger this workflow with `gh workflow run audit.yml`. If the re-run is green, close this issue.
 
 ## History

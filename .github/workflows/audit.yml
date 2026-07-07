@@ -77,13 +77,25 @@ jobs:
     permissions:
       contents: read
       issues: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-mise
+      # Reading branch protection requires the "Administration" (read) repository
+      # permission. The Actions GITHUB_TOKEN cannot be granted that scope (it is
+      # not one of the workflow `permissions:` keys), so this check needs a
+      # separate token: a fine-grained PAT with Administration:read + Contents:read,
+      # or a classic PAT with the `repo` scope, stored as the REPO_ADMIN_TOKEN
+      # secret. When the secret is absent the check skips (green) with a notice
+      # rather than failing with a 403.
       - name: Check repo settings drift
-        run: bash scripts/apply-github-settings.sh --check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::notice title=drift-check skipped::REPO_ADMIN_TOKEN is not configured, so the branch-protection drift-check was skipped. Reading branch protection needs an Administration:read token, which the default GITHUB_TOKEN cannot hold. Add a fine-grained PAT (Administration:read + Contents:read) or a classic PAT (repo scope) as the REPO_ADMIN_TOKEN secret to enable it."
+            exit 0
+          fi
+          bash scripts/apply-github-settings.sh --check
 
       - name: Open or reuse tracking issue
         id: tracking-issue

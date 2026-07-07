@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Apply GitHub repo + branch-protection settings from .github/*.json.
+#
+# Reading branch protection (used by --check and the post-apply verify) requires
+# a token with the "Administration" (read) permission. A local `gh auth login`
+# with the `repo` scope has it; the Actions GITHUB_TOKEN does not, so the
+# drift-check job in .github/workflows/audit.yml supplies a REPO_ADMIN_TOKEN.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
