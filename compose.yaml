@@ -13,8 +13,13 @@ services:
     # klassenzeit-postgres-dev staging container on 5432. The
     # container-internal port stays 5432 so pg_isready and connection
     # strings inside the container are unaffected.
+    #
+    # Bound to 127.0.0.1 on purpose. A bare "5433:5432" publishes on all
+    # interfaces, and podman's rootlessport does it without ufw ever seeing
+    # it, so this dev database was reachable from the internet with the
+    # throwaway credentials above.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/db-init.sh:/docker-entrypoint-initdb.d/10-create-test-db.sh:ro
