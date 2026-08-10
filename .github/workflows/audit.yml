@@ -40,7 +40,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       - name: Run mise audit pipeline
         run: mise run audit
@@ -78,7 +78,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       # Reading branch protection requires the "Administration" (read) repository
       # permission. The Actions GITHUB_TOKEN cannot be granted that scope (it is

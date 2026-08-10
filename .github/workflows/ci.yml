@@ -17,7 +17,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       - name: Run mise lint pipeline
         run: mise run lint
@@ -44,7 +44,7 @@ jobs:
           --health-timeout 2s
           --health-retries 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mise
       - name: Run Rust tests
         run: mise run test:rust
